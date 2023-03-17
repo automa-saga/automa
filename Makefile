@@ -4,10 +4,10 @@ mocks:
 	mockgen -source=automa.go -self_package github.com/leninmehedy/automa -package automa > mocks.go
 
 .PHONY: build
-build: mocks test
+build: test
 
 .PHONY: test
-test:
+test: mocks
 	go clean -testcache
 	go test -failfast -race -covermode=atomic -coverprofile coverage.out ./...
 

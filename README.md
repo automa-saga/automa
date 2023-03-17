@@ -19,6 +19,11 @@ Automa allows generating execution report of every step. Deverlopers needs to po
 and `Rollback` method as shown in the example. Report data model can be found in the 
 file [reports.go](https://github.com/leninmehedy/automa/blob/master/reports.go).
 
+## Development
+
+ - `make build` or `make test` generates mocks and runs the tests. 
+ - In order to build example and mocks, do `cd examples && go build`. Then the example can be then run using `./examples/example`.
+
 ## Contribution
 This is the very early stage of development. So any feedback, comment and contributions are very much welcome. 
 Developers are encouraged to adopt the usual open source development practices with a PR and sign-off as well as 

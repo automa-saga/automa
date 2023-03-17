@@ -20,13 +20,14 @@ type Step2 struct {
 	logger *zap.Logger
 }
 
-type SkippedStep struct {
+// Step3 is an example where Run or Rollback can be skipped based on conditions if required
+type Step3 struct {
 	automa.Step
 	cache  map[string][]byte
 	logger *zap.Logger
 }
 
-type Step3 struct {
+type Step4 struct {
 	automa.Step
 	cache  map[string][]byte
 	logger *zap.Logger
@@ -58,19 +59,19 @@ func (s *Step2) Rollback(ctx context.Context, prevFailure *automa.Failure) (auto
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func (s *SkippedStep) Run(ctx context.Context, prevSuccess *automa.Success) (automa.Reports, error) {
+func (s *Step3) Run(ctx context.Context, prevSuccess *automa.Success) (automa.Reports, error) {
 	s.logger.Sugar().Debugf("RUN SKIPPED - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK SKIPPED - %q", s.ID))
 	return s.SkippedRun(ctx, prevSuccess, nil)
 }
 
-func (s *SkippedStep) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.Reports, error) {
+func (s *Step3) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.Reports, error) {
 	report := automa.StartReport(s.ID)
 	s.logger.Sugar().Debug(string(s.cache["rollbackMsg"]))
 	return s.SkippedRollback(ctx, prevFailure, report)
 }
 
-func (s *Step3) Run(ctx context.Context, prevSuccess *automa.Success) (automa.Reports, error) {
+func (s *Step4) Run(ctx context.Context, prevSuccess *automa.Success) (automa.Reports, error) {
 	report := automa.StartReport(s.ID)
 
 	s.logger.Sugar().Debugf("RUN - %q", s.ID)
@@ -86,7 +87,7 @@ func (s *Step3) Run(ctx context.Context, prevSuccess *automa.Success) (automa.Re
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *Step3) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.Reports, error) {
+func (s *Step4) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.Reports, error) {
 	report := automa.StartReport(s.ID)
 	s.logger.Sugar().Debug(string(s.cache["rollbackMsg"]))
 	return s.RollbackPrev(ctx, prevFailure, report)
@@ -102,7 +103,7 @@ func main() {
 	}
 	defer logger.Sync()
 
-	first := &Step1{
+	step1 := &Step1{
 		Step:   automa.Step{ID: "Step1"},
 		cache:  map[string][]byte{},
 		logger: logger,
@@ -114,19 +115,19 @@ func main() {
 		logger: logger,
 	}
 
-	skippedState := &SkippedStep{
-		Step:   automa.Step{ID: "Step3"},
+	step3 := &Step3{
+		Step:   automa.Step{ID: "Invalid Step"},
 		cache:  map[string][]byte{},
 		logger: logger,
 	}
 
-	last := &Step3{
+	step4 := &Step4{
 		Step:   automa.Step{ID: "Step4"},
 		cache:  map[string][]byte{},
 		logger: logger,
 	}
 
-	workflow := automa.NewWorkflow(automa.WithSteps(first, step2, skippedState, last), automa.WithLogger(logger))
+	workflow := automa.NewWorkflow(automa.WithSteps(step1, step2, step3, step4), automa.WithLogger(logger))
 	defer workflow.End(ctx)
 
 	reports, _ := workflow.Start(ctx) // ignore the error since it is an example with forced error
