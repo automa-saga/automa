@@ -267,43 +267,43 @@ func (mr *MockRollbackableStepMockRecorder) SetPrev(prev interface{}) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPrev", reflect.TypeOf((*MockRollbackableStep)(nil).SetPrev), prev)
 }
 
-// MockFsmController is a mock of WorkflowEngine interface.
-type MockFsmController struct {
+// MockWorkflowEngine is a mock of WorkflowEngine interface.
+type MockWorkflowEngine struct {
 	ctrl     *gomock.Controller
-	recorder *MockFsmControllerMockRecorder
+	recorder *MockWorkflowEngineMockRecorder
 }
 
-// MockFsmControllerMockRecorder is the mock recorder for MockFsmController.
-type MockFsmControllerMockRecorder struct {
-	mock *MockFsmController
+// MockWorkflowEngineMockRecorder is the mock recorder for MockWorkflowEngine.
+type MockWorkflowEngineMockRecorder struct {
+	mock *MockWorkflowEngine
 }
 
-// NewMockFsmController creates a new mock instance.
-func NewMockFsmController(ctrl *gomock.Controller) *MockFsmController {
-	mock := &MockFsmController{ctrl: ctrl}
-	mock.recorder = &MockFsmControllerMockRecorder{mock}
+// NewMockWorkflowEngine creates a new mock instance.
+func NewMockWorkflowEngine(ctrl *gomock.Controller) *MockWorkflowEngine {
+	mock := &MockWorkflowEngine{ctrl: ctrl}
+	mock.recorder = &MockWorkflowEngineMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockFsmController) EXPECT() *MockFsmControllerMockRecorder {
+func (m *MockWorkflowEngine) EXPECT() *MockWorkflowEngineMockRecorder {
 	return m.recorder
 }
 
 // End mocks base method.
-func (m *MockFsmController) End(ctx context.Context, logReports bool) {
+func (m *MockWorkflowEngine) End(ctx context.Context) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "End", ctx, logReports)
+	m.ctrl.Call(m, "End", ctx)
 }
 
 // End indicates an expected call of End.
-func (mr *MockFsmControllerMockRecorder) End(ctx, logReports interface{}) *gomock.Call {
+func (mr *MockWorkflowEngineMockRecorder) End(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "End", reflect.TypeOf((*MockFsmController)(nil).End), ctx, logReports)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "End", reflect.TypeOf((*MockWorkflowEngine)(nil).End), ctx)
 }
 
 // Start mocks base method.
-func (m *MockFsmController) Start(ctx context.Context) (Reports, error) {
+func (m *MockWorkflowEngine) Start(ctx context.Context) (Reports, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Start", ctx)
 	ret0, _ := ret[0].(Reports)
@@ -312,7 +312,7 @@ func (m *MockFsmController) Start(ctx context.Context) (Reports, error) {
 }
 
 // Start indicates an expected call of Start.
-func (mr *MockFsmControllerMockRecorder) Start(ctx interface{}) *gomock.Call {
+func (mr *MockWorkflowEngineMockRecorder) Start(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockFsmController)(nil).Start), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockWorkflowEngine)(nil).Start), ctx)
 }
