@@ -15,7 +15,7 @@ See an [example](https://github.com/leninmehedy/automa/blob/master/example/main.
 in the example, each step can have its own internal cache to help implementing the rollback mechanism.
 
 ## Execution Report
-Automa allows generating execution report of every step. Deverlopers needs to populate a Report object in every `Run` 
+Automa allows generating execution report of every step. Developers need to populate a Report object in every `Run` 
 and `Rollback` method as shown in the example. Report data model can be found in the 
 file [reports.go](https://github.com/leninmehedy/automa/blob/master/reports.go).
 
