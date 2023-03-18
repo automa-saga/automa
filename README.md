@@ -1,14 +1,15 @@
 # Automa
 
-Automa is a simple of Workflow Engine to automate a sequential business process. The name `automa` is derived from the 
-word `automate`.
+Automa is a Saga Workflow Engine to automate a sequential business process with transactional attribute. It implements 
+the choreography pattern. The name `automa` is derived from the word `automate`.
 
 All steps are run sequentially in the Workflow. 
-If a step causes an error, it rolls back from that step and backward to the fist step similar to a Saga workflow. This 
-therefore can be used to implement atomic transaction like behaviour in business workflow.
 
-Apart from the stepping engine, it also supports generating a report of the execution. A report data model can be found 
-in `reports.go`
+If a step causes an error, it rolls back from that step and executes backward to the fist step. Therefore, it can be used 
+to implement atomic transaction like behaviour for business workflows.
+
+Apart from Saga workflow pattern, it also supports generating a report of the execution for every steps in the workflow. 
+A report data model can be found in file [reports.go](https://github.com/leninmehedy/automa/blob/master/reports.go).
 
 ## Usage
 See an [example](https://github.com/leninmehedy/automa/blob/master/example/main.go) in the example directory. As shown 

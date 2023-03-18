@@ -6,21 +6,47 @@ import (
 	"sync"
 )
 
-// Workflow defines the structure of a Workflow
+// Workflow implements AtomicWorkflow interface
+// It implements a Saga workflow using Choreography execution pattern
+//
+// In order to enable Choreography pattern it forms a double linked list of AtomicSteps to traverse 'Forward'
+// on Success and 'Backward' on Failure
 type Workflow struct {
-	mutex       sync.Mutex
+	mutex sync.Mutex
+
 	successStep *successStep
 	failedStep  *failedStep
-	firstStep   RollbackableStep
-	lastStep    RollbackableStep
-	reports     Reports
-	logger      *zap.Logger
+
+	// terminal steps
+	firstStep AtomicStep
+	lastStep  AtomicStep
+
+	// local cache for accumulating reports from all internal states
+	// this is passed along to accumulate reports from all internal states
+	reports Reports
+
+	logger *zap.Logger
 }
 
-type Option func(wf *Workflow)
+// addStep add an AtomicStep in the internal double linked list of steps
+func (wf *Workflow) addStep(s AtomicStep) {
+	if wf.firstStep == nil {
+		wf.firstStep = s
+		wf.firstStep.SetPrev(wf.failedStep)
+	} else {
+		wf.lastStep.SetNext(s)
+		s.SetPrev(wf.lastStep)
+	}
+
+	wf.lastStep = s
+	wf.lastStep.SetNext(wf.successStep)
+}
+
+// WorkflowOption exposes "constructor with option" pattern for Workflow
+type WorkflowOption func(wf *Workflow)
 
 // WithSteps allow Workflow to be initialized with the list of ordered steps
-func WithSteps(steps ...RollbackableStep) Option {
+func WithSteps(steps ...AtomicStep) WorkflowOption {
 	return func(wf *Workflow) {
 		for _, step := range steps {
 			wf.addStep(step)
@@ -30,14 +56,14 @@ func WithSteps(steps ...RollbackableStep) Option {
 
 // WithLogger allows Workflow to be initialized with a logger
 // By default a Workflow is initialized with a NoOp logger
-func WithLogger(logger *zap.Logger) Option {
+func WithLogger(logger *zap.Logger) WorkflowOption {
 	return func(wf *Workflow) {
 		wf.logger = logger
 	}
 }
 
-// NewWorkflow returns an instance of WorkFlow that implements WorkflowEngine interface
-func NewWorkflow(opts ...Option) *Workflow {
+// NewWorkflow returns an instance of WorkFlow that implements AtomicWorkflow interface
+func NewWorkflow(opts ...WorkflowOption) *Workflow {
 	fs := &failedStep{}
 	ss := &successStep{}
 
@@ -55,6 +81,7 @@ func NewWorkflow(opts ...Option) *Workflow {
 	return wf
 }
 
+// Start starts the workflow and returns the Reports
 func (wf *Workflow) Start(ctx context.Context) (Reports, error) {
 	wf.mutex.Lock()
 	defer wf.mutex.Unlock()
@@ -69,20 +96,7 @@ func (wf *Workflow) Start(ctx context.Context) (Reports, error) {
 	return wf.reports, nil
 }
 
+// End performs any cleanup after the Workflow execution
+// This is a NOOP currently, but left as  placeholder for any future cleanup steps if required
 func (wf *Workflow) End(ctx context.Context) {
-	// placeholder for any future cleanup
-}
-
-// addStep add a step in the internal double linked list of steps
-func (wf *Workflow) addStep(s RollbackableStep) {
-	if wf.firstStep == nil {
-		wf.firstStep = s
-		wf.firstStep.SetPrev(wf.failedStep)
-	} else {
-		wf.lastStep.SetNext(s)
-		s.SetPrev(wf.lastStep)
-	}
-
-	wf.lastStep = s
-	wf.lastStep.SetNext(wf.successStep)
 }

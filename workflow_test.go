@@ -5,75 +5,77 @@ import (
 	"fmt"
 	"github.com/cockroachdb/errors"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
 	"testing"
 )
 
-type Step1 struct {
+type StopContainers struct {
 	Step
 	cache map[string][]byte
 }
 
-type Step2 struct {
+type FetchLatest struct {
 	Step
 	cache map[string][]byte
 }
 
-type StepSkipped struct {
+// it cannot be rollback
+type NotifyStep struct {
 	Step
 	cache map[string][]byte
 }
 
-type Step3 struct {
+type RestartContainers struct {
 	Step
 	cache map[string][]byte
 }
 
-func (s *Step1) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
-	report := StartReport(s.ID)
+func (s *StopContainers) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
+	report := NewReport(s.ID)
 	fmt.Println(fmt.Sprintf("RUN - %q", s.ID))
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *Step1) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
-	report := StartReport(s.ID)
+func (s *StopContainers) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
+	report := NewReport(s.ID)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func (s *Step2) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
+func (s *FetchLatest) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
 	fmt.Println(fmt.Sprintf("RUN - %q", s.ID))
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 
 	return s.RunNext(ctx, prevSuccess, nil)
 }
 
-func (s *Step2) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
-	report := StartReport(s.ID)
+func (s *FetchLatest) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
+	report := NewReport(s.ID)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func (s *StepSkipped) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
+func (s *NotifyStep) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
 	fmt.Println(fmt.Sprintf("SKIP RUN- %q", s.ID))
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("SKIP ROLLBACK - %q", s.ID))
 	return s.SkippedRun(ctx, prevSuccess, nil)
 }
 
-func (s *StepSkipped) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
-	report := StartReport(s.ID)
+func (s *NotifyStep) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
+	report := NewReport(s.ID)
 	fmt.Println(string(s.cache["rollbackMsg"]))
-	return s.SkippedRollback(ctx, prevFailure, report)
+	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func (s *Step3) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
-	report := StartReport(s.ID)
+func (s *RestartContainers) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
+	report := NewReport(s.ID)
 
 	fmt.Println(fmt.Sprintf("RUN - %q", s.ID))
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 
 	// trigger rollback on error
-	err := errors.New("error running state 3")
+	err := errors.New("error running step 3")
 	report.Error = errors.EncodeError(ctx, err)
 	if err != nil {
 		return s.Rollback(ctx, NewRollbackTrigger(prevSuccess, err, report))
@@ -82,8 +84,8 @@ func (s *Step3) Run(ctx context.Context, prevSuccess *Success) (Reports, error) 
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *Step3) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
-	report := StartReport(s.ID)
+func (s *RestartContainers) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
+	report := NewReport(s.ID)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
@@ -92,31 +94,60 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	state1 := &Step1{
-		Step:  Step{ID: "Step1"},
+	stop := &StopContainers{
+		Step:  Step{ID: "Stop containers"},
 		cache: map[string][]byte{},
 	}
 
-	state2 := &Step2{
-		Step:  Step{ID: "Step2"},
+	fetch := &FetchLatest{
+		Step:  Step{ID: "Fetch latest images"},
 		cache: map[string][]byte{},
 	}
 
-	skippedState :=
-		&StepSkipped{
-			Step:  Step{ID: "SkippedStep"},
+	notify :=
+		&NotifyStep{
+			Step:  Step{ID: "Notify on Slack"},
 			cache: map[string][]byte{},
 		}
 
-	state3 := &Step3{
-		Step:  Step{ID: "Step3"},
+	restart := &RestartContainers{
+		Step:  Step{ID: "Restart containers"},
 		cache: map[string][]byte{},
 	}
 
-	fsm := NewWorkflow(WithSteps(state1, state2, skippedState, state3))
-	defer fsm.End(ctx)
+	registry := NewStepRegistry(zap.NewNop()).RegisterSteps(map[string]AtomicStep{
+		stop.ID:    stop,
+		fetch.ID:   fetch,
+		notify.ID:  notify,
+		restart.ID: restart,
+	})
 
-	reports, err := fsm.Start(ctx)
+	// a new workflow with notify in the middle
+	workflow := registry.BuildWorkflow([]string{
+		stop.ID,
+		fetch.ID,
+		notify.ID,
+		restart.ID,
+	})
+	defer workflow.End(ctx)
+
+	reports, err := workflow.Start(ctx)
 	assert.Error(t, err)
-	assert.NotNil(t, reports[state3.ID].Error)
+	assert.NotNil(t, reports)
+	assert.Equal(t, 4, len(reports)) // it will reach all steps and rollback
+
+	// a new workflow with notify at the end
+	workflow2 := registry.BuildWorkflow([]string{
+		stop.ID,
+		fetch.ID,
+		restart.ID,
+		notify.ID,
+	})
+	defer workflow2.End(ctx)
+
+	reports2, err := workflow2.Start(ctx)
+	assert.Error(t, err)
+	assert.NotNil(t, reports)
+	assert.Equal(t, 3, len(reports2)) // it will not reach notify step
+	assert.NotNil(t, reports2[restart.ID].Error)
 }

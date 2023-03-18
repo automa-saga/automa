@@ -87,31 +87,31 @@ func (mr *MockBackwardMockRecorder) Rollback(ctx, prevFailure interface{}) *gomo
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockBackward)(nil).Rollback), ctx, prevFailure)
 }
 
-// MockNextPrevStep is a mock of NextPrevStep interface.
-type MockNextPrevStep struct {
+// MockChoreographer is a mock of Choreographer interface.
+type MockChoreographer struct {
 	ctrl     *gomock.Controller
-	recorder *MockNextPrevStepMockRecorder
+	recorder *MockChoreographerMockRecorder
 }
 
-// MockNextPrevStepMockRecorder is the mock recorder for MockNextPrevStep.
-type MockNextPrevStepMockRecorder struct {
-	mock *MockNextPrevStep
+// MockChoreographerMockRecorder is the mock recorder for MockChoreographer.
+type MockChoreographerMockRecorder struct {
+	mock *MockChoreographer
 }
 
-// NewMockNextPrevStep creates a new mock instance.
-func NewMockNextPrevStep(ctrl *gomock.Controller) *MockNextPrevStep {
-	mock := &MockNextPrevStep{ctrl: ctrl}
-	mock.recorder = &MockNextPrevStepMockRecorder{mock}
+// NewMockChoreographer creates a new mock instance.
+func NewMockChoreographer(ctrl *gomock.Controller) *MockChoreographer {
+	mock := &MockChoreographer{ctrl: ctrl}
+	mock.recorder = &MockChoreographerMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockNextPrevStep) EXPECT() *MockNextPrevStepMockRecorder {
+func (m *MockChoreographer) EXPECT() *MockChoreographerMockRecorder {
 	return m.recorder
 }
 
 // GetNext mocks base method.
-func (m *MockNextPrevStep) GetNext() Forward {
+func (m *MockChoreographer) GetNext() Forward {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNext")
 	ret0, _ := ret[0].(Forward)
@@ -119,13 +119,13 @@ func (m *MockNextPrevStep) GetNext() Forward {
 }
 
 // GetNext indicates an expected call of GetNext.
-func (mr *MockNextPrevStepMockRecorder) GetNext() *gomock.Call {
+func (mr *MockChoreographerMockRecorder) GetNext() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNext", reflect.TypeOf((*MockNextPrevStep)(nil).GetNext))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNext", reflect.TypeOf((*MockChoreographer)(nil).GetNext))
 }
 
 // GetPrev mocks base method.
-func (m *MockNextPrevStep) GetPrev() Backward {
+func (m *MockChoreographer) GetPrev() Backward {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPrev")
 	ret0, _ := ret[0].(Backward)
@@ -133,60 +133,60 @@ func (m *MockNextPrevStep) GetPrev() Backward {
 }
 
 // GetPrev indicates an expected call of GetPrev.
-func (mr *MockNextPrevStepMockRecorder) GetPrev() *gomock.Call {
+func (mr *MockChoreographerMockRecorder) GetPrev() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPrev", reflect.TypeOf((*MockNextPrevStep)(nil).GetPrev))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPrev", reflect.TypeOf((*MockChoreographer)(nil).GetPrev))
 }
 
 // SetNext mocks base method.
-func (m *MockNextPrevStep) SetNext(next Forward) {
+func (m *MockChoreographer) SetNext(next Forward) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetNext", next)
 }
 
 // SetNext indicates an expected call of SetNext.
-func (mr *MockNextPrevStepMockRecorder) SetNext(next interface{}) *gomock.Call {
+func (mr *MockChoreographerMockRecorder) SetNext(next interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNext", reflect.TypeOf((*MockNextPrevStep)(nil).SetNext), next)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNext", reflect.TypeOf((*MockChoreographer)(nil).SetNext), next)
 }
 
 // SetPrev mocks base method.
-func (m *MockNextPrevStep) SetPrev(prev Backward) {
+func (m *MockChoreographer) SetPrev(prev Backward) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetPrev", prev)
 }
 
 // SetPrev indicates an expected call of SetPrev.
-func (mr *MockNextPrevStepMockRecorder) SetPrev(prev interface{}) *gomock.Call {
+func (mr *MockChoreographerMockRecorder) SetPrev(prev interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPrev", reflect.TypeOf((*MockNextPrevStep)(nil).SetPrev), prev)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPrev", reflect.TypeOf((*MockChoreographer)(nil).SetPrev), prev)
 }
 
-// MockRollbackableStep is a mock of RollbackableStep interface.
-type MockRollbackableStep struct {
+// MockAtomicStep is a mock of AtomicStep interface.
+type MockAtomicStep struct {
 	ctrl     *gomock.Controller
-	recorder *MockRollbackableStepMockRecorder
+	recorder *MockAtomicStepMockRecorder
 }
 
-// MockRollbackableStepMockRecorder is the mock recorder for MockRollbackableStep.
-type MockRollbackableStepMockRecorder struct {
-	mock *MockRollbackableStep
+// MockAtomicStepMockRecorder is the mock recorder for MockAtomicStep.
+type MockAtomicStepMockRecorder struct {
+	mock *MockAtomicStep
 }
 
-// NewMockRollbackableStep creates a new mock instance.
-func NewMockRollbackableStep(ctrl *gomock.Controller) *MockRollbackableStep {
-	mock := &MockRollbackableStep{ctrl: ctrl}
-	mock.recorder = &MockRollbackableStepMockRecorder{mock}
+// NewMockAtomicStep creates a new mock instance.
+func NewMockAtomicStep(ctrl *gomock.Controller) *MockAtomicStep {
+	mock := &MockAtomicStep{ctrl: ctrl}
+	mock.recorder = &MockAtomicStepMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockRollbackableStep) EXPECT() *MockRollbackableStepMockRecorder {
+func (m *MockAtomicStep) EXPECT() *MockAtomicStepMockRecorder {
 	return m.recorder
 }
 
 // GetNext mocks base method.
-func (m *MockRollbackableStep) GetNext() Forward {
+func (m *MockAtomicStep) GetNext() Forward {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNext")
 	ret0, _ := ret[0].(Forward)
@@ -194,13 +194,13 @@ func (m *MockRollbackableStep) GetNext() Forward {
 }
 
 // GetNext indicates an expected call of GetNext.
-func (mr *MockRollbackableStepMockRecorder) GetNext() *gomock.Call {
+func (mr *MockAtomicStepMockRecorder) GetNext() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNext", reflect.TypeOf((*MockRollbackableStep)(nil).GetNext))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNext", reflect.TypeOf((*MockAtomicStep)(nil).GetNext))
 }
 
 // GetPrev mocks base method.
-func (m *MockRollbackableStep) GetPrev() Backward {
+func (m *MockAtomicStep) GetPrev() Backward {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPrev")
 	ret0, _ := ret[0].(Backward)
@@ -208,13 +208,13 @@ func (m *MockRollbackableStep) GetPrev() Backward {
 }
 
 // GetPrev indicates an expected call of GetPrev.
-func (mr *MockRollbackableStepMockRecorder) GetPrev() *gomock.Call {
+func (mr *MockAtomicStepMockRecorder) GetPrev() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPrev", reflect.TypeOf((*MockRollbackableStep)(nil).GetPrev))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPrev", reflect.TypeOf((*MockAtomicStep)(nil).GetPrev))
 }
 
 // Rollback mocks base method.
-func (m *MockRollbackableStep) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
+func (m *MockAtomicStep) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Rollback", ctx, prevFailure)
 	ret0, _ := ret[0].(Reports)
@@ -223,13 +223,13 @@ func (m *MockRollbackableStep) Rollback(ctx context.Context, prevFailure *Failur
 }
 
 // Rollback indicates an expected call of Rollback.
-func (mr *MockRollbackableStepMockRecorder) Rollback(ctx, prevFailure interface{}) *gomock.Call {
+func (mr *MockAtomicStepMockRecorder) Rollback(ctx, prevFailure interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockRollbackableStep)(nil).Rollback), ctx, prevFailure)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Rollback", reflect.TypeOf((*MockAtomicStep)(nil).Rollback), ctx, prevFailure)
 }
 
 // Run mocks base method.
-func (m *MockRollbackableStep) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
+func (m *MockAtomicStep) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Run", ctx, prevSuccess)
 	ret0, _ := ret[0].(Reports)
@@ -238,72 +238,138 @@ func (m *MockRollbackableStep) Run(ctx context.Context, prevSuccess *Success) (R
 }
 
 // Run indicates an expected call of Run.
-func (mr *MockRollbackableStepMockRecorder) Run(ctx, prevSuccess interface{}) *gomock.Call {
+func (mr *MockAtomicStepMockRecorder) Run(ctx, prevSuccess interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockRollbackableStep)(nil).Run), ctx, prevSuccess)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Run", reflect.TypeOf((*MockAtomicStep)(nil).Run), ctx, prevSuccess)
 }
 
 // SetNext mocks base method.
-func (m *MockRollbackableStep) SetNext(next Forward) {
+func (m *MockAtomicStep) SetNext(next Forward) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetNext", next)
 }
 
 // SetNext indicates an expected call of SetNext.
-func (mr *MockRollbackableStepMockRecorder) SetNext(next interface{}) *gomock.Call {
+func (mr *MockAtomicStepMockRecorder) SetNext(next interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNext", reflect.TypeOf((*MockRollbackableStep)(nil).SetNext), next)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNext", reflect.TypeOf((*MockAtomicStep)(nil).SetNext), next)
 }
 
 // SetPrev mocks base method.
-func (m *MockRollbackableStep) SetPrev(prev Backward) {
+func (m *MockAtomicStep) SetPrev(prev Backward) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetPrev", prev)
 }
 
 // SetPrev indicates an expected call of SetPrev.
-func (mr *MockRollbackableStepMockRecorder) SetPrev(prev interface{}) *gomock.Call {
+func (mr *MockAtomicStepMockRecorder) SetPrev(prev interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPrev", reflect.TypeOf((*MockRollbackableStep)(nil).SetPrev), prev)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPrev", reflect.TypeOf((*MockAtomicStep)(nil).SetPrev), prev)
 }
 
-// MockWorkflowEngine is a mock of WorkflowEngine interface.
-type MockWorkflowEngine struct {
+// MockAtomicStepRegistry is a mock of AtomicStepRegistry interface.
+type MockAtomicStepRegistry struct {
 	ctrl     *gomock.Controller
-	recorder *MockWorkflowEngineMockRecorder
+	recorder *MockAtomicStepRegistryMockRecorder
 }
 
-// MockWorkflowEngineMockRecorder is the mock recorder for MockWorkflowEngine.
-type MockWorkflowEngineMockRecorder struct {
-	mock *MockWorkflowEngine
+// MockAtomicStepRegistryMockRecorder is the mock recorder for MockAtomicStepRegistry.
+type MockAtomicStepRegistryMockRecorder struct {
+	mock *MockAtomicStepRegistry
 }
 
-// NewMockWorkflowEngine creates a new mock instance.
-func NewMockWorkflowEngine(ctrl *gomock.Controller) *MockWorkflowEngine {
-	mock := &MockWorkflowEngine{ctrl: ctrl}
-	mock.recorder = &MockWorkflowEngineMockRecorder{mock}
+// NewMockAtomicStepRegistry creates a new mock instance.
+func NewMockAtomicStepRegistry(ctrl *gomock.Controller) *MockAtomicStepRegistry {
+	mock := &MockAtomicStepRegistry{ctrl: ctrl}
+	mock.recorder = &MockAtomicStepRegistryMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockWorkflowEngine) EXPECT() *MockWorkflowEngineMockRecorder {
+func (m *MockAtomicStepRegistry) EXPECT() *MockAtomicStepRegistryMockRecorder {
+	return m.recorder
+}
+
+// BuildWorkflow mocks base method.
+func (m *MockAtomicStepRegistry) BuildWorkflow(stepIDs []string) (AtomicWorkflow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BuildWorkflow", stepIDs)
+	ret0, _ := ret[0].(AtomicWorkflow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BuildWorkflow indicates an expected call of BuildWorkflow.
+func (mr *MockAtomicStepRegistryMockRecorder) BuildWorkflow(stepIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BuildWorkflow", reflect.TypeOf((*MockAtomicStepRegistry)(nil).BuildWorkflow), stepIDs)
+}
+
+// GetStep mocks base method.
+func (m *MockAtomicStepRegistry) GetStep(id string) AtomicStep {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetStep", id)
+	ret0, _ := ret[0].(AtomicStep)
+	return ret0
+}
+
+// GetStep indicates an expected call of GetStep.
+func (mr *MockAtomicStepRegistryMockRecorder) GetStep(id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStep", reflect.TypeOf((*MockAtomicStepRegistry)(nil).GetStep), id)
+}
+
+// RegisterSteps mocks base method.
+func (m *MockAtomicStepRegistry) RegisterSteps(steps map[string]AtomicStep) AtomicStepRegistry {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RegisterSteps", steps)
+	ret0, _ := ret[0].(AtomicStepRegistry)
+	return ret0
+}
+
+// RegisterSteps indicates an expected call of RegisterSteps.
+func (mr *MockAtomicStepRegistryMockRecorder) RegisterSteps(steps interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterSteps", reflect.TypeOf((*MockAtomicStepRegistry)(nil).RegisterSteps), steps)
+}
+
+// MockAtomicWorkflow is a mock of AtomicWorkflow interface.
+type MockAtomicWorkflow struct {
+	ctrl     *gomock.Controller
+	recorder *MockAtomicWorkflowMockRecorder
+}
+
+// MockAtomicWorkflowMockRecorder is the mock recorder for MockAtomicWorkflow.
+type MockAtomicWorkflowMockRecorder struct {
+	mock *MockAtomicWorkflow
+}
+
+// NewMockAtomicWorkflow creates a new mock instance.
+func NewMockAtomicWorkflow(ctrl *gomock.Controller) *MockAtomicWorkflow {
+	mock := &MockAtomicWorkflow{ctrl: ctrl}
+	mock.recorder = &MockAtomicWorkflowMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockAtomicWorkflow) EXPECT() *MockAtomicWorkflowMockRecorder {
 	return m.recorder
 }
 
 // End mocks base method.
-func (m *MockWorkflowEngine) End(ctx context.Context) {
+func (m *MockAtomicWorkflow) End(ctx context.Context) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "End", ctx)
 }
 
 // End indicates an expected call of End.
-func (mr *MockWorkflowEngineMockRecorder) End(ctx interface{}) *gomock.Call {
+func (mr *MockAtomicWorkflowMockRecorder) End(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "End", reflect.TypeOf((*MockWorkflowEngine)(nil).End), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "End", reflect.TypeOf((*MockAtomicWorkflow)(nil).End), ctx)
 }
 
 // Start mocks base method.
-func (m *MockWorkflowEngine) Start(ctx context.Context) (Reports, error) {
+func (m *MockAtomicWorkflow) Start(ctx context.Context) (Reports, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Start", ctx)
 	ret0, _ := ret[0].(Reports)
@@ -312,7 +378,7 @@ func (m *MockWorkflowEngine) Start(ctx context.Context) (Reports, error) {
 }
 
 // Start indicates an expected call of Start.
-func (mr *MockWorkflowEngineMockRecorder) Start(ctx interface{}) *gomock.Call {
+func (mr *MockAtomicWorkflowMockRecorder) Start(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockWorkflowEngine)(nil).Start), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockAtomicWorkflow)(nil).Start), ctx)
 }
