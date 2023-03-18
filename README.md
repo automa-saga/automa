@@ -1,23 +1,26 @@
 # Automa
 
-Automa is a Saga Workflow Engine to automate a sequential and transactional business process. It implements 
-the choreography pattern in order to ensure the atomic transactional behaviour. 
+Automa is a basic Saga Workflow Engine to automate a sequential and transactional business process. It implements 
+the choreography Saga pattern in order to ensure the atomic transactional behaviour. The difference with the traditional
+[choreography pattern](https://learn.microsoft.com/en-us/azure/architecture/reference-architectures/saga/saga) is that 
+this does not use a centralized message broker, rather each step calls the next step on success or undo previous on 
+error. Therefore, Automa is not able to parallelize the step execution (forward or undo), which is a 
+desired behaviour in many of the application scenario.
 
 The name `automa` is derived from the word `automate`.
 
-All steps are executed sequentially in the Workflow. 
-
-If a step causes an error, it rolls back from that step and executes backward to the fist step. Therefore, it can be used 
-to implement atomic transaction like behaviour for business workflows. However, note that some steps cannot be rollback in reality,
-for example if an email has been sent. However, some form of compensating behaviour can be implemented in that case, for example,
-it should send another compensating email to void the previous notification email.
+All steps are executed sequentially in the Workflow. If a step causes an error, it rolls back from that step and executes 
+backward to the fist step. Therefore, it can be used to implement atomic transaction like behaviour for business workflows. 
+However, note that some steps cannot be rollback in reality, for example if an email has been sent. However, some form 
+of compensating behaviour can be implemented in that case, for example, it should send another compensating email to void 
+the previous notification email that was sent.
 
 Apart from Saga workflow pattern, it also supports generating a report of the execution for every step in the workflow. 
 A report data model can be found in file [reports.go](https://github.com/leninmehedy/automa/blob/master/reports.go). 
 Developers need to populate a Report object in every `Run` and `Rollback` method as shown in the example. 
 
 ## Usage
-See an [example](https://github.com/leninmehedy/automa/blob/master/example/main.go) in the example directory. As shown 
+See an [example](https://github.com/leninmehedy/automa/blob/master/example/example.go) in the example directory. As shown 
 in the example, each step can have its own internal cache to help implementing the rollback mechanism.
 
 ## Development
