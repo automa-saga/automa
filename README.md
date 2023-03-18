@@ -1,24 +1,24 @@
 # Automa
 
-Automa is a Saga Workflow Engine to automate a sequential business process with transactional attribute. It implements 
-the choreography pattern. The name `automa` is derived from the word `automate`.
+Automa is a Saga Workflow Engine to automate a sequential and transactional business process. It implements 
+the choreography pattern in order to ensure the atomic transactional behaviour. 
 
-All steps are run sequentially in the Workflow. 
+The name `automa` is derived from the word `automate`.
+
+All steps are executed sequentially in the Workflow. 
 
 If a step causes an error, it rolls back from that step and executes backward to the fist step. Therefore, it can be used 
-to implement atomic transaction like behaviour for business workflows.
+to implement atomic transaction like behaviour for business workflows. However, note that some steps cannot be rollback in reality,
+for example if an email has been sent. However, some form of compensating behaviour can be implemented in that case, for example,
+it should send another compensating email to void the previous notification email.
 
-Apart from Saga workflow pattern, it also supports generating a report of the execution for every steps in the workflow. 
-A report data model can be found in file [reports.go](https://github.com/leninmehedy/automa/blob/master/reports.go).
+Apart from Saga workflow pattern, it also supports generating a report of the execution for every step in the workflow. 
+A report data model can be found in file [reports.go](https://github.com/leninmehedy/automa/blob/master/reports.go). 
+Developers need to populate a Report object in every `Run` and `Rollback` method as shown in the example. 
 
 ## Usage
 See an [example](https://github.com/leninmehedy/automa/blob/master/example/main.go) in the example directory. As shown 
 in the example, each step can have its own internal cache to help implementing the rollback mechanism.
-
-## Execution Report
-Automa allows generating execution report of every step. Developers need to populate a Report object in every `Run` 
-and `Rollback` method as shown in the example. Report data model can be found in the 
-file [reports.go](https://github.com/leninmehedy/automa/blob/master/reports.go).
 
 ## Development
 
