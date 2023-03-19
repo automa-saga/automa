@@ -2,17 +2,55 @@ package automa
 
 import (
 	"context"
+	"fmt"
+	"github.com/cockroachdb/errors"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
+type mockSuccessStepStep struct {
+	Step
+	cache map[string][]byte
+}
+
+type mockFailedStep struct {
+	Step
+	cache map[string][]byte
+}
+
+func (s *mockSuccessStepStep) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
+	report := NewReport(s.ID)
+	fmt.Printf("RUN - %q", s.ID)
+	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
+	return s.RunNext(ctx, prevSuccess, report)
+}
+
+func (s *mockSuccessStepStep) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
+	report := NewReport(s.ID)
+	fmt.Println(string(s.cache["rollbackMsg"]))
+	return s.RollbackPrev(ctx, prevFailure, report)
+}
+
+func (s *mockFailedStep) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
+	report := NewReport(s.ID)
+	fmt.Printf("SKIP RUN - %q", s.ID)
+	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("SKIP ROLLBACK - %q", s.ID))
+	return s.SkippedRun(ctx, prevSuccess, report)
+}
+
+func (s *mockFailedStep) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
+	report := NewReport(s.ID)
+	fmt.Println(string(s.cache["rollbackMsg"]))
+	return s.RollbackPrev(ctx, prevFailure, report)
+}
+
 func TestSkippedRun(t *testing.T) {
-	s1 := &mockStopContainersStep{
+	s1 := &mockSuccessStepStep{
 		Step:  Step{ID: "Stop containers"},
 		cache: map[string][]byte{},
 	}
 
-	s2 := &mockFetchLatestStep{
+	s2 := &mockSuccessStepStep{
 		Step:  Step{ID: "Fetch latest images"},
 		cache: map[string][]byte{},
 	}
@@ -29,4 +67,75 @@ func TestSkippedRun(t *testing.T) {
 	reports, err = s1.SkippedRun(ctx, prevSuccess, report)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(reports))
+}
+
+func TestRollbackPrev(t *testing.T) {
+	s1 := &mockSuccessStepStep{
+		Step:  Step{ID: "Stop containers"},
+		cache: map[string][]byte{},
+	}
+
+	s2 := &mockFailedStep{
+		Step:  Step{ID: "Fetch latest images"},
+		cache: map[string][]byte{},
+	}
+
+	ctx := context.Background()
+	prevFailure := &Failure{error: errors.New("Test"), reports: map[string]*Report{}}
+	report := NewReport(s1.ID)
+
+	reports, err := s1.RollbackPrev(ctx, prevFailure, report)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(reports))
+
+	s1.SetNext(s2)
+	s2.SetPrev(s1)
+	report = NewReport(s2.ID)
+	reports, err = s2.RollbackPrev(ctx, prevFailure, report)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(reports))
+}
+
+func TestNextPrev(t *testing.T) {
+	s1 := &mockSuccessStepStep{
+		Step:  Step{ID: "Stop containers"},
+		cache: map[string][]byte{},
+	}
+
+	assert.Nil(t, s1.GetNext())
+	assert.Nil(t, s1.GetPrev())
+
+	s2 := &mockSuccessStepStep{
+		Step:  Step{ID: "Fetch latest images"},
+		cache: map[string][]byte{},
+	}
+
+	assert.Nil(t, s2.GetNext())
+	assert.Nil(t, s2.GetPrev())
+
+	s1.SetNext(s2)
+	s2.SetPrev(s1)
+
+	assert.NotNil(t, s1.GetNext())
+	assert.Nil(t, s1.GetPrev())
+	assert.Nil(t, s2.GetNext())
+	assert.NotNil(t, s2.GetPrev())
+
+}
+
+func TestRun(t *testing.T) {
+	s1 := &mockSuccessStepStep{
+		Step:  Step{ID: "Step -1"},
+		cache: map[string][]byte{},
+	}
+
+	s2 := &successStep{}
+	ctx := context.Background()
+	prevSuccess := &Success{reports: map[string]*Report{}}
+
+	s1.SetNext(s2)
+
+	reports, err := s1.Run(ctx, prevSuccess)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(reports))
 }

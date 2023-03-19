@@ -50,10 +50,10 @@ func NewSuccess(prevSuccess *Success, report *Report) *Success {
 	return &Success{reports: reports}
 }
 
-// NewSkipped creates a Success event
+// NewSkippedRun creates a Success event with StatusSkipped
 // It reports the step status as StatusSkipped
-func NewSkipped(prevSuccess *Success, report *Report) *Success {
-	reports := Reports{}
+func NewSkippedRun(prevSuccess *Success, report *Report) *Success {
+	var reports Reports
 	if report != nil {
 		reports = report.Append(prevSuccess.reports, StatusSkipped)
 	}
@@ -61,9 +61,10 @@ func NewSkipped(prevSuccess *Success, report *Report) *Success {
 	return &Success{reports: reports}
 }
 
-// NewSkippedFailure creates a Failure event
+// NewSkippedRollback creates a Failure event with StatusSkipped
 // It reports the step status as StatusSkipped
-func NewSkippedFailure(prevFailure *Failure, report *Report) *Failure {
+// This is a helper method to be used in Rollback method where rollback is skipped
+func NewSkippedRollback(prevFailure *Failure, report *Report) *Failure {
 	var reports Reports
 	if report != nil {
 		reports = report.Append(prevFailure.reports, StatusSkipped)
