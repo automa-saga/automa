@@ -26,7 +26,7 @@ See an [example](https://github.com/leninmehedy/automa/blob/master/example/examp
 in the example, each step can have its own internal cache to help implementing the rollback mechanism.
 
 ## Development
- - `make build` or `make test` generates mocks and runs the tests. 
+ - `make test` runs the tests. 
  - In order to build example and mocks, do `cd examples && go build`. Then the example can be then run using `./examples/example`.
 
 ## Contribution

@@ -22,13 +22,11 @@ lint:
 richtest: install_deps
 	$(info ******************** running tests with kyoh86/richgo ********************)
 	go clean -testcache
-	richgo test -failfast -race -covermode=atomic -coverprofile coverage.out.tmp ./...
-	cat coverage.out.tmp | grep -v "mock*" > coverage.out  # skip the coverage report for generated files
+	richgo test -failfast -race -covermode=atomic -coverprofile coverage.out ./...
 
 install_deps:
 	$(info ******************** downloading dependencies ********************)
 	go get -v ./...
-	go mod tidy
 
 clean:
 	rm -rf $(BIN)
@@ -39,7 +37,7 @@ mocks:
 	mockgen -source=automa.go -self_package github.com/leninmehedy/automa -package automa > mocks.go
 
 .PHONY: test
-test: install_deps mocks
+test: install_deps
 	$(info ******************** running tests ********************)
 	go clean -testcache
 	go test -failfast -race -covermode=atomic -coverprofile coverage.out.tmp ./...
