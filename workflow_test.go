@@ -2,114 +2,32 @@ package automa
 
 import (
 	"context"
-	"fmt"
-	"github.com/cockroachdb/errors"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap"
 	"testing"
 )
 
-type StopContainers struct {
-	Step
-	cache map[string][]byte
-}
-
-type FetchLatest struct {
-	Step
-	cache map[string][]byte
-}
-
-// it cannot be rollback
-type NotifyStep struct {
-	Step
-	cache map[string][]byte
-}
-
-type RestartContainers struct {
-	Step
-	cache map[string][]byte
-}
-
-func (s *StopContainers) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
-	report := NewReport(s.ID)
-	fmt.Printf("RUN - %q", s.ID)
-	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
-	return s.RunNext(ctx, prevSuccess, report)
-}
-
-func (s *StopContainers) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
-	report := NewReport(s.ID)
-	fmt.Println(string(s.cache["rollbackMsg"]))
-	return s.RollbackPrev(ctx, prevFailure, report)
-}
-
-func (s *FetchLatest) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
-	fmt.Printf("RUN - %q", s.ID)
-	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
-
-	return s.RunNext(ctx, prevSuccess, nil)
-}
-
-func (s *FetchLatest) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
-	report := NewReport(s.ID)
-	fmt.Println(string(s.cache["rollbackMsg"]))
-	return s.RollbackPrev(ctx, prevFailure, report)
-}
-
-func (s *NotifyStep) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
-	fmt.Printf("SKIP RUN - %q", s.ID)
-	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("SKIP ROLLBACK - %q", s.ID))
-	return s.SkippedRun(ctx, prevSuccess, nil)
-}
-
-func (s *NotifyStep) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
-	report := NewReport(s.ID)
-	fmt.Println(string(s.cache["rollbackMsg"]))
-	return s.RollbackPrev(ctx, prevFailure, report)
-}
-
-func (s *RestartContainers) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
-	report := NewReport(s.ID)
-	fmt.Printf("RUN - %q", s.ID)
-	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
-
-	// trigger rollback on error
-	err := errors.New("error running step 3")
-	report.Error = errors.EncodeError(ctx, err)
-	if err != nil {
-		return s.Rollback(ctx, NewRollbackTrigger(prevSuccess, err, report))
-	}
-
-	return s.RunNext(ctx, prevSuccess, report)
-}
-
-func (s *RestartContainers) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
-	report := NewReport(s.ID)
-	fmt.Println(string(s.cache["rollbackMsg"]))
-	return s.RollbackPrev(ctx, prevFailure, report)
-}
-
 func TestWorkflowEngine_Start(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	stop := &StopContainers{
+	stop := &mockStopContainersStep{
 		Step:  Step{ID: "Stop containers"},
 		cache: map[string][]byte{},
 	}
 
-	fetch := &FetchLatest{
+	fetch := &mockFetchLatestStep{
 		Step:  Step{ID: "Fetch latest images"},
 		cache: map[string][]byte{},
 	}
 
 	notify :=
-		&NotifyStep{
+		&mockNotifyStep{
 			Step:  Step{ID: "Notify on Slack"},
 			cache: map[string][]byte{},
 		}
 
-	restart := &RestartContainers{
+	restart := &mockRestartContainersStep{
 		Step:  Step{ID: "Restart containers"},
 		cache: map[string][]byte{},
 	}

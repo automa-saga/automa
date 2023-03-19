@@ -22,7 +22,8 @@ lint:
 richtest: install_deps
 	$(info ******************** running tests with kyoh86/richgo ********************)
 	go clean -testcache
-	richgo test -v -failfast -race -covermode=atomic -coverprofile coverage.out ./...
+	richgo test -failfast -race -covermode=atomic -coverprofile coverage.out.tmp ./...
+	cat coverage.out.tmp | grep -v "mock*" > coverage.out  # skip the coverage report for generated files
 
 install_deps:
 	$(info ******************** downloading dependencies ********************)
@@ -41,7 +42,8 @@ mocks:
 test: install_deps mocks
 	$(info ******************** running tests ********************)
 	go clean -testcache
-	go test -failfast -race -covermode=atomic -coverprofile coverage.out ./...
+	go test -failfast -race -covermode=atomic -coverprofile coverage.out.tmp ./...
+	cat coverage.out.tmp | grep -v "mock*" > coverage.out  # skip the coverage report for generated files
 
 .PHONY: coverage
 coverage: test
