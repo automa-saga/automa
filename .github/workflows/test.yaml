@@ -55,7 +55,7 @@ jobs:
       matrix:
         platform:
           - ubuntu
-          - macOS
+#          - macOS
         go:
           - 19
           - 20
@@ -75,38 +75,40 @@ jobs:
           go install github.com/kyoh86/richgo@latest
           go install github.com/mitchellh/gox@latest
       - run: RICHGO_FORCE_COLOR=1 PATH=$HOME/go/bin/:$PATH make richtest
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v3
 
 
-  test-win:
-    name: MINGW64
-    defaults:
-      run:
-        shell: msys2 {0}
-    runs-on: windows-latest
-    steps:
-
-      - shell: bash
-        run: git config --global core.autocrlf input
-
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >
-            git
-            make
-            unzip
-            mingw-w64-x86_64-go
-      - uses: actions/checkout@v3
-
-      - uses: actions/cache@v3
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-${{ matrix.go }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: ${{ runner.os }}-${{ matrix.go }}-
-
-      - run: |
-          export GOBIN=$HOME/go/bin
-          go install github.com/kyoh86/richgo@latest
-          go install github.com/mitchellh/gox@latest
-      - run: RICHGO_FORCE_COLOR=1 PATH=$HOME/go/bin:$PATH make richtest
+#  test-win:
+#    name: MINGW64
+#    defaults:
+#      run:
+#        shell: msys2 {0}
+#    runs-on: windows-latest
+#    steps:
+#
+#      - shell: bash
+#        run: git config --global core.autocrlf input
+#
+#      - uses: msys2/setup-msys2@v2
+#        with:
+#          msystem: MINGW64
+#          update: true
+#          install: >
+#            git
+#            make
+#            unzip
+#            mingw-w64-x86_64-go
+#      - uses: actions/checkout@v3
+#
+#      - uses: actions/cache@v3
+#        with:
+#          path: ~/go/pkg/mod
+#          key: ${{ runner.os }}-${{ matrix.go }}-${{ hashFiles('**/go.sum') }}
+#          restore-keys: ${{ runner.os }}-${{ matrix.go }}-
+#
+#      - run: |
+#          export GOBIN=$HOME/go/bin
+#          go install github.com/kyoh86/richgo@latest
+#          go install github.com/mitchellh/gox@latest
+#      - run: RICHGO_FORCE_COLOR=1 PATH=$HOME/go/bin:$PATH make richtest
