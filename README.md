@@ -30,11 +30,14 @@ in the example, each step can have its own internal cache to help implementing t
  - In order to build example and mocks, do `cd examples && go build`. Then the example can be then run using `./examples/example`.
 
 ## Contribution
-This is the very early stage of development. So any feedback, comment and contributions are very much welcome. 
+Any feedback, comment and contributions are very much welcome. 
 
 Developers are encouraged to adopt the usual open source development practices with a PR and sign-off as well as 
-verified signed commits.
+verified signed commits. Developers are also encouraged to use [commitizen](https://commitizen-tools.github.io/commitizen/) 
+for commits messages.
 
-All developers must use [commitizen](https://commitizen-tools.github.io/commitizen/) for commits.
+Please note the PR will be squashed merge to master with commitizen format for the PR title. So even if commitizen is not
+used for individual commits in the PR, the repository maintainer are requested to ensure that the PR title follows 
+commitizen format before squash-merging the PR.
 
 For beginners use [this](https://github.com/firstcontributions/first-contributions) guide as a start.
