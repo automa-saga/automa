@@ -2,6 +2,7 @@
 ![test](https://github.com/leninmehedy/automa/actions/workflows/test.yaml/badge.svg)
 [![Commitizen friendly](https://img.shields.io/badge/commitizen-friendly-brightgreen.svg)](http://commitizen.github.io/cz-cli/)
 [![semantic-release: go](https://img.shields.io/badge/semantic--release-go?logo=semantic-release)](https://github.com/semantic-release/semantic-release)
+[![codecov](https://codecov.io/gh/leninmehedy/automa/branch/master/graph/badge.svg?token=DMRN5J6TJW)](https://codecov.io/gh/leninmehedy/automa)
 
 Automa is a Saga Workflow Engine. It is designed to be used for sequential and transactional business processes. It 
 implements the choreography Saga pattern. The difference with the traditional
