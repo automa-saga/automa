@@ -75,8 +75,11 @@ jobs:
           go install github.com/kyoh86/richgo@latest
           go install github.com/mitchellh/gox@latest
       - run: RICHGO_FORCE_COLOR=1 PATH=$HOME/go/bin/:$PATH make richtest
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
 
 
 #  test-win:
