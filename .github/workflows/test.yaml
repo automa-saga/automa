@@ -1,9 +1,23 @@
 name: Test
 
 on:
-#  push:
+  push:
+    branches:
+      - main
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+#      - converted_to_draft
+    branches:
+      - main
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to bump to'
+        required: false
 
 env:
   GO111MODULE: on
