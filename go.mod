@@ -1,6 +1,6 @@
 module github.com/leninmehedy/automa
 
-go 1.20
+go 1.19
 
 require (
 	github.com/cockroachdb/errors v1.9.1
@@ -22,6 +22,6 @@ require (
 	github.com/rogpeppe/go-internal v1.8.1 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
-	golang.org/x/sys v0.0.0-20220209214540-3681064d5158 // indirect
+	golang.org/x/sys v0.6.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
