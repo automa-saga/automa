@@ -46,3 +46,18 @@ test: install_deps
 coverage: test
 	$(info ******************** running coverage ********************)
 	go tool cover -html=coverage.out
+
+.PHONY: release-major
+release-major:
+	$(info ******************** tagging major release ********************)
+	cz bump --changelog --increment MAJOR
+
+.PHONY: release-minor
+release-minor:
+	$(info ******************** tagging minor release ********************)
+	cz bump --changelog --increment MINOR
+
+.PHONY: release-patch
+release-patch:
+	$(info ******************** tagging patch release ********************)
+	cz bump --changelog --increment PATCH
