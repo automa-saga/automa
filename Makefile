@@ -21,7 +21,8 @@ lint:
 
 richtest: install_deps
 	$(info ******************** running tests with kyoh86/richgo ********************)
-	richgo test -v ./...
+	go clean -testcache
+	richgo test -v -failfast -race -covermode=atomic -coverprofile coverage.out ./...
 
 install_deps:
 	$(info ******************** downloading dependencies ********************)
