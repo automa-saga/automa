@@ -35,7 +35,7 @@ func (s *Step) GetPrev() Backward {
 // It marks the current step as StatusSkipped
 func (s *Step) SkippedRun(ctx context.Context, prevSuccess *Success, report *Report) (Reports, error) {
 	if s.Next != nil {
-		return s.Next.Run(ctx, NewSkipped(prevSuccess, report))
+		return s.Next.Run(ctx, NewSkippedRun(prevSuccess, report))
 	}
 
 	var reports Reports

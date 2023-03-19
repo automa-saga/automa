@@ -40,10 +40,24 @@ mocks:
 test: install_deps
 	$(info ******************** running tests ********************)
 	go clean -testcache
-	go test -failfast -race -covermode=atomic -coverprofile coverage.out.tmp ./...
-	cat coverage.out.tmp | grep -v "mock*" > coverage.out  # skip the coverage report for generated files
+	go test -failfast -race -covermode=atomic -coverprofile coverage.out ./...
 
 .PHONY: coverage
 coverage: test
 	$(info ******************** running coverage ********************)
 	go tool cover -html=coverage.out
+
+.PHONY: release-major
+release-major:
+	$(info ******************** tagging major release ********************)
+	cz bump --changelog --increment MAJOR
+
+.PHONY: release-minor
+release-minor:
+	$(info ******************** tagging minor release ********************)
+	cz bump --changelog --increment MINOR
+
+.PHONY: release-patch
+release-patch:
+	$(info ******************** tagging patch release ********************)
+	cz bump --changelog --increment PATCH
