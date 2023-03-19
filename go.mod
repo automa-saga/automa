@@ -1,6 +1,6 @@
 module github.com/leninmehedy/automa
 
-go 1.20
+go 1.17
 
 require (
 	github.com/cockroachdb/errors v1.9.1
