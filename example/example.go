@@ -8,15 +8,21 @@ import (
 	"go.uber.org/zap"
 )
 
+// InMemCache is the simples map based in-memory cache
+// It is assumed the type casting will be done properly and safely when values are retrieved
+// This doesn't use mutex so shouldn't be used with coroutines
+// This is just for example purposes.
+type InMemCache map[string]interface{}
+
 type StopContainers struct {
 	automa.Step
-	cache  map[string][]byte
+	cache  InMemCache
 	logger *zap.Logger
 }
 
 type FetchLatest struct {
 	automa.Step
-	cache  map[string][]byte
+	cache  InMemCache
 	logger *zap.Logger
 }
 
@@ -24,39 +30,39 @@ type FetchLatest struct {
 // it cannot be rollback
 type NotifyAll struct {
 	automa.Step
-	cache  map[string][]byte
+	cache  InMemCache
 	logger *zap.Logger
 }
 
 type RestartContainers struct {
 	automa.Step
-	cache  map[string][]byte
+	cache  InMemCache
 	logger *zap.Logger
 }
 
 func (s *StopContainers) Run(ctx context.Context, prevSuccess *automa.Success) (automa.Reports, error) {
 	report := automa.NewReport(s.ID)
 	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
-	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
+	s.cache["rollbackMsg"] = fmt.Sprintf("ROLLBACK - %q", s.ID)
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
 func (s *StopContainers) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.Reports, error) {
 	report := automa.NewReport(s.ID)
-	s.logger.Debug(string(s.cache["rollbackMsg"]))
+	s.logger.Debug(s.cache["rollbackMsg"].(string))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
 func (s *FetchLatest) Run(ctx context.Context, prevSuccess *automa.Success) (automa.Reports, error) {
 	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
-	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
+	s.cache["rollbackMsg"] = fmt.Sprintf("ROLLBACK - %q", s.ID)
 
 	return s.RunNext(ctx, prevSuccess, nil)
 }
 
 func (s *FetchLatest) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.Reports, error) {
 	report := automa.NewReport(s.ID)
-	s.logger.Debug(string(s.cache["rollbackMsg"]))
+	s.logger.Debug(s.cache["rollbackMsg"].(string))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
@@ -68,7 +74,7 @@ func (s *NotifyAll) Run(ctx context.Context, prevSuccess *automa.Success) (autom
 
 func (s *NotifyAll) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.Reports, error) {
 	report := automa.NewReport(s.ID)
-	s.logger.Debug(string(s.cache["rollbackMsg"]))
+	s.logger.Debug(s.cache["rollbackMsg"].(string))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
@@ -76,7 +82,7 @@ func (s *RestartContainers) Run(ctx context.Context, prevSuccess *automa.Success
 	report := automa.NewReport(s.ID)
 
 	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
-	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
+	s.cache["rollbackMsg"] = fmt.Sprintf("ROLLBACK - %q", s.ID)
 
 	// trigger rollback on error
 	err := errors.New("error running step 3")
@@ -90,7 +96,7 @@ func (s *RestartContainers) Run(ctx context.Context, prevSuccess *automa.Success
 
 func (s *RestartContainers) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.Reports, error) {
 	report := automa.NewReport(s.ID)
-	s.logger.Debug(string(s.cache["rollbackMsg"]))
+	s.logger.Debug(s.cache["rollbackMsg"].(string))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
@@ -105,26 +111,26 @@ func main() {
 
 	stop := &StopContainers{
 		Step:   automa.Step{ID: "Stop containers"},
-		cache:  map[string][]byte{},
+		cache:  InMemCache{},
 		logger: logger,
 	}
 
 	fetch := &FetchLatest{
 		Step:   automa.Step{ID: "Fetch latest images"},
-		cache:  map[string][]byte{},
+		cache:  InMemCache{},
 		logger: logger,
 	}
 
 	notify :=
 		&NotifyAll{
 			Step:   automa.Step{ID: "NotifyAll on Slack"},
-			cache:  map[string][]byte{},
+			cache:  InMemCache{},
 			logger: logger,
 		}
 
 	restart := &RestartContainers{
 		Step:   automa.Step{ID: "Restart containers"},
-		cache:  map[string][]byte{},
+		cache:  InMemCache{},
 		logger: logger,
 	}
 
