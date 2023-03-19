@@ -1,4 +1,5 @@
 # Automa
+![test](https://github.com/leninmehedy/automa/actions/workflows/test.yaml/badge.svg)
 [![Commitizen friendly](https://img.shields.io/badge/commitizen-friendly-brightgreen.svg)](http://commitizen.github.io/cz-cli/)
 [![semantic-release: go](https://img.shields.io/badge/semantic--release-go?logo=semantic-release)](https://github.com/semantic-release/semantic-release)
 
