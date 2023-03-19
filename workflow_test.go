@@ -32,7 +32,7 @@ type RestartContainers struct {
 
 func (s *StopContainers) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
 	report := NewReport(s.ID)
-	fmt.Println(fmt.Sprintf("RUN - %q", s.ID))
+	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 	return s.RunNext(ctx, prevSuccess, report)
 }
@@ -44,7 +44,7 @@ func (s *StopContainers) Rollback(ctx context.Context, prevFailure *Failure) (Re
 }
 
 func (s *FetchLatest) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
-	fmt.Println(fmt.Sprintf("RUN - %q", s.ID))
+	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 
 	return s.RunNext(ctx, prevSuccess, nil)
@@ -57,7 +57,7 @@ func (s *FetchLatest) Rollback(ctx context.Context, prevFailure *Failure) (Repor
 }
 
 func (s *NotifyStep) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
-	fmt.Println(fmt.Sprintf("SKIP RUN- %q", s.ID))
+	fmt.Printf("SKIP RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("SKIP ROLLBACK - %q", s.ID))
 	return s.SkippedRun(ctx, prevSuccess, nil)
 }
@@ -70,8 +70,7 @@ func (s *NotifyStep) Rollback(ctx context.Context, prevFailure *Failure) (Report
 
 func (s *RestartContainers) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
 	report := NewReport(s.ID)
-
-	fmt.Println(fmt.Sprintf("RUN - %q", s.ID))
+	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 
 	// trigger rollback on error
