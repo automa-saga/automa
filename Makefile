@@ -40,7 +40,8 @@ mocks:
 test: install_deps
 	$(info ******************** running tests ********************)
 	go clean -testcache
-	go test -failfast -race -covermode=atomic -coverprofile coverage.out ./...
+	go test -failfast -race -covermode=atomic -coverprofile coverage.out.tmp ./...
+	cat coverage.out.tmp | grep -v "mock*" > coverage.out  # skip the coverage report for generated files
 
 .PHONY: coverage
 coverage: test
