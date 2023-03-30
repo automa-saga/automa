@@ -24,13 +24,11 @@ func (ic InMemCache) GetString(key string) string {
 }
 
 // SetString returns the string value for the given key
-func (ic InMemCache) SetString(key string, val interface{}) error {
+func (ic InMemCache) SetString(key string, val interface{}) {
 	s, ok := val.(string)
 	if ok {
 		ic[key] = s
 	}
-
-	return errors.Newf("Could not cast the value to string: %v", ok)
 }
 
 const (
