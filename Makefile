@@ -34,7 +34,7 @@ clean:
 .PHONY: mocks
 mocks:
 	$(info ******************** generating mocks ********************)
-	mockgen -source=automa.go -self_package github.com/leninmehedy/automa -package automa > mocks.go
+	mockgen -source=automa.go -self_package github.com/automa-saga/automa -package automa > mocks.go
 
 .PHONY: test
 test: install_deps
