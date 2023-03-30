@@ -12,7 +12,7 @@ error.
 
 The name `automa` is derived from the word `automate`.
 
-All steps are executed sequentially in the Automa Workflow. On success it moves forward sequentially and on error it moves
+All steps are executed sequentially in the Automa Workflow. On success, it moves forward sequentially and on error it moves
 backward sequentially. Note that some steps cannot be rollback in reality, for example if an email has been sent. In that
 case, some form of compensating behaviour should be implemented, for example, it should send another compensating email 
 in order to void the notification email that was sent before.
