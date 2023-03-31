@@ -4,30 +4,51 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/stretchr/testify/assert"
 	"testing"
+	"time"
 )
 
 func TestNewSkippedRun(t *testing.T) {
-	prevSuccess := &Success{}
+	prevSuccess := &Success{workflowReport: &WorkflowReport{
+		WorkflowID:   "test",
+		StartTime:    time.Now(),
+		EndTime:      time.Now(),
+		Status:       "",
+		StepSequence: []string{},
+		StepReports:  map[string]*StepReport{},
+	}}
+
 	success := NewSkippedRun(prevSuccess, nil)
 	assert.NotNil(t, success)
-	assert.Nil(t, success.reports)
+	assert.NotNil(t, success.workflowReport)
+	assert.Equal(t, 0, len(success.workflowReport.StepReports))
 
-	report := NewReport("TEST")
+	report := NewStepReport("TEST", RunAction)
 	success = NewSkippedRun(prevSuccess, report)
 	assert.NotNil(t, success)
-	assert.NotNil(t, success.reports)
-	assert.Equal(t, 1, len(success.reports))
+	assert.NotNil(t, success.workflowReport)
+	assert.Equal(t, 1, len(success.workflowReport.StepReports))
 }
 
 func TestNewSkippedRollback(t *testing.T) {
-	prevFailure := &Failure{error: errors.New("Test"), reports: map[string]*Report{}}
+	prevFailure := &Failure{
+		error: errors.New("Test"),
+		workflowReport: &WorkflowReport{
+			WorkflowID:   "test",
+			StartTime:    time.Now(),
+			EndTime:      time.Now(),
+			Status:       "",
+			StepSequence: []string{},
+			StepReports:  map[string]*StepReport{},
+		},
+	}
 	failure := NewSkippedRollback(prevFailure, nil)
 	assert.NotNil(t, failure)
-	assert.Nil(t, failure.reports)
+	assert.NotNil(t, failure.workflowReport)
+	assert.Equal(t, 0, len(failure.workflowReport.StepReports))
 
-	report := NewReport("TEST")
+	report := NewStepReport("TEST", RunAction)
 	failure = NewSkippedRollback(prevFailure, report)
 	assert.NotNil(t, failure)
-	assert.NotNil(t, failure.reports)
-	assert.Equal(t, 1, len(failure.reports))
+	assert.NotNil(t, failure.workflowReport)
+	assert.Equal(t, 1, len(failure.workflowReport.StepReports))
 }

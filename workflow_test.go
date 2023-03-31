@@ -30,54 +30,54 @@ type mockRestartContainersStep struct {
 	cache map[string][]byte
 }
 
-func (s *mockStopContainersStep) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
-	report := NewReport(s.ID)
+func (s *mockStopContainersStep) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *mockStopContainersStep) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
-	report := NewReport(s.ID)
+func (s *mockStopContainersStep) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func (s *mockFetchLatestStep) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
-	report := NewReport(s.ID)
+func (s *mockFetchLatestStep) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *mockFetchLatestStep) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
-	report := NewReport(s.ID)
+func (s *mockFetchLatestStep) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func (s *mockNotifyStep) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
-	report := NewReport(s.ID)
+func (s *mockNotifyStep) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("SKIP RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("SKIP ROLLBACK - %q", s.ID))
 	return s.SkippedRun(ctx, prevSuccess, report)
 }
 
-func (s *mockNotifyStep) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
-	report := NewReport(s.ID)
+func (s *mockNotifyStep) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
-	return s.RollbackPrev(ctx, prevFailure, report)
+	return s.SkippedRollback(ctx, prevFailure, report)
 }
 
-func (s *mockRestartContainersStep) Run(ctx context.Context, prevSuccess *Success) (Reports, error) {
-	report := NewReport(s.ID)
+func (s *mockRestartContainersStep) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 
 	// trigger rollback on error
 	err := errors.New("error running step 3")
-	report.Error = errors.EncodeError(ctx, err)
+	report.Actions[RunAction].Error = errors.EncodeError(ctx, err)
 	if err != nil {
 		return s.Rollback(ctx, NewRollbackTrigger(prevSuccess, err, report))
 	}
@@ -85,8 +85,8 @@ func (s *mockRestartContainersStep) Run(ctx context.Context, prevSuccess *Succes
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *mockRestartContainersStep) Rollback(ctx context.Context, prevFailure *Failure) (Reports, error) {
-	report := NewReport(s.ID)
+func (s *mockRestartContainersStep) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
@@ -123,38 +123,40 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	})
 
 	// a new workflow with notify in the middle
-	workflow := registry.BuildWorkflow([]string{
+	workflow := registry.BuildWorkflow("workflow-1", []string{
 		stop.ID,
 		fetch.ID,
 		notify.ID,
 		restart.ID,
 	})
+	assert.Equal(t, "workflow-1", workflow.GetID())
 	defer workflow.End(ctx)
 
-	reports, err := workflow.Start(ctx)
+	report, err := workflow.Start(ctx)
 	assert.Error(t, err)
-	assert.NotNil(t, reports)
-	assert.Equal(t, 4, len(reports)) // it will reach all steps and rollback
+	assert.NotNil(t, report)
+	assert.Equal(t, 4, len(report.StepReports)) // it will reach all steps and rollback
 
 	// a new workflow with notify at the end
-	workflow2 := registry.BuildWorkflow([]string{
+	workflow2 := registry.BuildWorkflow("workflow-2", []string{
 		stop.ID,
 		fetch.ID,
 		restart.ID,
 		notify.ID,
 	})
+	assert.Equal(t, "workflow-2", workflow2.GetID())
 	defer workflow2.End(ctx)
 
-	reports2, err := workflow2.Start(ctx)
+	report2, err := workflow2.Start(ctx)
 	assert.Error(t, err)
-	assert.NotNil(t, reports)
-	assert.Equal(t, 3, len(reports2)) // it will not reach notify step
-	assert.NotNil(t, reports2[restart.ID].Error)
+	assert.NotNil(t, report)
+	assert.Equal(t, 3, len(report2.StepReports)) // it will not reach notify step
+	assert.NotNil(t, report2.StepReports[restart.ID].Actions[RunAction].Error)
 
 	// NoOp scenario when first step is null
-	noopWorkflow := registry.BuildWorkflow([]string{"INVALID-step1", "INVALID-step2"})
-	noReports, err := noopWorkflow.Start(ctx)
-	assert.NotNil(t, noReports)
-	assert.Equal(t, 0, len(noReports))
+	noopWorkflow := registry.BuildWorkflow("workflow-3", []string{"INVALID-step1", "INVALID-step2"})
+	report3, err := noopWorkflow.Start(ctx)
+	assert.NotNil(t, report3)
+	assert.Equal(t, 0, len(report3.StepReports))
 	assert.Nil(t, err)
 }

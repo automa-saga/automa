@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/automa-saga/automa"
 	"github.com/cockroachdb/errors"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 )
 
 // InMemCache is the simples map based in-memory cache
@@ -61,51 +63,55 @@ type RestartContainers struct {
 	logger *zap.Logger
 }
 
-func (s *StopContainers) Run(ctx context.Context, prevSuccess *automa.Success) (automa.Reports, error) {
-	report := automa.NewReport(s.ID)
+func (s *StopContainers) Run(ctx context.Context, prevSuccess *automa.Success) (*automa.WorkflowReport, error) {
+	report := automa.NewStepReport(s.ID, automa.RunAction)
 	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
-	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("RUN - %q", s.ID))
+	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
 
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *StopContainers) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.Reports, error) {
-	report := automa.NewReport(s.ID)
+func (s *StopContainers) Rollback(ctx context.Context, prevFailure *automa.Failure) (*automa.WorkflowReport, error) {
+	report := automa.NewStepReport(s.ID, automa.RollbackAction)
 	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func (s *FetchLatest) Run(ctx context.Context, prevSuccess *automa.Success) (automa.Reports, error) {
+func (s *FetchLatest) Run(ctx context.Context, prevSuccess *automa.Success) (*automa.WorkflowReport, error) {
+	report := automa.NewStepReport(s.ID, automa.RunAction)
 	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
-	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("RUN - %q", s.ID))
+	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
 
-	return s.RunNext(ctx, prevSuccess, nil)
+	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *FetchLatest) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.Reports, error) {
-	report := automa.NewReport(s.ID)
+func (s *FetchLatest) Rollback(ctx context.Context, prevFailure *automa.Failure) (*automa.WorkflowReport, error) {
+	report := automa.NewStepReport(s.ID, automa.RollbackAction)
 	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func (s *NotifyAll) Run(ctx context.Context, prevSuccess *automa.Success) (automa.Reports, error) {
-	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("RUN - %q", s.ID))
-	return s.SkippedRun(ctx, prevSuccess, nil)
+func (s *NotifyAll) Run(ctx context.Context, prevSuccess *automa.Success) (*automa.WorkflowReport, error) {
+	report := automa.NewStepReport(s.ID, automa.RunAction)
+	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
+	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
+	return s.SkippedRun(ctx, prevSuccess, report)
 }
 
-func (s *NotifyAll) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.Reports, error) {
-	report := automa.NewReport(s.ID)
+func (s *NotifyAll) Rollback(ctx context.Context, prevFailure *automa.Failure) (*automa.WorkflowReport, error) {
+	report := automa.NewStepReport(s.ID, automa.RollbackAction)
 	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
-	return s.RollbackPrev(ctx, prevFailure, report)
+	return s.SkippedRollback(ctx, prevFailure, report)
 }
 
-func (s *RestartContainers) Run(ctx context.Context, prevSuccess *automa.Success) (automa.Reports, error) {
-	report := automa.NewReport(s.ID)
-	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("RUN - %q", s.ID))
+func (s *RestartContainers) Run(ctx context.Context, prevSuccess *automa.Success) (*automa.WorkflowReport, error) {
+	report := automa.NewStepReport(s.ID, automa.RunAction)
+	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
+	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
 
 	// trigger rollback on error
 	err := errors.New("error running step 3")
-	report.Error = errors.EncodeError(ctx, err)
+	report.Actions[automa.RunAction].Error = errors.EncodeError(ctx, err)
 	if err != nil {
 		return s.Rollback(ctx, automa.NewRollbackTrigger(prevSuccess, err, report))
 	}
@@ -113,8 +119,8 @@ func (s *RestartContainers) Run(ctx context.Context, prevSuccess *automa.Success
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *RestartContainers) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.Reports, error) {
-	report := automa.NewReport(s.ID)
+func (s *RestartContainers) Rollback(ctx context.Context, prevFailure *automa.Failure) (*automa.WorkflowReport, error) {
+	report := automa.NewStepReport(s.ID, automa.RollbackAction)
 	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
@@ -161,7 +167,7 @@ func main() {
 	})
 
 	// a new workflow with notify in the middle
-	workflow := registry.BuildWorkflow([]string{
+	workflow := registry.BuildWorkflow("workflow-1", []string{
 		stop.ID,
 		fetch.ID,
 		notify.ID,
@@ -169,21 +175,14 @@ func main() {
 	})
 	defer workflow.End(ctx)
 
-	reports, err := workflow.Start(ctx)
+	report, err := workflow.Start(ctx)
 	if err == nil {
 		logger.Error("Was expecting error, no error received")
 	}
-
-	logger.Debug("* ----------------------------------------- *")
-	logger.Debug("*        Execution Report - Workflow1       *")
-	logger.Debug("* ----------------------------------------- *")
-	for _, report := range reports { // note the items in the map is not ordered
-		logger.Sugar().Debugf("\t%s: %s", report.StepID, report.Status)
-	}
-	logger.Debug("* ----------------------------------------- *")
+	printReport(report, logger)
 
 	// a new workflow with notify at the end
-	workflow2 := registry.BuildWorkflow([]string{
+	workflow2 := registry.BuildWorkflow("workflow-2", []string{
 		stop.ID,
 		fetch.ID,
 		restart.ID,
@@ -191,17 +190,34 @@ func main() {
 	})
 	defer workflow2.End(ctx)
 
-	reports2, err := workflow2.Start(ctx)
+	report2, err := workflow2.Start(ctx)
 	if err == nil {
 		logger.Error("Was expecting error, no error received")
 	}
 
-	logger.Debug("* ----------------------------------------- *")
-	logger.Debug("*        Execution Report - Workflow2       *")
-	logger.Debug("* ----------------------------------------- *")
-	for _, report := range reports2 { // note the items in the map is not ordered
-		logger.Sugar().Debugf("\t%s: %s", report.StepID, report.Status)
-	}
-	logger.Debug("* ----------------------------------------- *")
+	printReport(report2, logger)
+}
 
+func printReport(report *automa.WorkflowReport, logger *zap.Logger) {
+	logger.Debug("----------------------------------------- ")
+	logger.Sugar().Debugf("        Execution StepReport - %s", report.WorkflowID)
+	logger.Debug("----------------------------------------- ")
+	out, err := yaml.Marshal(report)
+	if err != nil {
+		logger.Fatal("Could not marshall report to YAML", zap.Error(err))
+		return
+	}
+
+	fmt.Println(string(out))
+
+	logger.Debug("----------------------------------------- ")
+
+	out, err = json.Marshal(report)
+	if err != nil {
+		logger.Fatal("Could not marshall report to JSON", zap.Error(err))
+		return
+	}
+
+	fmt.Println(string(out))
+	logger.Debug("----------------------------------------- ")
 }

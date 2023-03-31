@@ -51,7 +51,7 @@ func (r *StepRegistry) GetStep(id string) AtomicStep {
 }
 
 // BuildWorkflow is a helper method to build a Workflow from the given set of AtomicStep IDs
-func (r *StepRegistry) BuildWorkflow(stepIDs []string) *Workflow {
+func (r *StepRegistry) BuildWorkflow(id string, stepIDs []string) *Workflow {
 	var steps []AtomicStep
 	for _, id := range stepIDs {
 		step := r.GetStep(id)
@@ -60,5 +60,5 @@ func (r *StepRegistry) BuildWorkflow(stepIDs []string) *Workflow {
 		}
 	}
 
-	return NewWorkflow(WithSteps(steps...), WithLogger(r.logger))
+	return NewWorkflow(id, WithSteps(steps...), WithLogger(r.logger))
 }
