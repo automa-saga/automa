@@ -42,7 +42,7 @@ func NewStartTrigger(reports *WorkflowReport) *Success {
 }
 
 // NewFailure creates a Failure event for rollback action
-// It is used by a step to trigger rollback action of the previous step when its own run succeeds.
+// It is used by a step to trigger rollback action of the previous step when its own rollback succeeds.
 // It sets the step's RollbackAction status as StatusSuccess.
 func NewFailure(prevFailure *Failure, report *StepReport) *Failure {
 	prevFailure.workflowReport.Append(report, RollbackAction, StatusSuccess)
@@ -58,14 +58,14 @@ func NewSuccess(prevSuccess *Success, report *StepReport) *Success {
 }
 
 // NewSkippedRun creates a Success event with StatusSkipped for RunAction
-// This is a helper method to be used in run action where the action is skipped.
+// This is a helper method to be used in run action when the run action is skipped.
 func NewSkippedRun(prevSuccess *Success, report *StepReport) *Success {
 	prevSuccess.workflowReport.Append(report, RunAction, StatusSkipped)
 	return &Success{workflowReport: prevSuccess.workflowReport}
 }
 
 // NewSkippedRollback creates a Failure event with StatusSkipped for RollbackAction
-// This is a helper method to be used in rollback action where the action is skipped.
+// This is a helper method to be used in rollback action when the rollback action is skipped.
 func NewSkippedRollback(prevFailure *Failure, report *StepReport) *Failure {
 	prevFailure.workflowReport.Append(report, RollbackAction, StatusSkipped)
 	return &Failure{error: prevFailure.error, workflowReport: prevFailure.workflowReport}
