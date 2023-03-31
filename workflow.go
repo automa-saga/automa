@@ -100,6 +100,8 @@ func (wf *Workflow) Start(ctx context.Context) (*WorkflowReport, error) {
 
 	if wf.firstStep != nil {
 		wf.report.StepSequence = wf.stepIDs
+		wf.report.Status = StatusUndefined
+
 		wf.report, err = wf.firstStep.Run(ctx, NewStartTrigger(wf.report))
 		if err != nil {
 			wf.report.Status = StatusFailed

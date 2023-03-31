@@ -116,33 +116,33 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	}
 
 	registry := NewStepRegistry(zap.NewNop()).RegisterSteps(map[string]AtomicStep{
-		stop.ID:    stop,
-		fetch.ID:   fetch,
-		notify.ID:  notify,
-		restart.ID: restart,
+		stop.GetID():    stop,
+		fetch.GetID():   fetch,
+		notify.GetID():  notify,
+		restart.GetID(): restart,
 	})
 
 	// a new workflow with notify in the middle
-	workflow := registry.BuildWorkflow("workflow-1", []string{
-		stop.ID,
-		fetch.ID,
-		notify.ID,
-		restart.ID,
+	workflow1 := registry.BuildWorkflow("workflow-1", []string{
+		stop.GetID(),
+		fetch.GetID(),
+		notify.GetID(),
+		restart.GetID(),
 	})
-	assert.Equal(t, "workflow-1", workflow.GetID())
-	defer workflow.End(ctx)
+	assert.Equal(t, "workflow-1", workflow1.GetID())
+	defer workflow1.End(ctx)
 
-	report, err := workflow.Start(ctx)
+	report, err := workflow1.Start(ctx)
 	assert.Error(t, err)
 	assert.NotNil(t, report)
 	assert.Equal(t, 4, len(report.StepReports)) // it will reach all steps and rollback
 
 	// a new workflow with notify at the end
 	workflow2 := registry.BuildWorkflow("workflow-2", []string{
-		stop.ID,
-		fetch.ID,
-		restart.ID,
-		notify.ID,
+		stop.GetID(),
+		fetch.GetID(),
+		restart.GetID(),
+		notify.GetID(),
 	})
 	assert.Equal(t, "workflow-2", workflow2.GetID())
 	defer workflow2.End(ctx)
@@ -153,10 +153,31 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	assert.Equal(t, 3, len(report2.StepReports)) // it will not reach notify step
 	assert.NotNil(t, report2.StepReports[restart.ID].Actions[RunAction].Error)
 
+	// a new workflow with no failure
+	workflow3 := registry.BuildWorkflow("workflow-3", []string{
+		stop.GetID(),
+		fetch.GetID(),
+		notify.GetID(),
+	})
+	assert.Equal(t, "workflow-3", workflow3.GetID())
+	defer workflow2.End(ctx)
+
+	report3, err := workflow3.Start(ctx)
+	assert.NoError(t, err)
+	assert.NotNil(t, report)
+	assert.Equal(t, 3, len(report3.StepReports))
+	assert.Equal(t, StatusSuccess, report3.Status)
+	assert.Equal(t, []string{stop.GetID(), fetch.GetID(), notify.GetID()}, report3.StepSequence)
+	for _, stepID := range report3.StepSequence {
+		assert.NotNil(t, report3.StepReports[stepID])
+		assert.NotNil(t, report3.StepReports[stepID].Actions[RunAction])
+		assert.Nil(t, report3.StepReports[stepID].Actions[RollbackAction])
+	}
+
 	// NoOp scenario when first step is null
 	noopWorkflow := registry.BuildWorkflow("workflow-3", []string{"INVALID-step1", "INVALID-step2"})
-	report3, err := noopWorkflow.Start(ctx)
-	assert.NotNil(t, report3)
-	assert.Equal(t, 0, len(report3.StepReports))
+	report4, err := noopWorkflow.Start(ctx)
+	assert.NotNil(t, report4)
+	assert.Equal(t, 0, len(report4.StepReports))
 	assert.Nil(t, err)
 }
