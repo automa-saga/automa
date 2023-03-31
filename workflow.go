@@ -103,6 +103,8 @@ func (wf *Workflow) Start(ctx context.Context) (*WorkflowReport, error) {
 		wf.report, err = wf.firstStep.Run(ctx, NewStartTrigger(wf.report))
 		if err != nil {
 			wf.report.Status = StatusFailed
+		} else {
+			wf.report.Status = StatusSuccess
 		}
 
 		wf.report.EndTime = time.Now()

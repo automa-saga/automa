@@ -77,7 +77,7 @@ func NewWorkflowReport(id string, steps []string) *WorkflowReport {
 		WorkflowID:   id,
 		StartTime:    time.Now(),
 		EndTime:      time.Now(),
-		Status:       StatusFailed,
+		Status:       StatusUndefined,
 		StepSequence: steps,
 		StepReports:  map[string]*StepReport{},
 	}
@@ -93,7 +93,7 @@ func NewStepReport(id string, action StepActionType) *StepReport {
 	r.Actions[action] = &ActionReport{
 		StartTime: time.Now(),
 		EndTime:   time.Now(),
-		Status:    StatusFailed,
+		Status:    StatusUndefined,
 		Error:     errors.EncodedError{},
 		metadata:  map[string][]byte{},
 	}
