@@ -57,7 +57,7 @@ type AtomicWorkflow interface {
 	GetID() string
 
 	// Start starts the AtomicWorkflow execution
-	Start(ctx context.Context) (WorkflowReport, error)
+	Start(ctx context.Context) (*WorkflowReport, error)
 
 	// End performs cleanup after the AtomicWorkflow engine finish its execution
 	End(ctx context.Context)
