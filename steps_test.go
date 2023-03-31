@@ -123,6 +123,33 @@ func TestSkippedRollbackPrev(t *testing.T) {
 	assert.Equal(t, 2, len(reports.StepReports))
 }
 
+func TestFailedRollback(t *testing.T) {
+	s1 := &mockSuccessStepStep{
+		Step:  Step{ID: "Stop containers"},
+		cache: map[string][]byte{},
+	}
+
+	s2 := &mockFailedStep{
+		Step:  Step{ID: "Fetch latest images"},
+		cache: map[string][]byte{},
+	}
+
+	ctx := context.Background()
+	prevFailure := &Failure{error: errors.New("Test"), workflowReport: NewWorkflowReport("rollback-test", nil)}
+	report := NewStepReport(s1.ID, RollbackAction)
+
+	reports, err := s1.FailedRollback(ctx, prevFailure, errors.New("test"), report)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(reports.StepReports))
+
+	s1.SetNext(s2)
+	s2.SetPrev(s1)
+	report = NewStepReport(s2.ID, RollbackAction)
+	reports, err = s2.FailedRollback(ctx, prevFailure, errors.New("test2"), report)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(reports.StepReports))
+}
+
 func TestNextPrev(t *testing.T) {
 	s1 := &mockSuccessStepStep{
 		Step:  Step{ID: "Stop containers"},

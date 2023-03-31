@@ -2,6 +2,7 @@ package automa
 
 import (
 	"context"
+	"github.com/cockroachdb/errors"
 )
 
 // Step is the kernel for AtomicStep implementation to be used as inheritance by composition pattern
@@ -48,7 +49,7 @@ func (s *Step) SkippedRun(ctx context.Context, prevSuccess *Success, report *Ste
 	return prevSuccess.workflowReport, nil
 }
 
-// SkippedRollback is a helper method to report that current step's rollback has been skipped and trigger next step's rollback
+// SkippedRollback is a helper method to report that current step's rollback has been skipped and trigger previous step's rollback
 // It marks the current step as StatusSkipped
 func (s *Step) SkippedRollback(ctx context.Context, prevFailure *Failure, report *StepReport) (*WorkflowReport, error) {
 	if s.Prev != nil {
@@ -56,6 +57,20 @@ func (s *Step) SkippedRollback(ctx context.Context, prevFailure *Failure, report
 	}
 
 	prevFailure.workflowReport.Append(report, RollbackAction, StatusSkipped)
+
+	return prevFailure.workflowReport, nil
+}
+
+// FailedRollback is a helper method to report that current step's rollback has failed and trigger previous step's rollback
+// It marks the current step RollbackAction as StatusFailed
+func (s *Step) FailedRollback(ctx context.Context, prevFailure *Failure, err error, report *StepReport) (*WorkflowReport, error) {
+	report.Actions[RollbackAction].Error = errors.EncodeError(ctx, err)
+
+	if s.Prev != nil {
+		return s.Prev.Rollback(ctx, NewFailedRollback(ctx, prevFailure, err, report))
+	}
+
+	prevFailure.workflowReport.Append(report, RollbackAction, StatusFailed)
 
 	return prevFailure.workflowReport, nil
 }

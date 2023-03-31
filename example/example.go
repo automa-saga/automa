@@ -65,6 +65,10 @@ type RestartContainers struct {
 
 func (s *StopContainers) Run(ctx context.Context, prevSuccess *automa.Success) (*automa.WorkflowReport, error) {
 	report := automa.NewStepReport(s.ID, automa.RunAction)
+
+	// reset cache
+	s.cache = InMemCache{}
+
 	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
 	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
 
@@ -79,6 +83,10 @@ func (s *StopContainers) Rollback(ctx context.Context, prevFailure *automa.Failu
 
 func (s *FetchLatest) Run(ctx context.Context, prevSuccess *automa.Success) (*automa.WorkflowReport, error) {
 	report := automa.NewStepReport(s.ID, automa.RunAction)
+
+	// reset cache
+	s.cache = InMemCache{}
+
 	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
 	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
 
@@ -93,6 +101,10 @@ func (s *FetchLatest) Rollback(ctx context.Context, prevFailure *automa.Failure)
 
 func (s *NotifyAll) Run(ctx context.Context, prevSuccess *automa.Success) (*automa.WorkflowReport, error) {
 	report := automa.NewStepReport(s.ID, automa.RunAction)
+
+	// reset cache
+	s.cache = InMemCache{}
+
 	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
 	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
 	return s.SkippedRun(ctx, prevSuccess, report)
@@ -106,6 +118,10 @@ func (s *NotifyAll) Rollback(ctx context.Context, prevFailure *automa.Failure) (
 
 func (s *RestartContainers) Run(ctx context.Context, prevSuccess *automa.Success) (*automa.WorkflowReport, error) {
 	report := automa.NewStepReport(s.ID, automa.RunAction)
+
+	// reset cache
+	s.cache = InMemCache{}
+
 	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
 	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
 
@@ -113,7 +129,7 @@ func (s *RestartContainers) Run(ctx context.Context, prevSuccess *automa.Success
 	err := errors.New("error running step 3")
 	report.Actions[automa.RunAction].Error = errors.EncodeError(ctx, err)
 	if err != nil {
-		return s.Rollback(ctx, automa.NewRollbackTrigger(prevSuccess, err, report))
+		return s.Rollback(ctx, automa.NewFailedRun(ctx, prevSuccess, err, report))
 	}
 
 	return s.RunNext(ctx, prevSuccess, report)
@@ -125,15 +141,7 @@ func (s *RestartContainers) Rollback(ctx context.Context, prevFailure *automa.Fa
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	logger, err := zap.NewDevelopment()
-	if err != nil {
-		panic(err)
-	}
-
+func buildWorkflow1(ctx context.Context, logger *zap.Logger) (automa.AtomicWorkflow, error) {
 	stop := &StopContainers{
 		Step:   automa.Step{ID: "Stop containers"},
 		cache:  InMemCache{},
@@ -167,35 +175,41 @@ func main() {
 	})
 
 	// a new workflow with notify in the middle
-	workflow := registry.BuildWorkflow("workflow-1", []string{
+	workflow, err := registry.BuildWorkflow("workflow-1", []string{
 		stop.ID,
 		fetch.ID,
 		notify.ID,
 		restart.ID,
 	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return workflow, nil
+}
+
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		logger.Fatal("Failed to setup logger", zap.Error(err))
+	}
+
+	workflow, err := buildWorkflow1(ctx, logger)
+	if err != nil {
+		logger.Fatal("Failed to build workflow-1", zap.Error(err))
+	}
 	defer workflow.End(ctx)
 
 	report, err := workflow.Start(ctx)
 	if err == nil {
 		logger.Error("Was expecting error, no error received")
 	}
+
 	printReport(report, logger)
-
-	// a new workflow with notify at the end
-	workflow2 := registry.BuildWorkflow("workflow-2", []string{
-		stop.ID,
-		fetch.ID,
-		restart.ID,
-		notify.ID,
-	})
-	defer workflow2.End(ctx)
-
-	report2, err := workflow2.Start(ctx)
-	if err == nil {
-		logger.Error("Was expecting error, no error received")
-	}
-
-	printReport(report2, logger)
 }
 
 func printReport(report *automa.WorkflowReport, logger *zap.Logger) {

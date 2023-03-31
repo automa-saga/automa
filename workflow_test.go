@@ -40,7 +40,11 @@ func (s *mockStopContainersStep) Run(ctx context.Context, prevSuccess *Success) 
 func (s *mockStopContainersStep) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
 	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
-	return s.RollbackPrev(ctx, prevFailure, report)
+
+	// mock error on rollback
+	err := errors.New("Mock error")
+
+	return s.FailedRollback(ctx, prevFailure, err, report)
 }
 
 func (s *mockFetchLatestStep) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
@@ -77,9 +81,8 @@ func (s *mockRestartContainersStep) Run(ctx context.Context, prevSuccess *Succes
 
 	// trigger rollback on error
 	err := errors.New("error running step 3")
-	report.Actions[RunAction].Error = errors.EncodeError(ctx, err)
 	if err != nil {
-		return s.Rollback(ctx, NewRollbackTrigger(prevSuccess, err, report))
+		return s.Rollback(ctx, NewFailedRun(ctx, prevSuccess, err, report))
 	}
 
 	return s.RunNext(ctx, prevSuccess, report)
@@ -122,13 +125,19 @@ func TestWorkflowEngine_Start(t *testing.T) {
 		restart.GetID(): restart,
 	})
 
+	_, err := registry.BuildWorkflow("workflow-1", []string{
+		"INVALID",
+	})
+	assert.Error(t, err)
+
 	// a new workflow with notify in the middle
-	workflow1 := registry.BuildWorkflow("workflow-1", []string{
+	workflow1, err := registry.BuildWorkflow("workflow-1", []string{
 		stop.GetID(),
 		fetch.GetID(),
 		notify.GetID(),
 		restart.GetID(),
 	})
+	assert.NoError(t, err)
 	assert.Equal(t, "workflow-1", workflow1.GetID())
 	defer workflow1.End(ctx)
 
@@ -138,12 +147,13 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	assert.Equal(t, 4, len(report.StepReports)) // it will reach all steps and rollback
 
 	// a new workflow with notify at the end
-	workflow2 := registry.BuildWorkflow("workflow-2", []string{
+	workflow2, err := registry.BuildWorkflow("workflow-2", []string{
 		stop.GetID(),
 		fetch.GetID(),
 		restart.GetID(),
 		notify.GetID(),
 	})
+	assert.NoError(t, err)
 	assert.Equal(t, "workflow-2", workflow2.GetID())
 	defer workflow2.End(ctx)
 
@@ -154,11 +164,12 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	assert.NotNil(t, report2.StepReports[restart.ID].Actions[RunAction].Error)
 
 	// a new workflow with no failure
-	workflow3 := registry.BuildWorkflow("workflow-3", []string{
+	workflow3, err := registry.BuildWorkflow("workflow-3", []string{
 		stop.GetID(),
 		fetch.GetID(),
 		notify.GetID(),
 	})
+	assert.NoError(t, err)
 	assert.Equal(t, "workflow-3", workflow3.GetID())
 	defer workflow2.End(ctx)
 
@@ -175,7 +186,8 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	}
 
 	// NoOp scenario when first step is null
-	noopWorkflow := registry.BuildWorkflow("workflow-3", []string{"INVALID-step1", "INVALID-step2"})
+	noopWorkflow, err := registry.BuildWorkflow("noop-workflow", []string{})
+	assert.NoError(t, err)
 	report4, err := noopWorkflow.Start(ctx)
 	assert.NotNil(t, report4)
 	assert.Equal(t, 0, len(report4.StepReports))
