@@ -36,7 +36,7 @@ type ActionReport struct {
 	EndTime   time.Time           `yaml:"end_time" json:"endTime"`
 	Status    Status              `yaml:"status" json:"status"`
 	Error     errors.EncodedError `yaml:"error" json:"error"`
-	metadata  map[string][]byte   `yaml:"metadata" json:"metadata"`
+	Metadata  map[string][]byte   `yaml:"metadata" json:"metadata"`
 }
 
 // Append appends the current report to the previous report
@@ -52,7 +52,7 @@ func (wfr *WorkflowReport) Append(stepReport *StepReport, action StepActionType,
 			EndTime:   time.Now(),
 			Status:    status,
 			Error:     errors.EncodedError{},
-			metadata:  map[string][]byte{},
+			Metadata:  map[string][]byte{},
 		}
 	} else {
 		stepReport.Actions[action].EndTime = time.Now()
@@ -95,7 +95,7 @@ func NewStepReport(id string, action StepActionType) *StepReport {
 		EndTime:   time.Now(),
 		Status:    StatusUndefined,
 		Error:     errors.EncodedError{},
-		metadata:  map[string][]byte{},
+		Metadata:  map[string][]byte{},
 	}
 
 	return r
