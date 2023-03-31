@@ -47,13 +47,7 @@ func (wfr *WorkflowReport) Append(stepReport *StepReport, action StepActionType,
 	}
 
 	if _, ok := stepReport.Actions[action]; !ok {
-		stepReport.Actions[action] = &ActionReport{
-			StartTime: time.Now(),
-			EndTime:   time.Now(),
-			Status:    status,
-			Error:     errors.EncodedError{},
-			Metadata:  map[string][]byte{},
-		}
+		stepReport.Actions[action] = NewActionReport()
 	} else {
 		stepReport.Actions[action].EndTime = time.Now()
 		stepReport.Actions[action].Status = status
@@ -90,13 +84,18 @@ func NewStepReport(id string, action StepActionType) *StepReport {
 		Actions: map[StepActionType]*ActionReport{},
 	}
 
-	r.Actions[action] = &ActionReport{
+	r.Actions[action] = NewActionReport()
+
+	return r
+}
+
+// NewActionReport returns an instance of ActionReport
+func NewActionReport() *ActionReport {
+	return &ActionReport{
 		StartTime: time.Now(),
 		EndTime:   time.Now(),
 		Status:    StatusUndefined,
 		Error:     errors.EncodedError{},
 		Metadata:  map[string][]byte{},
 	}
-
-	return r
 }
