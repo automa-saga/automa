@@ -70,14 +70,14 @@ func buildWorkflow1(ctx context.Context, params map[string]string) automa.Workfl
     workflowID := "workflow-1"
 	
     step1 := &MyStep1 {
-        Step:  Step{ID: "Step-1"},
+        Step:  Step{ID: "step_1"}, // underscore separated string is suitable for IDs
 
         // add parameters as needed
         params: params
     }
 
     step1 := &MyStep2 {
-        Step:  Step{ID: "Step-2"},
+        Step:  Step{ID: "step_2"},
 
         // add parameters as needed
         params: params

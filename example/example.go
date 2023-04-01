@@ -143,26 +143,26 @@ func (s *RestartContainers) Rollback(ctx context.Context, prevFailure *automa.Fa
 
 func buildWorkflow1(ctx context.Context, logger *zap.Logger) (automa.AtomicWorkflow, error) {
 	stop := &StopContainers{
-		Step:   automa.Step{ID: "Stop containers"},
+		Step:   automa.Step{ID: "stop_containers"},
 		cache:  InMemCache{},
 		logger: logger,
 	}
 
 	fetch := &FetchLatest{
-		Step:   automa.Step{ID: "Fetch latest images"},
+		Step:   automa.Step{ID: "fetch_latest_images"},
 		cache:  InMemCache{},
 		logger: logger,
 	}
 
 	notify :=
 		&NotifyAll{
-			Step:   automa.Step{ID: "NotifyAll on Slack"},
+			Step:   automa.Step{ID: "notify_all_on_slack"},
 			cache:  InMemCache{},
 			logger: logger,
 		}
 
 	restart := &RestartContainers{
-		Step:   automa.Step{ID: "Restart containers"},
+		Step:   automa.Step{ID: "restart_containers"},
 		cache:  InMemCache{},
 		logger: logger,
 	}
@@ -175,7 +175,7 @@ func buildWorkflow1(ctx context.Context, logger *zap.Logger) (automa.AtomicWorkf
 	})
 
 	// a new workflow with notify in the middle
-	workflow, err := registry.BuildWorkflow("workflow-1", []string{
+	workflow, err := registry.BuildWorkflow("workflow_1", []string{
 		stop.ID,
 		fetch.ID,
 		notify.ID,

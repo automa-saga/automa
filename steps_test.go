@@ -71,17 +71,17 @@ func TestSkippedRun(t *testing.T) {
 
 func TestRollbackPrev(t *testing.T) {
 	s1 := &mockSuccessStepStep{
-		Step:  Step{ID: "Stop containers"},
+		Step:  Step{ID: "stop_containers"},
 		cache: map[string][]byte{},
 	}
 
 	s2 := &mockFailedStep{
-		Step:  Step{ID: "Fetch latest images"},
+		Step:  Step{ID: "fetch_latest_images"},
 		cache: map[string][]byte{},
 	}
 
 	ctx := context.Background()
-	prevFailure := &Failure{error: errors.New("Test"), workflowReport: NewWorkflowReport("rollback-test", nil)}
+	prevFailure := &Failure{error: errors.New("Test"), workflowReport: NewWorkflowReport("rollback_test", nil)}
 	report := NewStepReport(s1.ID, RollbackAction)
 
 	reports, err := s1.SkippedRollback(ctx, prevFailure, report)
@@ -98,17 +98,17 @@ func TestRollbackPrev(t *testing.T) {
 
 func TestSkippedRollbackPrev(t *testing.T) {
 	s1 := &mockSuccessStepStep{
-		Step:  Step{ID: "Stop containers"},
+		Step:  Step{ID: "stop_containers"},
 		cache: map[string][]byte{},
 	}
 
 	s2 := &mockFailedStep{
-		Step:  Step{ID: "Fetch latest images"},
+		Step:  Step{ID: "fetch_latest_images"},
 		cache: map[string][]byte{},
 	}
 
 	ctx := context.Background()
-	prevFailure := &Failure{error: errors.New("Test"), workflowReport: NewWorkflowReport("rollback-test", nil)}
+	prevFailure := &Failure{error: errors.New("Test"), workflowReport: NewWorkflowReport("rollback_test", nil)}
 	report := NewStepReport(s1.ID, RollbackAction)
 
 	reports, err := s1.RollbackPrev(ctx, prevFailure, report)
@@ -125,17 +125,17 @@ func TestSkippedRollbackPrev(t *testing.T) {
 
 func TestFailedRollback(t *testing.T) {
 	s1 := &mockSuccessStepStep{
-		Step:  Step{ID: "Stop containers"},
+		Step:  Step{ID: "stop_containers"},
 		cache: map[string][]byte{},
 	}
 
 	s2 := &mockFailedStep{
-		Step:  Step{ID: "Fetch latest images"},
+		Step:  Step{ID: "fetch_latest_images"},
 		cache: map[string][]byte{},
 	}
 
 	ctx := context.Background()
-	prevFailure := &Failure{error: errors.New("Test"), workflowReport: NewWorkflowReport("rollback-test", nil)}
+	prevFailure := &Failure{error: errors.New("Test"), workflowReport: NewWorkflowReport("rollback_test", nil)}
 	report := NewStepReport(s1.ID, RollbackAction)
 
 	reports, err := s1.FailedRollback(ctx, prevFailure, errors.New("test"), report)
@@ -152,7 +152,7 @@ func TestFailedRollback(t *testing.T) {
 
 func TestNextPrev(t *testing.T) {
 	s1 := &mockSuccessStepStep{
-		Step:  Step{ID: "Stop containers"},
+		Step:  Step{ID: "stop_containers"},
 		cache: map[string][]byte{},
 	}
 
@@ -160,7 +160,7 @@ func TestNextPrev(t *testing.T) {
 	assert.Nil(t, s1.GetPrev())
 
 	s2 := &mockSuccessStepStep{
-		Step:  Step{ID: "Fetch latest images"},
+		Step:  Step{ID: "fetch_latest_images"},
 		cache: map[string][]byte{},
 	}
 
@@ -185,7 +185,7 @@ func TestRun(t *testing.T) {
 
 	s2 := &successStep{}
 	ctx := context.Background()
-	prevSuccess := &Success{workflowReport: NewWorkflowReport("run-test", nil)}
+	prevSuccess := &Success{workflowReport: NewWorkflowReport("run_test", nil)}
 
 	s1.SetNext(s2)
 
