@@ -64,7 +64,8 @@ func (s *Step) SkippedRollback(ctx context.Context, prevFailure *Failure, report
 // FailedRollback is a helper method to report that current step's rollback has failed and trigger previous step's rollback
 // It marks the current step RollbackAction as StatusFailed
 func (s *Step) FailedRollback(ctx context.Context, prevFailure *Failure, err error, report *StepReport) (*WorkflowReport, error) {
-	report.Actions[RollbackAction].Error = errors.EncodeError(ctx, err)
+	report.Action = RollbackAction
+	report.Error = errors.EncodeError(ctx, err)
 
 	if s.Prev != nil {
 		return s.Prev.Rollback(ctx, NewFailedRollback(ctx, prevFailure, err, report))

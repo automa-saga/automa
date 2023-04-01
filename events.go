@@ -20,7 +20,8 @@ type Failure struct {
 // It is used by a step to trigger its own rollback action
 // It sets the step's RunAction status as StatusFailed
 func NewFailedRun(ctx context.Context, prevSuccess *Success, err error, report *StepReport) *Failure {
-	report.Actions[RunAction].Error = errors.EncodeError(ctx, err)
+	report.Action = RunAction
+	report.Error = errors.EncodeError(ctx, err)
 	prevSuccess.workflowReport.Append(report, RunAction, StatusFailed)
 	return &Failure{error: err, workflowReport: prevSuccess.workflowReport}
 }
@@ -28,7 +29,8 @@ func NewFailedRun(ctx context.Context, prevSuccess *Success, err error, report *
 // NewFailedRollback returns a Failure event when steps rollback action failed
 // It sets the step's RollbackAction status as StatusFailed
 func NewFailedRollback(ctx context.Context, prevFailure *Failure, err error, report *StepReport) *Failure {
-	report.Actions[RollbackAction].Error = errors.EncodeError(ctx, err)
+	report.Action = RollbackAction
+	report.Error = errors.EncodeError(ctx, err)
 	prevFailure.workflowReport.Append(report, RollbackAction, StatusFailed)
 	return &Failure{error: err, workflowReport: prevFailure.workflowReport}
 }

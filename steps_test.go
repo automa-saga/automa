@@ -66,7 +66,7 @@ func TestSkippedRun(t *testing.T) {
 	s2.SetPrev(s1)
 	reports, err = s1.SkippedRun(ctx, prevSuccess, report)
 	assert.NoError(t, err)
-	assert.Equal(t, 2, len(reports.StepReports))
+	assert.Equal(t, 3, len(reports.StepReports))
 }
 
 func TestRollbackPrev(t *testing.T) {
@@ -93,7 +93,7 @@ func TestRollbackPrev(t *testing.T) {
 	report = NewStepReport(s2.ID, RollbackAction)
 	reports, err = s2.SkippedRollback(ctx, prevFailure, report)
 	assert.NoError(t, err)
-	assert.Equal(t, 2, len(reports.StepReports))
+	assert.Equal(t, 3, len(reports.StepReports))
 }
 
 func TestSkippedRollbackPrev(t *testing.T) {
@@ -120,7 +120,7 @@ func TestSkippedRollbackPrev(t *testing.T) {
 	report = NewStepReport(s2.ID, RollbackAction)
 	reports, err = s2.RollbackPrev(ctx, prevFailure, report)
 	assert.NoError(t, err)
-	assert.Equal(t, 2, len(reports.StepReports))
+	assert.Equal(t, 3, len(reports.StepReports))
 }
 
 func TestFailedRollback(t *testing.T) {
@@ -147,7 +147,7 @@ func TestFailedRollback(t *testing.T) {
 	report = NewStepReport(s2.ID, RollbackAction)
 	reports, err = s2.FailedRollback(ctx, prevFailure, errors.New("test2"), report)
 	assert.NoError(t, err)
-	assert.Equal(t, 2, len(reports.StepReports))
+	assert.Equal(t, 3, len(reports.StepReports))
 }
 
 func TestNextPrev(t *testing.T) {

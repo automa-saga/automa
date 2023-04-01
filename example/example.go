@@ -127,7 +127,6 @@ func (s *RestartContainers) Run(ctx context.Context, prevSuccess *automa.Success
 
 	// trigger rollback on error
 	err := errors.New("error running step 3")
-	report.Actions[automa.RunAction].Error = errors.EncodeError(ctx, err)
 	if err != nil {
 		return s.Rollback(ctx, automa.NewFailedRun(ctx, prevSuccess, err, report))
 	}

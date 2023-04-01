@@ -14,7 +14,7 @@ func TestNewSkippedRun(t *testing.T) {
 		EndTime:      time.Now(),
 		Status:       "",
 		StepSequence: []string{},
-		StepReports:  map[string]*StepReport{},
+		StepReports:  []*StepReport{},
 	}}
 
 	success := NewSkippedRun(prevSuccess, nil)
@@ -38,7 +38,7 @@ func TestNewSkippedRollback(t *testing.T) {
 			EndTime:      time.Now(),
 			Status:       "",
 			StepSequence: []string{},
-			StepReports:  map[string]*StepReport{},
+			StepReports:  []*StepReport{},
 		},
 	}
 	failure := NewSkippedRollback(prevFailure, nil)

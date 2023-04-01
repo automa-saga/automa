@@ -144,7 +144,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	report, err := workflow1.Start(ctx)
 	assert.Error(t, err)
 	assert.NotNil(t, report)
-	assert.Equal(t, 4, len(report.StepReports)) // it will reach all steps and rollback
+	assert.Equal(t, 8, len(report.StepReports)) // it will reach all steps and rollback
 
 	// a new workflow with notify at the end
 	workflow2, err := registry.BuildWorkflow("workflow_2", []string{
@@ -160,8 +160,8 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	report2, err := workflow2.Start(ctx)
 	assert.Error(t, err)
 	assert.NotNil(t, report)
-	assert.Equal(t, 3, len(report2.StepReports)) // it will not reach notify step
-	assert.NotNil(t, report2.StepReports[restart.ID].Actions[RunAction].Error)
+	assert.Equal(t, 6, len(report2.StepReports)) // it will not reach notify step
+	assert.NotNil(t, report2.StepReports[5].Error)
 
 	// a new workflow with no failure
 	workflow3, err := registry.BuildWorkflow("workflow_3", []string{
@@ -179,10 +179,13 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	assert.Equal(t, 3, len(report3.StepReports))
 	assert.Equal(t, StatusSuccess, report3.Status)
 	assert.Equal(t, []string{stop.GetID(), fetch.GetID(), notify.GetID()}, report3.StepSequence)
-	for _, stepID := range report3.StepSequence {
-		assert.NotNil(t, report3.StepReports[stepID])
-		assert.NotNil(t, report3.StepReports[stepID].Actions[RunAction])
-		assert.Nil(t, report3.StepReports[stepID].Actions[RollbackAction])
+	for _, stepReport := range report2.StepReports {
+		if (stepReport.StepID == restart.GetID() && stepReport.Action == RunAction) ||
+			(stepReport.StepID == stop.GetID() && stepReport.Action == RollbackAction) {
+			assert.Equal(t, StatusFailed, stepReport.Status)
+		} else {
+			assert.Equal(t, StatusSuccess, stepReport.Status)
+		}
 	}
 
 	// NoOp scenario when first step is null
