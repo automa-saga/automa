@@ -119,13 +119,13 @@ func TestWorkflowEngine_Start(t *testing.T) {
 		restart.GetID(): restart,
 	})
 
-	_, err := registry.BuildWorkflow("workflow_1", []string{
+	_, err := registry.BuildWorkflow("workflow_1", StepIDs{
 		"INVALID",
 	})
 	assert.Error(t, err)
 
 	// a new workflow with notify in the middle
-	workflow1, err := registry.BuildWorkflow("workflow_1", []string{
+	workflow1, err := registry.BuildWorkflow("workflow_1", StepIDs{
 		stop.GetID(),
 		fetch.GetID(),
 		notify.GetID(),
@@ -141,7 +141,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	assert.Equal(t, 8, len(report.StepReports)) // it will reach all steps and rollback
 
 	// a new workflow with notify at the end
-	workflow2, err := registry.BuildWorkflow("workflow_2", []string{
+	workflow2, err := registry.BuildWorkflow("workflow_2", StepIDs{
 		stop.GetID(),
 		fetch.GetID(),
 		restart.GetID(),
@@ -158,7 +158,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	assert.NotNil(t, report2.StepReports[5].Error)
 
 	// a new workflow with no failure
-	workflow3, err := registry.BuildWorkflow("workflow_3", []string{
+	workflow3, err := registry.BuildWorkflow("workflow_3", StepIDs{
 		stop.GetID(),
 		fetch.GetID(),
 		notify.GetID(),
@@ -172,7 +172,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	assert.NotNil(t, report)
 	assert.Equal(t, 3, len(report3.StepReports))
 	assert.Equal(t, StatusSuccess, report3.Status)
-	assert.Equal(t, []string{stop.GetID(), fetch.GetID(), notify.GetID()}, report3.StepSequence)
+	assert.Equal(t, StepIDs{stop.GetID(), fetch.GetID(), notify.GetID()}, report3.StepSequence)
 	for _, stepReport := range report2.StepReports {
 		if (stepReport.StepID == restart.GetID() && stepReport.Action == RunAction) ||
 			(stepReport.StepID == stop.GetID() && stepReport.Action == RollbackAction) {
@@ -183,7 +183,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	}
 
 	// NoOp scenario when first step is null
-	noopWorkflow, err := registry.BuildWorkflow("noop_workflow", []string{})
+	noopWorkflow, err := registry.BuildWorkflow("noop_workflow", StepIDs{})
 	assert.NoError(t, err)
 	report4, err := noopWorkflow.Start(ctx)
 	assert.NotNil(t, report4)

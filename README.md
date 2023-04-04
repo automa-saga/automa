@@ -133,7 +133,7 @@ func buildWorkflow1(ctx context.Context, params map[string]string) automa.Workfl
     // Note that you may create different workflows from the same registry if needed.
     // However, if the same registry is being reused, ensure each step clears its local cache (if it has any)
     // before executing its action as necessary.
-    workflow1Steps := []string{
+    workflow1Steps := StepIDs{
         step1.GetID(),
         step2.GetID(),
     }

@@ -20,7 +20,7 @@ type WorkflowReport struct {
 	StartTime    time.Time     `yaml:"start_time" json:"startTime"`
 	EndTime      time.Time     `yaml:"end_time" json:"endTime"`
 	Status       Status        `yaml:"status" json:"status"`
-	StepSequence []string      `yaml:"step_sequence" json:"stepSequence"`
+	StepSequence StepIDs       `yaml:"step_sequence" json:"stepSequence"`
 	StepReports  []*StepReport `yaml:"step_reports" json:"stepReports"`
 }
 
@@ -49,7 +49,7 @@ func (wfr *WorkflowReport) Append(stepReport *StepReport, action StepActionType,
 }
 
 // NewWorkflowReport returns an instance of WorkflowReport
-func NewWorkflowReport(id string, steps []string) *WorkflowReport {
+func NewWorkflowReport(id string, steps StepIDs) *WorkflowReport {
 	return &WorkflowReport{
 		WorkflowID:   id,
 		StartTime:    time.Now(),

@@ -37,6 +37,9 @@ type AtomicStep interface {
 	Choreographer
 }
 
+// StepIDs is just a wrapper definition for a list of string
+type StepIDs []string
+
 // AtomicStepRegistry is a registry of rollbackable steps
 type AtomicStepRegistry interface {
 	// RegisterSteps registers a set of AtomicStep
@@ -48,7 +51,7 @@ type AtomicStepRegistry interface {
 	GetStep(id string) AtomicStep
 
 	// BuildWorkflow builds an AtomicWorkflow comprising the list of AtomicStep identified by ids
-	BuildWorkflow(id string, stepIDs []string) (AtomicWorkflow, error)
+	BuildWorkflow(id string, stepIDs StepIDs) (AtomicWorkflow, error)
 }
 
 // AtomicWorkflow defines interface for a Workflow

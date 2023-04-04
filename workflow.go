@@ -28,7 +28,7 @@ type Workflow struct {
 	report WorkflowReport
 
 	logger  *zap.Logger
-	stepIDs []string
+	stepIDs StepIDs
 }
 
 // addStep add an AtomicStep in the internal double linked list of steps

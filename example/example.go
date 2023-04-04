@@ -169,7 +169,7 @@ func buildWorkflow1(logger *zap.Logger) (automa.AtomicWorkflow, error) {
 	})
 
 	// a new workflow with notify in the middle
-	workflow, err := registry.BuildWorkflow("workflow_1", []string{
+	workflow, err := registry.BuildWorkflow("workflow_1", automa.StepIDs{
 		stop.ID,
 		fetch.ID,
 		notify.ID,
