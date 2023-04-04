@@ -30,68 +30,58 @@ type mockRestartContainersStep struct {
 	cache map[string][]byte
 }
 
-func (s *mockStopContainersStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
-	report := NewStepReport(s.ID, RunAction)
+// run implements SagaRun function for execution of run logic
+func (s *mockStopContainersStep) run(ctx context.Context) (skipped bool, err error) {
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
-	return s.RunNext(ctx, prevSuccess, report)
+	return false, nil
 }
 
-func (s *mockStopContainersStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
-	report := NewStepReport(s.ID, RollbackAction)
+// rollback implements SagaRollback function for execution of rollback logic
+func (s *mockStopContainersStep) rollback(ctx context.Context) (skipped bool, err error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
 
 	// mock error on rollback
-	err := errors.New("Mock error")
-
-	return s.FailedRollback(ctx, prevFailure, err, report)
+	return false, errors.New("Mock error")
 }
 
-func (s *mockFetchLatestStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
-	report := NewStepReport(s.ID, RunAction)
+// run implements SagaRun function for execution of run logic
+func (s *mockFetchLatestStep) run(ctx context.Context) (skipped bool, err error) {
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
-
-	return s.RunNext(ctx, prevSuccess, report)
+	return false, nil
 }
 
-func (s *mockFetchLatestStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
-	report := NewStepReport(s.ID, RollbackAction)
+// rollback implements SagaRollback function for execution of rollback logic
+func (s *mockFetchLatestStep) rollback(ctx context.Context) (skipped bool, err error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
-	return s.RollbackPrev(ctx, prevFailure, report)
+	return false, nil
 }
 
-func (s *mockNotifyStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
-	report := NewStepReport(s.ID, RunAction)
+// run implements SagaRun function for execution of run logic
+func (s *mockNotifyStep) run(ctx context.Context) (skipped bool, err error) {
 	fmt.Printf("SKIP RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("SKIP ROLLBACK - %q", s.ID))
-	return s.SkippedRun(ctx, prevSuccess, report)
+	return true, nil
 }
 
-func (s *mockNotifyStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
-	report := NewStepReport(s.ID, RollbackAction)
+// rollback implements SagaRollback function for execution of rollback logic
+func (s *mockNotifyStep) rollback(ctx context.Context) (skipped bool, err error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
-	return s.SkippedRollback(ctx, prevFailure, report)
+	return true, nil
 }
 
-func (s *mockRestartContainersStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
-	report := NewStepReport(s.ID, RunAction)
+// run implements SagaRun function for execution of run logic
+func (s *mockRestartContainersStep) run(ctx context.Context) (skipped bool, err error) {
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
-
-	// trigger rollback on error
-	err := errors.New("error running step 3")
-	if err != nil {
-		return s.Rollback(ctx, NewFailedRun(ctx, prevSuccess, err, report))
-	}
-
-	return s.RunNext(ctx, prevSuccess, report)
+	return false, errors.New("Mock error on restart")
 }
 
-func (s *mockRestartContainersStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
-	report := NewStepReport(s.ID, RollbackAction)
+// rollback implements SagaRollback function for execution of rollback logic
+func (s *mockRestartContainersStep) rollback(ctx context.Context) (skipped bool, err error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
-	return s.RollbackPrev(ctx, prevFailure, report)
+	return false, nil
 }
 
 func TestWorkflowEngine_Start(t *testing.T) {
@@ -102,21 +92,25 @@ func TestWorkflowEngine_Start(t *testing.T) {
 		Step:  Step{ID: "stop_containers"},
 		cache: map[string][]byte{},
 	}
+	stop.RegisterSaga(stop.run, stop.rollback)
 
 	fetch := &mockFetchLatestStep{
 		Step:  Step{ID: "fetch_latest_images"},
 		cache: map[string][]byte{},
 	}
+	fetch.RegisterSaga(fetch.run, fetch.rollback)
 
 	notify := &mockNotifyStep{
 		Step:  Step{ID: "notify_on_slack"},
 		cache: map[string][]byte{},
 	}
+	notify.RegisterSaga(notify.run, notify.rollback)
 
 	restart := &mockRestartContainersStep{
 		Step:  Step{ID: "restart_containers"},
 		cache: map[string][]byte{},
 	}
+	restart.RegisterSaga(restart.run, restart.rollback)
 
 	registry := NewStepRegistry(zap.NewNop()).RegisterSteps(map[string]AtomicStep{
 		stop.GetID():    stop,

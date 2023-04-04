@@ -5,11 +5,40 @@ import (
 	"github.com/cockroachdb/errors"
 )
 
-// Step is the kernel for AtomicStep implementation to be used as inheritance by composition pattern
+// SagaRun is a func definition to contain the run logic
+//
+// skipped return value denotes if the execution was skipped or not
+// err return value denotes any error during execution (if any)
+type SagaRun func(ctx context.Context) (skipped bool, err error)
+
+// SagaUndo is a func definition to contain the compensating logic
+//
+// skipped return value denotes if the execution was skipped or not
+// err return value denotes any error during execution (if any)
+type SagaUndo func(ctx context.Context) (skipped bool, err error)
+
+// Step is the kernel for AtomicStep implementation containing SagaRun and SagaUndo function
+// It is to be used as inheritance by composition pattern by actual Step implementations
+// If the saga methods are not registered, then Step will skip those operations during invocation of Run and Rollback
+// Note that user may override the Run and Rollback methods in the actual implementation in order to change the control logic
 type Step struct {
 	ID   string
 	Next Forward
 	Prev Backward
+
+	// holder of saga methods to be executed during Run and Rollback method of the AtomicStep
+	run      SagaRun
+	rollback SagaUndo
+}
+
+// RegisterSaga register saga logic for run and undo in order to leverage the default controller logic for Run and Rollback
+// This is just a helper function where user would like to use the default Run and Rollback logic.
+// This method usage is optional and user is free to implement Run and Rollback method of AtomicStep as they wish.
+func (s *Step) RegisterSaga(run SagaRun, undo SagaUndo) *Step {
+	s.run = run
+	s.rollback = undo
+
+	return s
 }
 
 // GetID returns the step ID
@@ -35,6 +64,50 @@ func (s *Step) GetNext() Forward {
 // GetPrev returns the step to be used to move in the backward direction
 func (s *Step) GetPrev() Backward {
 	return s.Prev
+}
+
+// Run implements Run controller logic for automa.AtomicStep interface
+// This is a wrapper function to help simplify AtomicStep implementations
+// Note that user may implement Run method in order to change the control logic as required.
+func (s *Step) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
+	report := NewStepReport(s.GetID(), RunAction)
+
+	if s.run == nil {
+		return s.SkippedRun(ctx, prevSuccess, report)
+	}
+
+	skipped, err := s.run(ctx)
+	if err != nil {
+		return s.Rollback(ctx, NewFailedRun(ctx, prevSuccess, err, report))
+	}
+
+	if skipped {
+		return s.SkippedRun(ctx, prevSuccess, report)
+	}
+
+	return s.RunNext(ctx, prevSuccess, report)
+}
+
+// Rollback implements Rollback controller logic for automa.AtomicStep interface
+// This is a wrapper function to help simplify AtomicStep implementations
+// Note that user may implement Rollback method in order to change the control logic as required.
+func (s *Step) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
+	report := NewStepReport(s.GetID(), RollbackAction)
+
+	if s.rollback == nil {
+		return s.SkippedRollback(ctx, prevFailure, report)
+	}
+
+	skipped, err := s.rollback(ctx)
+	if err != nil {
+		return s.FailedRollback(ctx, prevFailure, err, report)
+	}
+
+	if skipped {
+		return s.SkippedRollback(ctx, prevFailure, report)
+	}
+
+	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
 // SkippedRun is a helper method to report that current step has been skipped and trigger next step's execution

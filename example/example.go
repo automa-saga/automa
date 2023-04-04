@@ -63,81 +63,73 @@ type RestartContainers struct {
 	logger *zap.Logger
 }
 
-func (s *StopContainers) Run(ctx context.Context, prevSuccess *automa.Success) (automa.WorkflowReport, error) {
-	report := automa.NewStepReport(s.ID, automa.RunAction)
-
+func (s *StopContainers) run(ctx context.Context) (skipped bool, err error) {
 	// reset cache
 	s.cache = InMemCache{}
 
 	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
 	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
 
-	return s.RunNext(ctx, prevSuccess, report)
+	return false, nil
 }
 
-func (s *StopContainers) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.WorkflowReport, error) {
-	report := automa.NewStepReport(s.ID, automa.RollbackAction)
+func (s *StopContainers) rollback(ctx context.Context) (skipped bool, err error) {
+	// use cache
 	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
-	return s.RollbackPrev(ctx, prevFailure, report)
+
+	return false, nil
 }
 
-func (s *FetchLatest) Run(ctx context.Context, prevSuccess *automa.Success) (automa.WorkflowReport, error) {
-	report := automa.NewStepReport(s.ID, automa.RunAction)
-
+func (s *FetchLatest) run(ctx context.Context) (skipped bool, err error) {
 	// reset cache
 	s.cache = InMemCache{}
 
 	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
 	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
 
-	return s.RunNext(ctx, prevSuccess, report)
+	return false, nil
 }
 
-func (s *FetchLatest) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.WorkflowReport, error) {
-	report := automa.NewStepReport(s.ID, automa.RollbackAction)
+func (s *FetchLatest) rollback(ctx context.Context) (skipped bool, err error) {
+	// use cache
 	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
-	return s.RollbackPrev(ctx, prevFailure, report)
+
+	return false, nil
 }
 
-func (s *NotifyAll) Run(ctx context.Context, prevSuccess *automa.Success) (automa.WorkflowReport, error) {
-	report := automa.NewStepReport(s.ID, automa.RunAction)
-
-	// reset cache
-	s.cache = InMemCache{}
-
-	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
-	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
-	return s.SkippedRun(ctx, prevSuccess, report)
-}
-
-func (s *NotifyAll) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.WorkflowReport, error) {
-	report := automa.NewStepReport(s.ID, automa.RollbackAction)
-	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
-	return s.SkippedRollback(ctx, prevFailure, report)
-}
-
-func (s *RestartContainers) Run(ctx context.Context, prevSuccess *automa.Success) (automa.WorkflowReport, error) {
-	report := automa.NewStepReport(s.ID, automa.RunAction)
-
+func (s *NotifyAll) run(ctx context.Context) (skipped bool, err error) {
 	// reset cache
 	s.cache = InMemCache{}
 
 	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
 	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
 
-	// trigger rollback on error
-	err := errors.New("error running step 3")
-	if err != nil {
-		return s.Rollback(ctx, automa.NewFailedRun(ctx, prevSuccess, err, report))
-	}
-
-	return s.RunNext(ctx, prevSuccess, report)
+	// skip step
+	return true, nil
 }
 
-func (s *RestartContainers) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.WorkflowReport, error) {
-	report := automa.NewStepReport(s.ID, automa.RollbackAction)
+func (s *NotifyAll) rollback(ctx context.Context) (skipped bool, err error) {
+	// use cache
 	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
-	return s.RollbackPrev(ctx, prevFailure, report)
+
+	return true, nil
+}
+
+func (s *RestartContainers) run(ctx context.Context) (skipped bool, err error) {
+	// reset cache
+	s.cache = InMemCache{}
+
+	s.logger.Debug(fmt.Sprintf("RUN - %q", s.ID))
+	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
+
+	return false, errors.Newf("Mock error during %q", s.GetID())
+}
+
+func (s *RestartContainers) rollback(ctx context.Context) (skipped bool, err error) {
+	// use cache
+	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
+
+	return false, nil
 }
 
 func buildWorkflow1(logger *zap.Logger) (automa.AtomicWorkflow, error) {
@@ -146,25 +138,28 @@ func buildWorkflow1(logger *zap.Logger) (automa.AtomicWorkflow, error) {
 		cache:  InMemCache{},
 		logger: logger,
 	}
+	stop.RegisterSaga(stop.run, stop.rollback)
 
 	fetch := &FetchLatest{
 		Step:   automa.Step{ID: "fetch_latest_images"},
 		cache:  InMemCache{},
 		logger: logger,
 	}
+	fetch.RegisterSaga(fetch.run, fetch.rollback)
 
-	notify :=
-		&NotifyAll{
-			Step:   automa.Step{ID: "notify_all_on_slack"},
-			cache:  InMemCache{},
-			logger: logger,
-		}
+	notify := &NotifyAll{
+		Step:   automa.Step{ID: "notify_all_on_slack"},
+		cache:  InMemCache{},
+		logger: logger,
+	}
+	notify.RegisterSaga(notify.run, notify.rollback)
 
 	restart := &RestartContainers{
 		Step:   automa.Step{ID: "restart_containers"},
 		cache:  InMemCache{},
 		logger: logger,
 	}
+	restart.RegisterSaga(restart.run, restart.rollback)
 
 	registry := automa.NewStepRegistry(zap.NewNop()).RegisterSteps(map[string]automa.AtomicStep{
 		stop.ID:    stop,

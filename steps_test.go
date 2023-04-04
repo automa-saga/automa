@@ -8,36 +8,37 @@ import (
 	"testing"
 )
 
-type mockSuccessStepStep struct {
+type mockSuccessStep struct {
 	Step
 	cache map[string][]byte
 }
 
+// this is an example of AtomicStep that extends Step but overrides the Run and Rollback methods
 type mockFailedStep struct {
 	Step
 	cache map[string][]byte
 }
 
-func (s *mockSuccessStepStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
-	report := NewStepReport(s.ID, RunAction)
+func (s *mockSuccessStep) run(ctx context.Context) (skipped bool, err error) {
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
-	return s.RunNext(ctx, prevSuccess, report)
+	return false, nil
 }
 
-func (s *mockSuccessStepStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
-	report := NewStepReport(s.ID, RollbackAction)
+func (s *mockSuccessStep) rollback(ctx context.Context) (skipped bool, err error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
-	return s.RollbackPrev(ctx, prevFailure, report)
+	return false, nil
 }
 
+// override the AtomicStep.Run from Step
 func (s *mockFailedStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("SKIP RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("SKIP ROLLBACK - %q", s.ID))
-	return s.SkippedRun(ctx, prevSuccess, report)
+	return s.Rollback(ctx, NewFailedRun(ctx, prevSuccess, errors.New("Mock error"), report))
 }
 
+// override the AtomicStep.Rollback from Step
 func (s *mockFailedStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
@@ -45,12 +46,13 @@ func (s *mockFailedStep) Rollback(ctx context.Context, prevFailure *Failure) (Wo
 }
 
 func TestSkippedRun(t *testing.T) {
-	s1 := &mockSuccessStepStep{
+	s1 := &mockSuccessStep{
 		Step:  Step{ID: "Stop containers"},
 		cache: map[string][]byte{},
 	}
+	s1.RegisterSaga(s1.run, s1.rollback)
 
-	s2 := &mockSuccessStepStep{
+	s2 := &mockSuccessStep{
 		Step:  Step{ID: "Fetch latest images"},
 		cache: map[string][]byte{},
 	}
@@ -84,10 +86,11 @@ func TestSkippedRun(t *testing.T) {
 }
 
 func TestSkippedRollbackPrev(t *testing.T) {
-	s1 := &mockSuccessStepStep{
+	s1 := &mockSuccessStep{
 		Step:  Step{ID: "stop_containers"},
 		cache: map[string][]byte{},
 	}
+	s1.RegisterSaga(s1.run, s1.rollback)
 
 	s2 := &mockFailedStep{
 		Step:  Step{ID: "fetch_latest_images"},
@@ -118,10 +121,11 @@ func TestSkippedRollbackPrev(t *testing.T) {
 }
 
 func TestRollbackPrev(t *testing.T) {
-	s1 := &mockSuccessStepStep{
+	s1 := &mockSuccessStep{
 		Step:  Step{ID: "stop_containers"},
 		cache: map[string][]byte{},
 	}
+	s1.RegisterSaga(s1.run, s1.rollback)
 
 	s2 := &mockFailedStep{
 		Step:  Step{ID: "fetch_latest_images"},
@@ -152,10 +156,11 @@ func TestRollbackPrev(t *testing.T) {
 }
 
 func TestFailedRollback(t *testing.T) {
-	s1 := &mockSuccessStepStep{
+	s1 := &mockSuccessStep{
 		Step:  Step{ID: "stop_containers"},
 		cache: map[string][]byte{},
 	}
+	s1.RegisterSaga(s1.run, s1.rollback)
 
 	s2 := &mockFailedStep{
 		Step:  Step{ID: "fetch_latest_images"},
@@ -186,15 +191,16 @@ func TestFailedRollback(t *testing.T) {
 }
 
 func TestNextPrev(t *testing.T) {
-	s1 := &mockSuccessStepStep{
+	s1 := &mockSuccessStep{
 		Step:  Step{ID: "stop_containers"},
 		cache: map[string][]byte{},
 	}
+	s1.RegisterSaga(s1.run, s1.rollback)
 
 	assert.Nil(t, s1.GetNext())
 	assert.Nil(t, s1.GetPrev())
 
-	s2 := &mockSuccessStepStep{
+	s2 := &mockSuccessStep{
 		Step:  Step{ID: "fetch_latest_images"},
 		cache: map[string][]byte{},
 	}
@@ -212,20 +218,77 @@ func TestNextPrev(t *testing.T) {
 
 }
 
-func TestRun(t *testing.T) {
-	s1 := &mockSuccessStepStep{
+func TestRunSuccess(t *testing.T) {
+	s1 := &mockSuccessStep{
 		Step:  Step{ID: "Step -1"},
 		cache: map[string][]byte{},
 	}
 
-	s2 := &successStep{}
+	s2 := &mockSuccessStep{
+		Step:  Step{ID: "Step -2"},
+		cache: map[string][]byte{},
+	}
+	s2.RegisterSaga(s2.run, s2.rollback)
+
 	ctx := context.Background()
 	mockReport := NewWorkflowReport("test", nil)
+
 	prevSuccess := &Success{workflowReport: *mockReport}
-
-	s1.SetNext(s2)
-
 	reports, err := s1.Run(ctx, prevSuccess)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(reports.StepReports))
+	assert.Equal(t, StatusSkipped, reports.StepReports[0].Status)
+
+	s1.SetNext(s2)
+	s2.SetPrev(s1)
+	prevSuccess = &Success{workflowReport: *mockReport}
+	reports, err = s1.Run(ctx, prevSuccess)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(reports.StepReports))
+	assert.Equal(t, StatusSkipped, reports.StepReports[0].Status)
+	assert.Equal(t, StatusSuccess, reports.StepReports[1].Status)
+
+	s1.RegisterSaga(s1.run, s1.rollback)
+	prevSuccess = &Success{workflowReport: *mockReport}
+	reports, err = s1.Run(ctx, prevSuccess)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(reports.StepReports))
+	assert.Equal(t, StatusSuccess, reports.StepReports[0].Status)
+	assert.Equal(t, StatusSuccess, reports.StepReports[1].Status)
+}
+
+func TestRunWithFailure(t *testing.T) {
+	s1 := &mockSuccessStep{
+		Step:  Step{ID: "Step -1"},
+		cache: map[string][]byte{},
+	}
+	s2 := &mockFailedStep{
+		Step:  Step{ID: "Step -2"},
+		cache: map[string][]byte{},
+	}
+
+	ctx := context.Background()
+	mockReport := NewWorkflowReport("test", nil)
+
+	prevSuccess := &Success{workflowReport: *mockReport}
+	reports, err := s1.Run(ctx, prevSuccess)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(reports.StepReports))
+	assert.Equal(t, StatusSkipped, reports.StepReports[0].Status)
+
+	s1.SetNext(s2)
+	s2.SetPrev(s1)
+	prevSuccess = &Success{workflowReport: *mockReport}
+	reports, err = s1.Run(ctx, prevSuccess)
+	assert.NoError(t, err)
+	assert.Equal(t, 4, len(reports.StepReports))
+	assert.Equal(t, StatusSkipped, reports.StepReports[0].Status)
+
+	s1.RegisterSaga(s1.run, s1.rollback)
+	prevSuccess = &Success{workflowReport: *mockReport}
+	reports, err = s1.Run(ctx, prevSuccess)
+	assert.NoError(t, err)
+	assert.Equal(t, 4, len(reports.StepReports))
+	assert.Equal(t, StatusSuccess, reports.StepReports[0].Status)
+
 }

@@ -26,17 +26,53 @@ Developers need to populate a Report object in every `Run` and `Rollback` method
 1. Add dependency using `go get -u "github.com/automa-saga/automa"`.
 2. Implement workflow steps (implements `automa.AtomicStep` interface) using the pattern as below:
 ```go
+
+// MyStep1 is an example AtomicStep that does not implement AtomicStep interface directly and uses the default 
+// implementation provided by automa.Step 
 type MyStep1 struct {
-	*automa.Step
+    automa.Step
+    params map[string]string // define any parameter data model as required
+}
+
+// run implements the SagaRun method interface to leverage default Run control logic that is implemented in automa.Step
+// Note if not provided, Run action will be marked as SKIPPED
+func (s *MyStep1) run(ctx context.Context) (skipped bool, err error) {
+    // perform run action
+    // use params or cache as needed
+
+	// if error happens, just return the error as below to trigger rollback
+	return false, err
+	
+    // if this action needs to be skipped because of a condition, invoke next step using
+	return true, nil
+}
+
+// rollback implements the SagaRollback method interface to leverage default Rollback control logic that is implemented in automa.Step
+// Note this is optional and if not provided, Rollback action will be marked as SKIPPED
+func (s *MyStep1) rollback(ctx context.Context) (skipped bool, err error) {
+    // perform rollback action
+    // use params or cache as needed
+
+    // if error happens, just return the error 
+    return false, err
+
+    // if this action needs to be skipped because of a condition, return: 
+    return true, nil
+}
+
+// MyStep2 is an example AtomicStep that implements the Run and Rollback method interface directly
+type MyStep2 struct {
+	automa.Step
 	params map[string]string // define any parameter data model as required
 }
 
 // Run implements the automa.AtomicStep interface
-func (s *MyStep1) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+func (s *MyStep2) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
 	report := NewStepReport(s.ID, RunAction)
 	
-	// perform run action
-	// use params or cache as needed
+	// perform run action with custom logic
+	// use params or cache as needed.
+	// extra control logic that is not already provided in the default automa.Step.Run
 	
 	// if error happens, invoke rollback using below
 	// return s.Rollback(ctx, NewFailedRun(ctx, prevSuccess, err, report))
@@ -48,11 +84,12 @@ func (s *MyStep1) Run(ctx context.Context, prevSuccess *Success) (*WorkflowRepor
 }
 
 // Rollback implements the automa.AtomicStep interface
-func (s *MyStep1) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+func (s *MyStep2) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
 	report := NewStepReport(s.ID, RollbackAction)
 	
 	// perform rollback action.
-	// use params or local cache as needed
+	// use params or local cache as needed.
+	// extra control logic that is not already provided in the default automa.Step.Rollback
 	
 	// if error happens, invoke previous rollback using below
 	// return s.FailedRollback(ctx, prevFailure, err, report)
@@ -63,6 +100,7 @@ func (s *MyStep1) Rollback(ctx context.Context, prevFailure *Failure) (*Workflow
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 ```
+
 3. Then create and run a workflow using `automa.StepRegistry` as below:
 ```go
 
@@ -75,13 +113,15 @@ func buildWorkflow1(ctx context.Context, params map[string]string) automa.Workfl
         // add parameters as needed
         params: params
     }
+	step1.RegisterSaga(step1.run, step1.rollback) // we need to register so that default Run and Rollback logic can be used
 
-    step1 := &MyStep2 {
+    step2 := &MyStep2 {
         Step:  Step{ID: "step_2"},
 
         // add parameters as needed
         params: params
     }
+	// Note: No need to invoke step2.RegisterSaga() since MyStep2 implements the AtomicStep interface
 
     // pass custom zap logger if necessary
     registry := automa.NewStepRegistry(zap.NewNop()).RegisterSteps(map[string]AtomicStep{
