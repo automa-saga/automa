@@ -25,7 +25,7 @@ type Workflow struct {
 
 	// local cache for accumulating report from all internal states
 	// this is passed along to accumulate report from all internal states
-	report *WorkflowReport
+	report WorkflowReport
 
 	logger  *zap.Logger
 	stepIDs []string
@@ -70,12 +70,13 @@ func WithLogger(logger *zap.Logger) WorkflowOption {
 func NewWorkflow(id string, opts ...WorkflowOption) *Workflow {
 	fs := &failedStep{}
 	ss := &successStep{}
+	report := NewWorkflowReport(id, nil)
 
 	wf := &Workflow{
 		id:          id,
 		failedStep:  fs,
 		successStep: ss,
-		report:      NewWorkflowReport(id, nil),
+		report:      *report,
 		logger:      zap.NewNop(),
 	}
 
@@ -92,7 +93,7 @@ func (wf *Workflow) GetID() string {
 }
 
 // Start starts the workflow and returns the WorkflowReport
-func (wf *Workflow) Start(ctx context.Context) (*WorkflowReport, error) {
+func (wf *Workflow) Start(ctx context.Context) (WorkflowReport, error) {
 	wf.mutex.Lock()
 	defer wf.mutex.Unlock()
 

@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewSkippedRun(t *testing.T) {
-	prevSuccess := &Success{workflowReport: &WorkflowReport{
+	prevSuccess := &Success{workflowReport: WorkflowReport{
 		WorkflowID:   "test",
 		StartTime:    time.Now(),
 		EndTime:      time.Now(),
@@ -32,7 +32,7 @@ func TestNewSkippedRun(t *testing.T) {
 func TestNewSkippedRollback(t *testing.T) {
 	prevFailure := &Failure{
 		error: errors.New("Test"),
-		workflowReport: &WorkflowReport{
+		workflowReport: WorkflowReport{
 			WorkflowID:   "test",
 			StartTime:    time.Now(),
 			EndTime:      time.Now(),

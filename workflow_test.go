@@ -30,14 +30,14 @@ type mockRestartContainersStep struct {
 	cache map[string][]byte
 }
 
-func (s *mockStopContainersStep) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+func (s *mockStopContainersStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *mockStopContainersStep) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+func (s *mockStopContainersStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 
@@ -47,7 +47,7 @@ func (s *mockStopContainersStep) Rollback(ctx context.Context, prevFailure *Fail
 	return s.FailedRollback(ctx, prevFailure, err, report)
 }
 
-func (s *mockFetchLatestStep) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+func (s *mockFetchLatestStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
@@ -55,26 +55,26 @@ func (s *mockFetchLatestStep) Run(ctx context.Context, prevSuccess *Success) (*W
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *mockFetchLatestStep) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+func (s *mockFetchLatestStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func (s *mockNotifyStep) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+func (s *mockNotifyStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("SKIP RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("SKIP ROLLBACK - %q", s.ID))
 	return s.SkippedRun(ctx, prevSuccess, report)
 }
 
-func (s *mockNotifyStep) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+func (s *mockNotifyStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return s.SkippedRollback(ctx, prevFailure, report)
 }
 
-func (s *mockRestartContainersStep) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+func (s *mockRestartContainersStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
@@ -88,7 +88,7 @@ func (s *mockRestartContainersStep) Run(ctx context.Context, prevSuccess *Succes
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *mockRestartContainersStep) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+func (s *mockRestartContainersStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return s.RollbackPrev(ctx, prevFailure, report)

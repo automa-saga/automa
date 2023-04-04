@@ -7,13 +7,13 @@ import (
 
 // Success defines a success event for a step
 type Success struct {
-	workflowReport *WorkflowReport
+	workflowReport WorkflowReport
 }
 
 // Failure defines a failure event for a step
 type Failure struct {
 	error
-	workflowReport *WorkflowReport
+	workflowReport WorkflowReport
 }
 
 // NewFailedRun returns a Failure event to be used for first Rollback method
@@ -37,7 +37,7 @@ func NewFailedRollback(ctx context.Context, prevFailure *Failure, err error, rep
 
 // NewStartTrigger returns a Success event to be use for Run method
 // It is used by the Workflow to trigger the execution of the first step
-func NewStartTrigger(reports *WorkflowReport) *Success {
+func NewStartTrigger(reports WorkflowReport) *Success {
 	return &Success{
 		workflowReport: reports,
 	}

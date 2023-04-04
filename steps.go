@@ -39,7 +39,11 @@ func (s *Step) GetPrev() Backward {
 
 // SkippedRun is a helper method to report that current step has been skipped and trigger next step's execution
 // It marks the current step as StatusSkipped
-func (s *Step) SkippedRun(ctx context.Context, prevSuccess *Success, report *StepReport) (*WorkflowReport, error) {
+func (s *Step) SkippedRun(ctx context.Context, prevSuccess *Success, report *StepReport) (WorkflowReport, error) {
+	if report == nil {
+		report = NewStepReport(s.GetID(), RunAction)
+	}
+
 	if s.Next != nil {
 		return s.Next.Run(ctx, NewSkippedRun(prevSuccess, report))
 	}
@@ -51,7 +55,11 @@ func (s *Step) SkippedRun(ctx context.Context, prevSuccess *Success, report *Ste
 
 // SkippedRollback is a helper method to report that current step's rollback has been skipped and trigger previous step's rollback
 // It marks the current step as StatusSkipped
-func (s *Step) SkippedRollback(ctx context.Context, prevFailure *Failure, report *StepReport) (*WorkflowReport, error) {
+func (s *Step) SkippedRollback(ctx context.Context, prevFailure *Failure, report *StepReport) (WorkflowReport, error) {
+	if report == nil {
+		report = NewStepReport(s.GetID(), RollbackAction)
+	}
+
 	if s.Prev != nil {
 		return s.Prev.Rollback(ctx, NewSkippedRollback(prevFailure, report))
 	}
@@ -63,8 +71,11 @@ func (s *Step) SkippedRollback(ctx context.Context, prevFailure *Failure, report
 
 // FailedRollback is a helper method to report that current step's rollback has failed and trigger previous step's rollback
 // It marks the current step RollbackAction as StatusFailed
-func (s *Step) FailedRollback(ctx context.Context, prevFailure *Failure, err error, report *StepReport) (*WorkflowReport, error) {
-	report.Action = RollbackAction
+func (s *Step) FailedRollback(ctx context.Context, prevFailure *Failure, err error, report *StepReport) (WorkflowReport, error) {
+	if report == nil {
+		report = NewStepReport(s.GetID(), RollbackAction)
+	}
+
 	report.Error = errors.EncodeError(ctx, err)
 
 	if s.Prev != nil {
@@ -78,7 +89,11 @@ func (s *Step) FailedRollback(ctx context.Context, prevFailure *Failure, err err
 
 // RunNext is a helper method to report that current step has been successful and trigger next step's execution
 // It marks the current step as StatusSuccess
-func (s *Step) RunNext(ctx context.Context, prevSuccess *Success, report *StepReport) (*WorkflowReport, error) {
+func (s *Step) RunNext(ctx context.Context, prevSuccess *Success, report *StepReport) (WorkflowReport, error) {
+	if report == nil {
+		report = NewStepReport(s.GetID(), RunAction)
+	}
+
 	if s.Next != nil {
 		return s.Next.Run(ctx, NewSuccess(prevSuccess, report))
 	}
@@ -89,7 +104,11 @@ func (s *Step) RunNext(ctx context.Context, prevSuccess *Success, report *StepRe
 
 // RollbackPrev is a helper method to report that current rollback step has been executed and trigger previous step's rollback
 // It marks the current step as StatusFailed
-func (s *Step) RollbackPrev(ctx context.Context, prevFailure *Failure, report *StepReport) (*WorkflowReport, error) {
+func (s *Step) RollbackPrev(ctx context.Context, prevFailure *Failure, report *StepReport) (WorkflowReport, error) {
+	if report == nil {
+		report = NewStepReport(s.GetID(), RollbackAction)
+	}
+
 	if s.Prev != nil {
 		return s.Prev.Rollback(ctx, NewFailure(prevFailure, report))
 	}
@@ -109,11 +128,11 @@ type successStep struct {
 }
 
 // Rollback implements Backward interface for failedStep
-func (fs *failedStep) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+func (fs *failedStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
 	return prevFailure.workflowReport, prevFailure.error
 }
 
 // Run implements the Forward interface for successStep
-func (ss *successStep) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+func (ss *successStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
 	return prevSuccess.workflowReport, nil
 }

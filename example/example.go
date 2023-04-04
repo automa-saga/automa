@@ -63,7 +63,7 @@ type RestartContainers struct {
 	logger *zap.Logger
 }
 
-func (s *StopContainers) Run(ctx context.Context, prevSuccess *automa.Success) (*automa.WorkflowReport, error) {
+func (s *StopContainers) Run(ctx context.Context, prevSuccess *automa.Success) (automa.WorkflowReport, error) {
 	report := automa.NewStepReport(s.ID, automa.RunAction)
 
 	// reset cache
@@ -75,13 +75,13 @@ func (s *StopContainers) Run(ctx context.Context, prevSuccess *automa.Success) (
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *StopContainers) Rollback(ctx context.Context, prevFailure *automa.Failure) (*automa.WorkflowReport, error) {
+func (s *StopContainers) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.WorkflowReport, error) {
 	report := automa.NewStepReport(s.ID, automa.RollbackAction)
 	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func (s *FetchLatest) Run(ctx context.Context, prevSuccess *automa.Success) (*automa.WorkflowReport, error) {
+func (s *FetchLatest) Run(ctx context.Context, prevSuccess *automa.Success) (automa.WorkflowReport, error) {
 	report := automa.NewStepReport(s.ID, automa.RunAction)
 
 	// reset cache
@@ -93,13 +93,13 @@ func (s *FetchLatest) Run(ctx context.Context, prevSuccess *automa.Success) (*au
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *FetchLatest) Rollback(ctx context.Context, prevFailure *automa.Failure) (*automa.WorkflowReport, error) {
+func (s *FetchLatest) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.WorkflowReport, error) {
 	report := automa.NewStepReport(s.ID, automa.RollbackAction)
 	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func (s *NotifyAll) Run(ctx context.Context, prevSuccess *automa.Success) (*automa.WorkflowReport, error) {
+func (s *NotifyAll) Run(ctx context.Context, prevSuccess *automa.Success) (automa.WorkflowReport, error) {
 	report := automa.NewStepReport(s.ID, automa.RunAction)
 
 	// reset cache
@@ -110,13 +110,13 @@ func (s *NotifyAll) Run(ctx context.Context, prevSuccess *automa.Success) (*auto
 	return s.SkippedRun(ctx, prevSuccess, report)
 }
 
-func (s *NotifyAll) Rollback(ctx context.Context, prevFailure *automa.Failure) (*automa.WorkflowReport, error) {
+func (s *NotifyAll) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.WorkflowReport, error) {
 	report := automa.NewStepReport(s.ID, automa.RollbackAction)
 	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
 	return s.SkippedRollback(ctx, prevFailure, report)
 }
 
-func (s *RestartContainers) Run(ctx context.Context, prevSuccess *automa.Success) (*automa.WorkflowReport, error) {
+func (s *RestartContainers) Run(ctx context.Context, prevSuccess *automa.Success) (automa.WorkflowReport, error) {
 	report := automa.NewStepReport(s.ID, automa.RunAction)
 
 	// reset cache
@@ -134,13 +134,13 @@ func (s *RestartContainers) Run(ctx context.Context, prevSuccess *automa.Success
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *RestartContainers) Rollback(ctx context.Context, prevFailure *automa.Failure) (*automa.WorkflowReport, error) {
+func (s *RestartContainers) Rollback(ctx context.Context, prevFailure *automa.Failure) (automa.WorkflowReport, error) {
 	report := automa.NewStepReport(s.ID, automa.RollbackAction)
 	s.logger.Debug(s.cache.GetString(keyRollbackMsg))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func buildWorkflow1(ctx context.Context, logger *zap.Logger) (automa.AtomicWorkflow, error) {
+func buildWorkflow1(logger *zap.Logger) (automa.AtomicWorkflow, error) {
 	stop := &StopContainers{
 		Step:   automa.Step{ID: "stop_containers"},
 		cache:  InMemCache{},
@@ -197,7 +197,7 @@ func main() {
 		logger.Fatal("Failed to setup logger", zap.Error(err))
 	}
 
-	workflow, err := buildWorkflow1(ctx, logger)
+	workflow, err := buildWorkflow1(logger)
 	if err != nil {
 		logger.Fatal("Failed to build workflow-1", zap.Error(err))
 	}
@@ -208,7 +208,7 @@ func main() {
 		logger.Error("Was expecting error, no error received")
 	}
 
-	printReport(report, logger)
+	printReport(&report, logger)
 }
 
 func printReport(report *automa.WorkflowReport, logger *zap.Logger) {

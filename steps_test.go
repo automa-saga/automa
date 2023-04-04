@@ -18,27 +18,27 @@ type mockFailedStep struct {
 	cache map[string][]byte
 }
 
-func (s *mockSuccessStepStep) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+func (s *mockSuccessStepStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 	return s.RunNext(ctx, prevSuccess, report)
 }
 
-func (s *mockSuccessStepStep) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+func (s *mockSuccessStepStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return s.RollbackPrev(ctx, prevFailure, report)
 }
 
-func (s *mockFailedStep) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+func (s *mockFailedStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("SKIP RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("SKIP ROLLBACK - %q", s.ID))
 	return s.SkippedRun(ctx, prevSuccess, report)
 }
 
-func (s *mockFailedStep) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+func (s *mockFailedStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return s.RollbackPrev(ctx, prevFailure, report)
@@ -54,8 +54,10 @@ func TestSkippedRun(t *testing.T) {
 		Step:  Step{ID: "Fetch latest images"},
 		cache: map[string][]byte{},
 	}
+
 	ctx := context.Background()
-	prevSuccess := &Success{workflowReport: NewWorkflowReport("skipped-run-test", nil)}
+	mockReport := NewWorkflowReport("skipped-run-test", nil)
+	prevSuccess := &Success{workflowReport: *mockReport}
 	report := NewStepReport(s1.ID, RunAction)
 
 	reports, err := s1.SkippedRun(ctx, prevSuccess, report)
@@ -67,33 +69,18 @@ func TestSkippedRun(t *testing.T) {
 	reports, err = s1.SkippedRun(ctx, prevSuccess, report)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(reports.StepReports))
-}
 
-func TestRollbackPrev(t *testing.T) {
-	s1 := &mockSuccessStepStep{
-		Step:  Step{ID: "stop_containers"},
-		cache: map[string][]byte{},
-	}
-
-	s2 := &mockFailedStep{
-		Step:  Step{ID: "fetch_latest_images"},
-		cache: map[string][]byte{},
-	}
-
-	ctx := context.Background()
-	prevFailure := &Failure{error: errors.New("Test"), workflowReport: NewWorkflowReport("rollback_test", nil)}
-	report := NewStepReport(s1.ID, RollbackAction)
-
-	reports, err := s1.SkippedRollback(ctx, prevFailure, report)
+	// nil report should allow creating a default report
+	prevSuccess = &Success{workflowReport: *mockReport}
+	reports, err = s1.SkippedRun(ctx, prevSuccess, nil)
 	assert.NoError(t, err)
-	assert.Equal(t, 1, len(reports.StepReports))
+	assert.Equal(t, 2, len(reports.StepReports))
 
-	s1.SetNext(s2)
-	s2.SetPrev(s1)
-	report = NewStepReport(s2.ID, RollbackAction)
-	reports, err = s2.SkippedRollback(ctx, prevFailure, report)
+	// nil report should allow creating a default report
+	prevSuccess = &Success{workflowReport: *mockReport}
+	reports, err = s1.RunNext(ctx, prevSuccess, nil)
 	assert.NoError(t, err)
-	assert.Equal(t, 3, len(reports.StepReports))
+	assert.Equal(t, 2, len(reports.StepReports))
 }
 
 func TestSkippedRollbackPrev(t *testing.T) {
@@ -108,7 +95,42 @@ func TestSkippedRollbackPrev(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	prevFailure := &Failure{error: errors.New("Test"), workflowReport: NewWorkflowReport("rollback_test", nil)}
+	mockReport := NewWorkflowReport("test", nil)
+	prevFailure := &Failure{error: errors.New("Test"), workflowReport: *mockReport}
+	report := NewStepReport(s1.ID, RollbackAction)
+
+	reports, err := s1.SkippedRollback(ctx, prevFailure, report)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(reports.StepReports))
+
+	s1.SetNext(s2)
+	s2.SetPrev(s1)
+	report = NewStepReport(s2.ID, RollbackAction)
+	reports, err = s2.SkippedRollback(ctx, prevFailure, report)
+	assert.NoError(t, err)
+	assert.Equal(t, 3, len(reports.StepReports))
+
+	// nil report should allow creating a default report
+	prevFailure = &Failure{error: errors.New("Test"), workflowReport: *mockReport}
+	reports, err = s1.SkippedRollback(ctx, prevFailure, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(reports.StepReports))
+}
+
+func TestRollbackPrev(t *testing.T) {
+	s1 := &mockSuccessStepStep{
+		Step:  Step{ID: "stop_containers"},
+		cache: map[string][]byte{},
+	}
+
+	s2 := &mockFailedStep{
+		Step:  Step{ID: "fetch_latest_images"},
+		cache: map[string][]byte{},
+	}
+
+	ctx := context.Background()
+	mockReport := NewWorkflowReport("test", nil)
+	prevFailure := &Failure{error: errors.New("Test"), workflowReport: *mockReport}
 	report := NewStepReport(s1.ID, RollbackAction)
 
 	reports, err := s1.RollbackPrev(ctx, prevFailure, report)
@@ -121,6 +143,12 @@ func TestSkippedRollbackPrev(t *testing.T) {
 	reports, err = s2.RollbackPrev(ctx, prevFailure, report)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(reports.StepReports))
+
+	// nil report should allow creating a default report
+	prevFailure = &Failure{error: errors.New("Test"), workflowReport: *mockReport}
+	reports, err = s1.RollbackPrev(ctx, prevFailure, nil)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(reports.StepReports))
 }
 
 func TestFailedRollback(t *testing.T) {
@@ -135,7 +163,8 @@ func TestFailedRollback(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	prevFailure := &Failure{error: errors.New("Test"), workflowReport: NewWorkflowReport("rollback_test", nil)}
+	mockReport := NewWorkflowReport("test", nil)
+	prevFailure := &Failure{error: errors.New("Test"), workflowReport: *mockReport}
 	report := NewStepReport(s1.ID, RollbackAction)
 
 	reports, err := s1.FailedRollback(ctx, prevFailure, errors.New("test"), report)
@@ -148,6 +177,12 @@ func TestFailedRollback(t *testing.T) {
 	reports, err = s2.FailedRollback(ctx, prevFailure, errors.New("test2"), report)
 	assert.NoError(t, err)
 	assert.Equal(t, 3, len(reports.StepReports))
+
+	// nil report should allow creating a default report
+	prevFailure = &Failure{error: errors.New("Test"), workflowReport: *mockReport}
+	reports, err = s1.FailedRollback(ctx, prevFailure, errors.New("test3"), nil)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(reports.StepReports))
 }
 
 func TestNextPrev(t *testing.T) {
@@ -185,7 +220,8 @@ func TestRun(t *testing.T) {
 
 	s2 := &successStep{}
 	ctx := context.Background()
-	prevSuccess := &Success{workflowReport: NewWorkflowReport("run_test", nil)}
+	mockReport := NewWorkflowReport("test", nil)
+	prevSuccess := &Success{workflowReport: *mockReport}
 
 	s1.SetNext(s2)
 
