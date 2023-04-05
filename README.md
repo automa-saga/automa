@@ -24,7 +24,7 @@ Developers need to populate a Report object in every `Run` and `Rollback` method
 ## Usage
 
 1. Add dependency using `go get -u "github.com/automa-saga/automa"`.
-2. Implement workflow steps (implements `automa.AtomicStep` interface) using the pattern as below:
+2. Implement workflow steps (that implement `automa.AtomicStep` interface) using the pattern as below:
 ```go
 
 // MyStep1 is an example AtomicStep that does not implement AtomicStep interface directly and uses the default 
@@ -35,7 +35,7 @@ type MyStep1 struct {
 }
 
 // run implements the SagaRun method interface to leverage default Run control logic that is implemented in automa.Step
-// Note if not provided, Run action will be marked as SKIPPED
+// Note if not provided, Run action will be marked as SKIPPED. See automa Step implementation.
 func (s *MyStep1) run(ctx context.Context) (skipped bool, err error) {
     // perform run action
     // use params or cache as needed
@@ -47,7 +47,7 @@ func (s *MyStep1) run(ctx context.Context) (skipped bool, err error) {
 	return true, nil
 }
 
-// rollback implements the SagaRollback method interface to leverage default Rollback control logic that is implemented in automa.Step
+// rollback implements the SagaUndo method interface to leverage default Rollback control logic that is implemented in automa.Step
 // Note this is optional and if not provided, Rollback action will be marked as SKIPPED
 func (s *MyStep1) rollback(ctx context.Context) (skipped bool, err error) {
     // perform rollback action
