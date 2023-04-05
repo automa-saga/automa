@@ -22,8 +22,146 @@ A report data model can be found in file [reports.go](https://github.com/automa-
 Developers need to populate a Report object in every `Run` and `Rollback` method as shown in the example. 
 
 ## Usage
-See an [example](https://github.com/automa-saga/automa/blob/master/example/example.go) in the example directory. As shown 
-in the example, each step can have its own internal cache to help implementing the rollback mechanism.
+
+1. Add dependency using `go get -u "github.com/automa-saga/automa"`.
+2. Implement workflow steps (that implement `automa.AtomicStep` interface) using the pattern as below:
+```go
+
+// MyStep1 is an example AtomicStep that does not implement AtomicStep interface directly and uses the default 
+// implementation provided by automa.Step 
+type MyStep1 struct {
+    automa.Step
+    params map[string]string // define any parameter data model as required
+}
+
+// run implements the SagaRun method interface to leverage default Run control logic that is implemented in automa.Step
+// Note if not provided, Run action will be marked as SKIPPED. See automa Step implementation.
+func (s *MyStep1) run(ctx context.Context) (skipped bool, err error) {
+    // perform run action
+    // use params or cache as needed
+
+	// if error happens, just return the error as below to trigger rollback
+	return false, err
+	
+    // if this action needs to be skipped because of a condition, invoke next step using
+	return true, nil
+}
+
+// rollback implements the SagaUndo method interface to leverage default Rollback control logic that is implemented in automa.Step
+// Note this is optional and if not provided, Rollback action will be marked as SKIPPED
+func (s *MyStep1) rollback(ctx context.Context) (skipped bool, err error) {
+    // perform rollback action
+    // use params or cache as needed
+
+    // if error happens, just return the error 
+    return false, err
+
+    // if this action needs to be skipped because of a condition, return: 
+    return true, nil
+}
+
+// MyStep2 is an example AtomicStep that implements the Run and Rollback method interface directly
+type MyStep2 struct {
+	automa.Step
+	params map[string]string // define any parameter data model as required
+}
+
+// Run implements the automa.AtomicStep interface
+func (s *MyStep2) Run(ctx context.Context, prevSuccess *Success) (*WorkflowReport, error) {
+	report := NewStepReport(s.ID, RunAction)
+	
+	// perform run action with custom logic
+	// use params or cache as needed.
+	// extra control logic that is not already provided in the default automa.Step.Run
+	
+	// if error happens, invoke rollback using below
+	// return s.Rollback(ctx, NewFailedRun(ctx, prevSuccess, err, report))
+	
+	// if this action needs to be skipped because of a condition, invoke next Run using..
+	// return s.SkippedRun(ctx, prevSuccess, report) 
+	
+	return s.RunNext(ctx, prevSuccess, report)
+}
+
+// Rollback implements the automa.AtomicStep interface
+func (s *MyStep2) Rollback(ctx context.Context, prevFailure *Failure) (*WorkflowReport, error) {
+	report := NewStepReport(s.ID, RollbackAction)
+	
+	// perform rollback action.
+	// use params or local cache as needed.
+	// extra control logic that is not already provided in the default automa.Step.Rollback
+	
+	// if error happens, invoke previous rollback using below
+	// return s.FailedRollback(ctx, prevFailure, err, report)
+	
+	// if this action needs to be skipped because of a condition, invoke ..
+	// return s.SkippedRollback(ctx, prevFailure, report) 
+	
+	return s.RollbackPrev(ctx, prevFailure, report)
+}
+```
+
+3. Then create and run a workflow using `automa.StepRegistry` as below:
+```go
+
+func buildWorkflow1(ctx context.Context, params map[string]string) automa.Workflow {
+    workflowID := "workflow-1"
+	
+    step1 := &MyStep1 {
+        Step:  Step{ID: "step_1"}, // underscore separated string is suitable for IDs
+
+        // add parameters as needed
+        params: params
+    }
+	step1.RegisterSaga(step1.run, step1.rollback) // we need to register so that default Run and Rollback logic can be used
+
+    step2 := &MyStep2 {
+        Step:  Step{ID: "step_2"},
+
+        // add parameters as needed
+        params: params
+    }
+	// Note: No need to invoke step2.RegisterSaga() since MyStep2 implements the AtomicStep interface
+
+    // pass custom zap logger if necessary
+    registry := automa.NewStepRegistry(zap.NewNop()).RegisterSteps(map[string]AtomicStep{
+        step1.GetID(): step1,
+        step2.GetID(): step2,
+    })
+
+    // prepare the sequence of steps
+    // Note that you may create different workflows from the same registry if needed.
+    // However, if the same registry is being reused, ensure each step clears its local cache (if it has any)
+    // before executing its action as necessary.
+    workflow1Steps := StepIDs{
+        step1.GetID(),
+        step2.GetID(),
+    }
+	
+    workflow := registry.BuildWorkflow(workflowID, workflow1Steps)
+    return workflow
+}
+
+func runWorkflow(ctx context.Context) error {
+    params := map[string]string{} // add params as necessary
+	
+    workflow := buildWorkflow1(ctx, params)
+    defer workflow1.End(ctx)
+
+    report, err := workflow.Start(context.Background())
+    if err != nil {
+        return err
+    }
+
+    // do something with the report if necessary 
+    // 'report' can be exported as YAML or JSON. See examples directory.
+
+    return nil
+	
+}
+```
+
+See an [example](https://github.com/automa-saga/automa/blob/master/example/example.go) in the example directory. 
 
 ## Development
  - `make test` runs the tests. 

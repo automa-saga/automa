@@ -4,7 +4,8 @@ package automa
 type Status string
 
 const (
-	StatusSuccess Status = "SUCCESS"
-	StatusFailed  Status = "FAILED"
-	StatusSkipped Status = "SKIPPED"
+	StatusSuccess   Status = "SUCCESS"
+	StatusFailed    Status = "FAILED"
+	StatusSkipped   Status = "SKIPPED"
+	StatusUndefined Status = "UNDEFINED"
 )

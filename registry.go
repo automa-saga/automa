@@ -1,6 +1,7 @@
 package automa
 
 import (
+	"github.com/cockroachdb/errors"
 	"go.uber.org/zap"
 )
 
@@ -32,7 +33,7 @@ func (r *StepRegistry) registerStep(id string, step AtomicStep) *StepRegistry {
 }
 
 // RegisterSteps is a helper method to register multiple AtomicSteps at a time
-func (r *StepRegistry) RegisterSteps(steps map[string]AtomicStep) *StepRegistry {
+func (r *StepRegistry) RegisterSteps(steps map[string]AtomicStep) AtomicStepRegistry {
 	for id, step := range steps {
 		r.registerStep(id, step)
 	}
@@ -51,14 +52,17 @@ func (r *StepRegistry) GetStep(id string) AtomicStep {
 }
 
 // BuildWorkflow is a helper method to build a Workflow from the given set of AtomicStep IDs
-func (r *StepRegistry) BuildWorkflow(stepIDs []string) *Workflow {
+func (r *StepRegistry) BuildWorkflow(workflowID string, stepIDs StepIDs) (AtomicWorkflow, error) {
 	var steps []AtomicStep
-	for _, id := range stepIDs {
-		step := r.GetStep(id)
+	for _, stepID := range stepIDs {
+		step := r.GetStep(stepID)
 		if step != nil {
 			steps = append(steps, step)
+		} else {
+			return nil, errors.Newf("invalid step: %s", stepID)
 		}
 	}
 
-	return NewWorkflow(WithSteps(steps...), WithLogger(r.logger))
+	workflow := NewWorkflow(workflowID, WithSteps(steps...), WithLogger(r.logger))
+	return workflow, nil
 }

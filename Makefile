@@ -9,7 +9,7 @@ endif
 
 default: all
 
-all: fmt test
+all: fmt lint test
 
 fmt:
 	$(info ******************** checking formatting ********************)
@@ -40,7 +40,8 @@ mocks:
 test: install_deps
 	$(info ******************** running tests ********************)
 	go clean -testcache
-	go test -failfast -race -covermode=atomic -coverprofile coverage.out ./...
+	#go test -failfast -race -covermode=atomic -coverprofile coverage.out ./...
+	richgo test -failfast -race -covermode=atomic -coverprofile coverage.out ./...
 
 .PHONY: coverage
 coverage: test

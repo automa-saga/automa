@@ -4,6 +4,7 @@ import (
 	"context"
 	"go.uber.org/zap"
 	"sync"
+	"time"
 )
 
 // Workflow implements AtomicWorkflow interface
@@ -12,6 +13,7 @@ import (
 // In order to enable Choreography pattern it forms a double linked list of AtomicSteps to traverse 'Forward'
 // on Success and 'Backward' on Failure
 type Workflow struct {
+	id    string
 	mutex sync.Mutex
 
 	successStep *successStep
@@ -21,11 +23,12 @@ type Workflow struct {
 	firstStep AtomicStep
 	lastStep  AtomicStep
 
-	// local cache for accumulating reports from all internal states
-	// this is passed along to accumulate reports from all internal states
-	reports Reports
+	// local cache for accumulating report from all internal states
+	// this is passed along to accumulate report from all internal states
+	report WorkflowReport
 
-	logger *zap.Logger
+	logger  *zap.Logger
+	stepIDs StepIDs
 }
 
 // addStep add an AtomicStep in the internal double linked list of steps
@@ -50,6 +53,7 @@ func WithSteps(steps ...AtomicStep) WorkflowOption {
 	return func(wf *Workflow) {
 		for _, step := range steps {
 			wf.addStep(step)
+			wf.stepIDs = append(wf.stepIDs, step.GetID())
 		}
 	}
 }
@@ -63,14 +67,16 @@ func WithLogger(logger *zap.Logger) WorkflowOption {
 }
 
 // NewWorkflow returns an instance of WorkFlow that implements AtomicWorkflow interface
-func NewWorkflow(opts ...WorkflowOption) *Workflow {
+func NewWorkflow(id string, opts ...WorkflowOption) *Workflow {
 	fs := &failedStep{}
 	ss := &successStep{}
+	report := NewWorkflowReport(id, nil)
 
 	wf := &Workflow{
+		id:          id,
 		failedStep:  fs,
 		successStep: ss,
-		reports:     Reports{},
+		report:      *report,
 		logger:      zap.NewNop(),
 	}
 
@@ -81,19 +87,35 @@ func NewWorkflow(opts ...WorkflowOption) *Workflow {
 	return wf
 }
 
-// Start starts the workflow and returns the Reports
-func (wf *Workflow) Start(ctx context.Context) (Reports, error) {
+// GetID returns the id of the Workflow
+func (wf *Workflow) GetID() string {
+	return wf.id
+}
+
+// Start starts the workflow and returns the WorkflowReport
+func (wf *Workflow) Start(ctx context.Context) (WorkflowReport, error) {
 	wf.mutex.Lock()
 	defer wf.mutex.Unlock()
 
 	var err error
 
 	if wf.firstStep != nil {
-		wf.reports, err = wf.firstStep.Run(ctx, NewStartTrigger(wf.reports))
-		return wf.reports, err
+		wf.report.StepSequence = wf.stepIDs
+		wf.report.Status = StatusUndefined
+
+		wf.report, err = wf.firstStep.Run(ctx, NewStartTrigger(wf.report))
+		if err != nil {
+			wf.report.Status = StatusFailed
+		} else {
+			wf.report.Status = StatusSuccess
+		}
+
+		wf.report.EndTime = time.Now()
+
+		return wf.report, err
 	}
 
-	return wf.reports, nil
+	return wf.report, nil
 }
 
 // End performs any cleanup after the Workflow execution

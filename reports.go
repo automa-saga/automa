@@ -5,43 +5,71 @@ import (
 	"time"
 )
 
-// Reports defines a map of Report with key as the step ID
-type Reports map[string]*Report
+// StepActionType defines the action taken by a step
+// It is used as key for StepReport.Actions
+type StepActionType string
 
-// Report defines the report data model for each AtomicStep execution
-type Report struct {
-	StepID    string
-	StartTime time.Time
-	EndTime   time.Time
-	Status    Status
-	Error     errors.EncodedError
-	metadata  map[string][]byte
+const (
+	RunAction      StepActionType = "run"
+	RollbackAction StepActionType = "rollback"
+)
+
+// WorkflowReport defines a map of StepReport with key as the step ID
+type WorkflowReport struct {
+	WorkflowID   string        `yaml:"workflow_id" json:"workflowID"`
+	StartTime    time.Time     `yaml:"start_time" json:"startTime"`
+	EndTime      time.Time     `yaml:"end_time" json:"endTime"`
+	Status       Status        `yaml:"status" json:"status"`
+	StepSequence StepIDs       `yaml:"step_sequence" json:"stepSequence"`
+	StepReports  []*StepReport `yaml:"step_reports" json:"stepReports"`
 }
 
-// Append appends the current report to the previous reports
-// It adds an end time and sets the status for the current report
-func (r *Report) Append(prevReports Reports, status Status) Reports {
-	r.EndTime = time.Now()
-	r.Status = status
+// StepReport defines the report data model for each AtomicStep execution
+type StepReport struct {
+	StepID    string              `yaml:"step_id" json:"stepID"`
+	Action    StepActionType      `yaml:"action" json:"action"`
+	StartTime time.Time           `yaml:"start_time" json:"startTime"`
+	EndTime   time.Time           `yaml:"end_time" json:"endTime"`
+	Status    Status              `yaml:"status" json:"status"`
+	Error     errors.EncodedError `yaml:"error" json:"error"`
+	Metadata  map[string][]byte   `yaml:"metadata" json:"metadata"`
+}
 
-	clone := Reports{}
-	for key, val := range prevReports {
-		clone[key] = val
+// Append appends the current report to the previous report
+// It adds an end time and sets the status for the current report
+func (wfr *WorkflowReport) Append(stepReport *StepReport, action StepActionType, status Status) {
+	if stepReport == nil {
+		return
 	}
 
-	clone[r.StepID] = r
-
-	return clone
+	stepReport.Action = action
+	stepReport.EndTime = time.Now()
+	stepReport.Status = status
+	wfr.StepReports = append(wfr.StepReports, stepReport)
 }
 
-// NewReport returns a new report with a given stepID
-func NewReport(stepID string) *Report {
-	return &Report{
-		StepID:    stepID,
+// NewWorkflowReport returns an instance of WorkflowReport
+func NewWorkflowReport(id string, steps StepIDs) *WorkflowReport {
+	return &WorkflowReport{
+		WorkflowID:   id,
+		StartTime:    time.Now(),
+		EndTime:      time.Now(),
+		Status:       StatusUndefined,
+		StepSequence: steps,
+		StepReports:  []*StepReport{},
+	}
+}
+
+// NewStepReport returns a new report with a given stepID
+func NewStepReport(id string, action StepActionType) *StepReport {
+	r := &StepReport{
+		StepID:    id,
 		StartTime: time.Now(),
 		EndTime:   time.Now(),
-		Status:    StatusFailed,
+		Status:    StatusUndefined,
 		Error:     errors.EncodedError{},
-		metadata:  map[string][]byte{},
+		Metadata:  map[string][]byte{},
 	}
+
+	return r
 }
