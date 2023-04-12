@@ -23,10 +23,11 @@ Developers need to populate a Report object in every `Run` and `Rollback` method
 
 ## Usage
 
+*NOTE: This project is still in active development (v1.0.0 is not released yet) and so API may change between releases.*
+
 1. Add dependency using `go get -u "github.com/automa-saga/automa"`.
 2. Implement workflow steps (that implement `automa.AtomicStep` interface) using the pattern as below:
 ```go
-
 // MyStep1 is an example AtomicStep that does not implement AtomicStep interface directly and uses the default 
 // implementation provided by automa.Step 
 type MyStep1 struct {

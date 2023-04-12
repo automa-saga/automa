@@ -155,7 +155,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	assert.Error(t, err)
 	assert.NotNil(t, report)
 	assert.Equal(t, 6, len(report2.StepReports)) // it will not reach notify step
-	assert.NotNil(t, report2.StepReports[5].Error)
+	assert.NotNil(t, report2.StepReports[5].FailureReason)
 
 	// a new workflow with no failure
 	workflow3, err := registry.BuildWorkflow("workflow_3", StepIDs{

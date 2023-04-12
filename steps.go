@@ -149,7 +149,7 @@ func (s *Step) FailedRollback(ctx context.Context, prevFailure *Failure, err err
 		report = NewStepReport(s.GetID(), RollbackAction)
 	}
 
-	report.Error = errors.EncodeError(ctx, err)
+	report.FailureReason = errors.EncodeError(ctx, err)
 
 	if s.Prev != nil {
 		return s.Prev.Rollback(ctx, NewFailedRollback(ctx, prevFailure, err, report))

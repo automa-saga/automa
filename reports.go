@@ -26,13 +26,13 @@ type WorkflowReport struct {
 
 // StepReport defines the report data model for each AtomicStep execution
 type StepReport struct {
-	StepID    string              `yaml:"step_id" json:"stepID"`
-	Action    StepActionType      `yaml:"action" json:"action"`
-	StartTime time.Time           `yaml:"start_time" json:"startTime"`
-	EndTime   time.Time           `yaml:"end_time" json:"endTime"`
-	Status    Status              `yaml:"status" json:"status"`
-	Error     errors.EncodedError `yaml:"error" json:"error"`
-	Metadata  map[string][]byte   `yaml:"metadata" json:"metadata"`
+	StepID        string              `yaml:"step_id" json:"stepID"`
+	Action        StepActionType      `yaml:"action" json:"action"`
+	StartTime     time.Time           `yaml:"start_time" json:"startTime"`
+	EndTime       time.Time           `yaml:"end_time" json:"endTime"`
+	Status        Status              `yaml:"status" json:"status"`
+	FailureReason errors.EncodedError `yaml:"reason" json:"reason"`
+	Metadata      map[string][]byte   `yaml:"metadata" json:"metadata"`
 }
 
 // Append appends the current report to the previous report
@@ -63,12 +63,12 @@ func NewWorkflowReport(id string, steps StepIDs) *WorkflowReport {
 // NewStepReport returns a new report with a given stepID
 func NewStepReport(id string, action StepActionType) *StepReport {
 	r := &StepReport{
-		StepID:    id,
-		StartTime: time.Now(),
-		EndTime:   time.Now(),
-		Status:    StatusUndefined,
-		Error:     errors.EncodedError{},
-		Metadata:  map[string][]byte{},
+		StepID:        id,
+		StartTime:     time.Now(),
+		EndTime:       time.Now(),
+		Status:        StatusUndefined,
+		FailureReason: errors.EncodedError{},
+		Metadata:      map[string][]byte{},
 	}
 
 	return r
