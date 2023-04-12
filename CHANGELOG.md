@@ -1,3 +1,9 @@
+## 0.2.1 (2023-04-12)
+
+### Fix
+
+- **report**: add failure reason in the workflow report for clarity
+
 ## 0.2.0 (2023-04-05)
 
 ### Feat
