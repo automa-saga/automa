@@ -11,8 +11,8 @@ on:
 #      - reopened
 #      - ready_for_review
 #      - converted_to_draft
-    branches:
-      - main
+#    branches:
+#      - main
   workflow_dispatch:
     inputs:
       version:
