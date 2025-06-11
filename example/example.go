@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/automa-saga/automa"
-	"github.com/cockroachdb/errors"
+	"github.com/joomcode/errorx"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 )

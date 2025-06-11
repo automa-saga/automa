@@ -2,6 +2,7 @@ package automa
 
 import (
 	"context"
+	"github.com/joomcode/errorx"
 	"go.uber.org/zap"
 	"sync"
 	"time"
@@ -58,8 +59,8 @@ func WithSteps(steps ...AtomicStep) WorkflowOption {
 	}
 }
 
-// WithLogger allows Workflow to be initialized with a logger
-// By default a Workflow is initialized with a NoOp logger
+// WithLogger allows Workflow to be initialized with a logx
+// By default a Workflow is initialized with a NoOp logx
 func WithLogger(logger *zap.Logger) WorkflowOption {
 	return func(wf *Workflow) {
 		wf.logger = logger
@@ -93,11 +94,11 @@ func (wf *Workflow) GetID() string {
 }
 
 // Start starts the workflow and returns the WorkflowReport
-func (wf *Workflow) Start(ctx context.Context) (WorkflowReport, error) {
+func (wf *Workflow) Start(ctx context.Context) (WorkflowReport, *errorx.Error) {
 	wf.mutex.Lock()
 	defer wf.mutex.Unlock()
 
-	var err error
+	var err *errorx.Error
 
 	if wf.firstStep != nil {
 		wf.report.StepSequence = wf.stepIDs

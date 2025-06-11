@@ -2,19 +2,20 @@ package automa
 
 import (
 	"context"
+	"github.com/joomcode/errorx"
 )
 
 // Forward defines the methods to execute business logic of an AtomicStep and move the workflow forward
 type Forward interface {
 	// Run runs the business logic to be performed in the AtomicStep
-	Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error)
+	Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, *errorx.Error)
 }
 
 // Backward defines the methods to be executed to move the workflow backward on error
 type Backward interface {
 	// Rollback defines the actions compensating the business logic executed in Run method
 	// A step may skip rollback if that makes sense. In that case it would mean the AtomicStep is not Atomic in nature.
-	Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error)
+	Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, *errorx.Error)
 }
 
 // Choreographer interface defines the methods to support double link list of states
@@ -51,7 +52,7 @@ type AtomicStepRegistry interface {
 	GetStep(id string) AtomicStep
 
 	// BuildWorkflow builds an AtomicWorkflow comprising the list of AtomicStep identified by ids
-	BuildWorkflow(id string, stepIDs StepIDs) (AtomicWorkflow, error)
+	BuildWorkflow(id string, stepIDs StepIDs) (AtomicWorkflow, *errorx.Error)
 }
 
 // AtomicWorkflow defines interface for a Workflow
@@ -60,7 +61,7 @@ type AtomicWorkflow interface {
 	GetID() string
 
 	// Start starts the AtomicWorkflow execution
-	Start(ctx context.Context) (WorkflowReport, error)
+	Start(ctx context.Context) (WorkflowReport, *errorx.Error)
 
 	// End performs cleanup after the AtomicWorkflow engine finish its execution
 	End(ctx context.Context)

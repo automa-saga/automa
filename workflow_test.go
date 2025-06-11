@@ -3,8 +3,9 @@ package automa
 import (
 	"context"
 	"fmt"
-	"github.com/cockroachdb/errors"
+	"github.com/joomcode/errorx"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"testing"
 )
@@ -31,55 +32,55 @@ type mockRestartContainersStep struct {
 }
 
 // run implements SagaRun function for execution of run logic
-func (s *mockStopContainersStep) run(ctx context.Context) (skipped bool, err error) {
+func (s *mockStopContainersStep) run(ctx context.Context) (skipped bool, err *errorx.Error) {
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 	return false, nil
 }
 
 // rollback implements SagaRollback function for execution of rollback logic
-func (s *mockStopContainersStep) rollback(ctx context.Context) (skipped bool, err error) {
+func (s *mockStopContainersStep) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
 
 	// mock error on rollback
-	return false, errors.New("Mock error")
+	return false, errorx.IllegalState.New("Mock error")
 }
 
 // run implements SagaRun function for execution of run logic
-func (s *mockFetchLatestStep) run(ctx context.Context) (skipped bool, err error) {
+func (s *mockFetchLatestStep) run(ctx context.Context) (skipped bool, err *errorx.Error) {
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 	return false, nil
 }
 
 // rollback implements SagaRollback function for execution of rollback logic
-func (s *mockFetchLatestStep) rollback(ctx context.Context) (skipped bool, err error) {
+func (s *mockFetchLatestStep) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return false, nil
 }
 
 // run implements SagaRun function for execution of run logic
-func (s *mockNotifyStep) run(ctx context.Context) (skipped bool, err error) {
+func (s *mockNotifyStep) run(ctx context.Context) (skipped bool, err *errorx.Error) {
 	fmt.Printf("SKIP RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("SKIP ROLLBACK - %q", s.ID))
 	return true, nil
 }
 
 // rollback implements SagaRollback function for execution of rollback logic
-func (s *mockNotifyStep) rollback(ctx context.Context) (skipped bool, err error) {
+func (s *mockNotifyStep) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return true, nil
 }
 
 // run implements SagaRun function for execution of run logic
-func (s *mockRestartContainersStep) run(ctx context.Context) (skipped bool, err error) {
+func (s *mockRestartContainersStep) run(ctx context.Context) (skipped bool, err *errorx.Error) {
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
-	return false, errors.New("Mock error on restart")
+	return false, errorx.IllegalState.New("Mock error on restart")
 }
 
 // rollback implements SagaRollback function for execution of rollback logic
-func (s *mockRestartContainersStep) rollback(ctx context.Context) (skipped bool, err error) {
+func (s *mockRestartContainersStep) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return false, nil
 }
@@ -131,7 +132,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 		notify.GetID(),
 		restart.GetID(),
 	})
-	assert.NoError(t, err)
+	require.Nil(t, err)
 	assert.Equal(t, "workflow_1", workflow1.GetID())
 	defer workflow1.End(ctx)
 
@@ -147,7 +148,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 		restart.GetID(),
 		notify.GetID(),
 	})
-	assert.NoError(t, err)
+	require.Nil(t, err)
 	assert.Equal(t, "workflow_2", workflow2.GetID())
 	defer workflow2.End(ctx)
 
@@ -163,12 +164,12 @@ func TestWorkflowEngine_Start(t *testing.T) {
 		fetch.GetID(),
 		notify.GetID(),
 	})
-	assert.NoError(t, err)
+	require.Nil(t, err)
 	assert.Equal(t, "workflow_3", workflow3.GetID())
 	defer workflow2.End(ctx)
 
 	report3, err := workflow3.Start(ctx)
-	assert.NoError(t, err)
+	require.Nil(t, err)
 	assert.NotNil(t, report)
 	assert.Equal(t, 3, len(report3.StepReports))
 	assert.Equal(t, StatusSuccess, report3.Status)
@@ -184,7 +185,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 
 	// NoOp scenario when first step is null
 	noopWorkflow, err := registry.BuildWorkflow("noop_workflow", StepIDs{})
-	assert.NoError(t, err)
+	require.Nil(t, err)
 	report4, err := noopWorkflow.Start(ctx)
 	assert.NotNil(t, report4)
 	assert.Equal(t, 0, len(report4.StepReports))

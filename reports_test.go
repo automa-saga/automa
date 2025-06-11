@@ -2,6 +2,7 @@ package automa
 
 import (
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 	"testing"
 )
@@ -30,6 +31,6 @@ func TestReportYAML(t *testing.T) {
 	workflowReport.Append(stepReport1Rollback, RollbackAction, StatusSuccess)
 
 	out, err := yaml.Marshal(workflowReport)
-	assert.NoError(t, err)
+	require.Nil(t, err)
 	assert.NotNil(t, out)
 }

@@ -1,7 +1,7 @@
 package automa
 
 import (
-	"github.com/cockroachdb/errors"
+	"github.com/joomcode/errorx"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
@@ -31,7 +31,7 @@ func TestNewSkippedRun(t *testing.T) {
 
 func TestNewSkippedRollback(t *testing.T) {
 	prevFailure := &Failure{
-		error: errors.New("Test"),
+		err: errorx.IllegalState.New("Test"),
 		workflowReport: WorkflowReport{
 			WorkflowID:   "test",
 			StartTime:    time.Now(),

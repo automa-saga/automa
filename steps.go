@@ -2,20 +2,20 @@ package automa
 
 import (
 	"context"
-	"github.com/cockroachdb/errors"
+	"github.com/joomcode/errorx"
 )
 
 // SagaRun is a func definition to contain the run logic
 //
 // skipped return value denotes if the execution was skipped or not
 // err return value denotes any error during execution (if any)
-type SagaRun func(ctx context.Context) (skipped bool, err error)
+type SagaRun func(ctx context.Context) (skipped bool, err *errorx.Error)
 
 // SagaUndo is a func definition to contain the compensating logic
 //
 // skipped return value denotes if the execution was skipped or not
 // err return value denotes any error during execution (if any)
-type SagaUndo func(ctx context.Context) (skipped bool, err error)
+type SagaUndo func(ctx context.Context) (skipped bool, err *errorx.Error)
 
 // Step is the kernel for AtomicStep implementation containing SagaRun and SagaUndo function
 // It is to be used as inheritance by composition pattern by actual Step implementations
@@ -69,7 +69,7 @@ func (s *Step) GetPrev() Backward {
 // Run implements Run controller logic for automa.AtomicStep interface
 // This is a wrapper function to help simplify AtomicStep implementations
 // Note that user may implement Run method in order to change the control logic as required.
-func (s *Step) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
+func (s *Step) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, *errorx.Error) {
 	report := NewStepReport(s.GetID(), RunAction)
 
 	if s.run == nil {
@@ -91,7 +91,7 @@ func (s *Step) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, e
 // Rollback implements Rollback controller logic for automa.AtomicStep interface
 // This is a wrapper function to help simplify AtomicStep implementations
 // Note that user may implement Rollback method in order to change the control logic as required.
-func (s *Step) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
+func (s *Step) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, *errorx.Error) {
 	report := NewStepReport(s.GetID(), RollbackAction)
 
 	if s.rollback == nil {
@@ -112,7 +112,7 @@ func (s *Step) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowRepo
 
 // SkippedRun is a helper method to report that current step has been skipped and trigger next step's execution
 // It marks the current step as StatusSkipped
-func (s *Step) SkippedRun(ctx context.Context, prevSuccess *Success, report *StepReport) (WorkflowReport, error) {
+func (s *Step) SkippedRun(ctx context.Context, prevSuccess *Success, report *StepReport) (WorkflowReport, *errorx.Error) {
 	if report == nil {
 		report = NewStepReport(s.GetID(), RunAction)
 	}
@@ -128,7 +128,7 @@ func (s *Step) SkippedRun(ctx context.Context, prevSuccess *Success, report *Ste
 
 // SkippedRollback is a helper method to report that current step's rollback has been skipped and trigger previous step's rollback
 // It marks the current step as StatusSkipped
-func (s *Step) SkippedRollback(ctx context.Context, prevFailure *Failure, report *StepReport) (WorkflowReport, error) {
+func (s *Step) SkippedRollback(ctx context.Context, prevFailure *Failure, report *StepReport) (WorkflowReport, *errorx.Error) {
 	if report == nil {
 		report = NewStepReport(s.GetID(), RollbackAction)
 	}
@@ -144,12 +144,12 @@ func (s *Step) SkippedRollback(ctx context.Context, prevFailure *Failure, report
 
 // FailedRollback is a helper method to report that current step's rollback has failed and trigger previous step's rollback
 // It marks the current step RollbackAction as StatusFailed
-func (s *Step) FailedRollback(ctx context.Context, prevFailure *Failure, err error, report *StepReport) (WorkflowReport, error) {
+func (s *Step) FailedRollback(ctx context.Context, prevFailure *Failure, err *errorx.Error, report *StepReport) (WorkflowReport, *errorx.Error) {
 	if report == nil {
 		report = NewStepReport(s.GetID(), RollbackAction)
 	}
 
-	report.FailureReason = errors.EncodeError(ctx, err)
+	report.FailureReason = errorx.WithContext(err, ctx)
 
 	if s.Prev != nil {
 		return s.Prev.Rollback(ctx, NewFailedRollback(ctx, prevFailure, err, report))
@@ -162,7 +162,7 @@ func (s *Step) FailedRollback(ctx context.Context, prevFailure *Failure, err err
 
 // RunNext is a helper method to report that current step has been successful and trigger next step's execution
 // It marks the current step as StatusSuccess
-func (s *Step) RunNext(ctx context.Context, prevSuccess *Success, report *StepReport) (WorkflowReport, error) {
+func (s *Step) RunNext(ctx context.Context, prevSuccess *Success, report *StepReport) (WorkflowReport, *errorx.Error) {
 	if report == nil {
 		report = NewStepReport(s.GetID(), RunAction)
 	}
@@ -177,7 +177,7 @@ func (s *Step) RunNext(ctx context.Context, prevSuccess *Success, report *StepRe
 
 // RollbackPrev is a helper method to report that current rollback step has been executed and trigger previous step's rollback
 // It marks the current step as StatusFailed
-func (s *Step) RollbackPrev(ctx context.Context, prevFailure *Failure, report *StepReport) (WorkflowReport, error) {
+func (s *Step) RollbackPrev(ctx context.Context, prevFailure *Failure, report *StepReport) (WorkflowReport, *errorx.Error) {
 	if report == nil {
 		report = NewStepReport(s.GetID(), RollbackAction)
 	}
@@ -201,11 +201,11 @@ type successStep struct {
 }
 
 // Rollback implements Backward interface for failedStep
-func (fs *failedStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
-	return prevFailure.workflowReport, prevFailure.error
+func (fs *failedStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, *errorx.Error) {
+	return prevFailure.workflowReport, prevFailure.err
 }
 
 // Run implements the Forward interface for successStep
-func (ss *successStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
+func (ss *successStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, *errorx.Error) {
 	return prevSuccess.workflowReport, nil
 }

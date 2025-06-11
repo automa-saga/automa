@@ -2,7 +2,7 @@ package automa
 
 import (
 	"context"
-	"github.com/cockroachdb/errors"
+	"github.com/joomcode/errorx"
 )
 
 // Success defines a success event for a step
@@ -12,27 +12,27 @@ type Success struct {
 
 // Failure defines a failure event for a step
 type Failure struct {
-	error
+	err            *errorx.Error
 	workflowReport WorkflowReport
 }
 
 // NewFailedRun returns a Failure event to be used for first Rollback method
 // It is used by a step to trigger its own rollback action
 // It sets the step's RunAction status as StatusFailed
-func NewFailedRun(ctx context.Context, prevSuccess *Success, err error, report *StepReport) *Failure {
+func NewFailedRun(ctx context.Context, prevSuccess *Success, err *errorx.Error, report *StepReport) *Failure {
 	report.Action = RunAction
-	report.FailureReason = errors.EncodeError(ctx, err)
+	report.FailureReason = errorx.WithContext(err, ctx)
 	prevSuccess.workflowReport.Append(report, RunAction, StatusFailed)
-	return &Failure{error: err, workflowReport: prevSuccess.workflowReport}
+	return &Failure{err: err, workflowReport: prevSuccess.workflowReport}
 }
 
 // NewFailedRollback returns a Failure event when steps rollback action failed
 // It sets the step's RollbackAction status as StatusFailed
-func NewFailedRollback(ctx context.Context, prevFailure *Failure, err error, report *StepReport) *Failure {
+func NewFailedRollback(ctx context.Context, prevFailure *Failure, err *errorx.Error, report *StepReport) *Failure {
 	report.Action = RollbackAction
-	report.FailureReason = errors.EncodeError(ctx, err)
+	report.FailureReason = errorx.WithContext(err, ctx)
 	prevFailure.workflowReport.Append(report, RollbackAction, StatusFailed)
-	return &Failure{error: err, workflowReport: prevFailure.workflowReport}
+	return &Failure{err: err, workflowReport: prevFailure.workflowReport}
 }
 
 // NewStartTrigger returns a Success event to be use for Run method
@@ -48,7 +48,7 @@ func NewStartTrigger(reports WorkflowReport) *Success {
 // It sets the step's RollbackAction status as StatusSuccess.
 func NewFailure(prevFailure *Failure, report *StepReport) *Failure {
 	prevFailure.workflowReport.Append(report, RollbackAction, StatusSuccess)
-	return &Failure{error: prevFailure.error, workflowReport: prevFailure.workflowReport}
+	return &Failure{err: prevFailure.err, workflowReport: prevFailure.workflowReport}
 }
 
 // NewSuccess creates a Success event for run action
@@ -70,5 +70,5 @@ func NewSkippedRun(prevSuccess *Success, report *StepReport) *Success {
 // This is a helper method to be used in rollback action when the rollback action is skipped.
 func NewSkippedRollback(prevFailure *Failure, report *StepReport) *Failure {
 	prevFailure.workflowReport.Append(report, RollbackAction, StatusSkipped)
-	return &Failure{error: prevFailure.error, workflowReport: prevFailure.workflowReport}
+	return &Failure{err: prevFailure.err, workflowReport: prevFailure.workflowReport}
 }
