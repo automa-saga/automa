@@ -6,7 +6,6 @@ import (
 	"github.com/joomcode/errorx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 	"testing"
 )
 
@@ -113,7 +112,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	}
 	restart.RegisterSaga(restart.run, restart.rollback)
 
-	registry := NewStepRegistry(zap.NewNop()).RegisterSteps(map[string]AtomicStep{
+	registry := NewStepRegistry(nil).RegisterSteps(map[string]AtomicStep{
 		stop.GetID():    stop,
 		fetch.GetID():   fetch,
 		notify.GetID():  notify,
@@ -166,7 +165,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	})
 	require.Nil(t, err)
 	assert.Equal(t, "workflow_3", workflow3.GetID())
-	defer workflow2.End(ctx)
+	defer workflow3.End(ctx)
 
 	report3, err := workflow3.Start(ctx)
 	require.Nil(t, err)

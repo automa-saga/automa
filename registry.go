@@ -2,20 +2,20 @@ package automa
 
 import (
 	"github.com/joomcode/errorx"
-	"go.uber.org/zap"
+	"github.com/rs/zerolog"
 )
 
 // StepRegistry is an implementation of AtomicStepRegistry interface
 type StepRegistry struct {
 	cache  map[string]AtomicStep
-	logger *zap.Logger
+	logger *zerolog.Logger
 }
 
 // NewStepRegistry returns an instance of StepRegistry that implements AtomicStepRegistry
 // if logx is nil, it initializes itself with a NoOp logx
-func NewStepRegistry(logger *zap.Logger) *StepRegistry {
+func NewStepRegistry(logger *zerolog.Logger) *StepRegistry {
 	if logger == nil {
-		logger = zap.NewNop()
+		logger = &nolog
 	}
 
 	return &StepRegistry{cache: map[string]AtomicStep{}, logger: logger}
