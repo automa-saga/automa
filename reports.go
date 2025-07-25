@@ -30,7 +30,7 @@ type StepReport struct {
 	StartTime     time.Time         `yaml:"start_time" json:"startTime"`
 	EndTime       time.Time         `yaml:"end_time" json:"endTime"`
 	Status        Status            `yaml:"status" json:"status"`
-	FailureReason error             `yaml:"reason" json:"reason"`
+	FailureReason error             `yaml:"failure_reason" json:"failure_reason"`
 	Metadata      map[string][]byte `yaml:"metadata" json:"metadata"`
 }
 
