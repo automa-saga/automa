@@ -2,7 +2,6 @@ package automa
 
 import (
 	"context"
-	"github.com/cockroachdb/errors"
 )
 
 // SagaRun is a func definition to contain the run logic
@@ -78,7 +77,7 @@ func (s *Step) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, e
 
 	skipped, err := s.run(ctx)
 	if err != nil {
-		return s.Rollback(ctx, NewFailedRun(ctx, prevSuccess, err, report))
+		return s.Rollback(ctx, NewFailedRun(prevSuccess, err, report))
 	}
 
 	if skipped {
@@ -149,10 +148,10 @@ func (s *Step) FailedRollback(ctx context.Context, prevFailure *Failure, err err
 		report = NewStepReport(s.GetID(), RollbackAction)
 	}
 
-	report.FailureReason = errors.EncodeError(ctx, err)
+	report.FailureReason = StepRollbackFailed.Wrap(err, "step rollback failed")
 
 	if s.Prev != nil {
-		return s.Prev.Rollback(ctx, NewFailedRollback(ctx, prevFailure, err, report))
+		return s.Prev.Rollback(ctx, NewFailedRollback(prevFailure, err, report))
 	}
 
 	prevFailure.workflowReport.Append(report, RollbackAction, StatusFailed)
@@ -202,7 +201,7 @@ type successStep struct {
 
 // Rollback implements Backward interface for failedStep
 func (fs *failedStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
-	return prevFailure.workflowReport, prevFailure.error
+	return prevFailure.workflowReport, prevFailure.err
 }
 
 // Run implements the Forward interface for successStep

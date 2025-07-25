@@ -3,9 +3,9 @@ package automa
 import (
 	"context"
 	"fmt"
-	"github.com/cockroachdb/errors"
+	"github.com/joomcode/errorx"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
+	"github.com/stretchr/testify/require"
 	"testing"
 )
 
@@ -42,7 +42,7 @@ func (s *mockStopContainersStep) rollback(ctx context.Context) (skipped bool, er
 	fmt.Println(string(s.cache["rollbackMsg"]))
 
 	// mock error on rollback
-	return false, errors.New("Mock error")
+	return false, errorx.IllegalState.New("Mock error")
 }
 
 // run implements SagaRun function for execution of run logic
@@ -75,7 +75,7 @@ func (s *mockNotifyStep) rollback(ctx context.Context) (skipped bool, err error)
 func (s *mockRestartContainersStep) run(ctx context.Context) (skipped bool, err error) {
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
-	return false, errors.New("Mock error on restart")
+	return false, errorx.IllegalState.New("Mock error on restart")
 }
 
 // rollback implements SagaRollback function for execution of rollback logic
@@ -112,7 +112,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	}
 	restart.RegisterSaga(restart.run, restart.rollback)
 
-	registry := NewStepRegistry(zap.NewNop()).RegisterSteps(map[string]AtomicStep{
+	registry := NewStepRegistry(nil).RegisterSteps(map[string]AtomicStep{
 		stop.GetID():    stop,
 		fetch.GetID():   fetch,
 		notify.GetID():  notify,
@@ -131,7 +131,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 		notify.GetID(),
 		restart.GetID(),
 	})
-	assert.NoError(t, err)
+	require.Nil(t, err)
 	assert.Equal(t, "workflow_1", workflow1.GetID())
 	defer workflow1.End(ctx)
 
@@ -147,7 +147,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 		restart.GetID(),
 		notify.GetID(),
 	})
-	assert.NoError(t, err)
+	require.Nil(t, err)
 	assert.Equal(t, "workflow_2", workflow2.GetID())
 	defer workflow2.End(ctx)
 
@@ -163,12 +163,12 @@ func TestWorkflowEngine_Start(t *testing.T) {
 		fetch.GetID(),
 		notify.GetID(),
 	})
-	assert.NoError(t, err)
+	require.Nil(t, err)
 	assert.Equal(t, "workflow_3", workflow3.GetID())
-	defer workflow2.End(ctx)
+	defer workflow3.End(ctx)
 
 	report3, err := workflow3.Start(ctx)
-	assert.NoError(t, err)
+	require.Nil(t, err)
 	assert.NotNil(t, report)
 	assert.Equal(t, 3, len(report3.StepReports))
 	assert.Equal(t, StatusSuccess, report3.Status)
@@ -184,7 +184,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 
 	// NoOp scenario when first step is null
 	noopWorkflow, err := registry.BuildWorkflow("noop_workflow", StepIDs{})
-	assert.NoError(t, err)
+	require.Nil(t, err)
 	report4, err := noopWorkflow.Start(ctx)
 	assert.NotNil(t, report4)
 	assert.Equal(t, 0, len(report4.StepReports))

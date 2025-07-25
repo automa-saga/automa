@@ -162,7 +162,7 @@ func runWorkflow(ctx context.Context) error {
 }
 ```
 
-See an [example](https://github.com/automa-saga/automa/blob/master/example/example.go) in the example directory. 
+See an [example](https://github.com/automa-saga/automa/blob/master/docs/example/example.go) in the example directory. 
 
 ## Development
  - `make test` runs the tests. 

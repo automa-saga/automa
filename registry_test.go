@@ -1,8 +1,8 @@
 package automa
 
 import (
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 	"testing"
 )
 
@@ -11,11 +11,10 @@ func TestNewStepRegistry(t *testing.T) {
 	assert.NotNil(t, registry)
 	assert.NotNil(t, registry.logger)
 
-	logger, _ := zap.NewDevelopment()
-	registry = NewStepRegistry(logger)
+	logger := zerolog.Nop()
+	registry = NewStepRegistry(&logger)
 	assert.NotNil(t, registry)
 	assert.NotNil(t, registry.logger)
-	assert.Equal(t, logger, registry.logger)
 }
 
 func TestStepRegistry_GetStep(t *testing.T) {

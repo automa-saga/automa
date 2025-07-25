@@ -1,21 +1,21 @@
 package automa
 
 import (
-	"github.com/cockroachdb/errors"
-	"go.uber.org/zap"
+	"github.com/joomcode/errorx"
+	"github.com/rs/zerolog"
 )
 
 // StepRegistry is an implementation of AtomicStepRegistry interface
 type StepRegistry struct {
 	cache  map[string]AtomicStep
-	logger *zap.Logger
+	logger *zerolog.Logger
 }
 
 // NewStepRegistry returns an instance of StepRegistry that implements AtomicStepRegistry
-// if logger is nil, it initializes itself with a NoOp logger
-func NewStepRegistry(logger *zap.Logger) *StepRegistry {
+// if logx is nil, it initializes itself with a NoOp logx
+func NewStepRegistry(logger *zerolog.Logger) *StepRegistry {
 	if logger == nil {
-		logger = zap.NewNop()
+		logger = &nolog
 	}
 
 	return &StepRegistry{cache: map[string]AtomicStep{}, logger: logger}
@@ -59,7 +59,7 @@ func (r *StepRegistry) BuildWorkflow(workflowID string, stepIDs StepIDs) (Atomic
 		if step != nil {
 			steps = append(steps, step)
 		} else {
-			return nil, errors.Newf("invalid step: %s", stepID)
+			return nil, errorx.IllegalState.New("invalid step: %s", stepID)
 		}
 	}
 

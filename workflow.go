@@ -2,10 +2,12 @@ package automa
 
 import (
 	"context"
-	"go.uber.org/zap"
+	"github.com/rs/zerolog"
 	"sync"
 	"time"
 )
+
+var nolog = zerolog.Nop()
 
 // Workflow implements AtomicWorkflow interface
 // It implements a Saga workflow using Choreography execution pattern
@@ -27,7 +29,7 @@ type Workflow struct {
 	// this is passed along to accumulate report from all internal states
 	report WorkflowReport
 
-	logger  *zap.Logger
+	logger  *zerolog.Logger
 	stepIDs StepIDs
 }
 
@@ -58,11 +60,13 @@ func WithSteps(steps ...AtomicStep) WorkflowOption {
 	}
 }
 
-// WithLogger allows Workflow to be initialized with a logger
-// By default a Workflow is initialized with a NoOp logger
-func WithLogger(logger *zap.Logger) WorkflowOption {
+// WithLogger allows Workflow to be initialized with a logx
+// By default a Workflow is initialized with a NoOp logx
+func WithLogger(logger *zerolog.Logger) WorkflowOption {
 	return func(wf *Workflow) {
-		wf.logger = logger
+		if logger != nil {
+			wf.logger = logger
+		}
 	}
 }
 
@@ -77,7 +81,7 @@ func NewWorkflow(id string, opts ...WorkflowOption) *Workflow {
 		failedStep:  fs,
 		successStep: ss,
 		report:      *report,
-		logger:      zap.NewNop(),
+		logger:      &nolog,
 	}
 
 	for _, opt := range opts {
