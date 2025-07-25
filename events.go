@@ -1,9 +1,6 @@
 package automa
 
-import (
-	"context"
-	"github.com/joomcode/errorx"
-)
+import "github.com/joomcode/errorx"
 
 // Success defines a success event for a step
 type Success struct {
@@ -12,25 +9,25 @@ type Success struct {
 
 // Failure defines a failure event for a step
 type Failure struct {
-	err            *errorx.Error
+	err            error
 	workflowReport WorkflowReport
 }
 
 // NewFailedRun returns a Failure event to be used for first Rollback method
 // It is used by a step to trigger its own rollback action
 // It sets the step's RunAction status as StatusFailed
-func NewFailedRun(ctx context.Context, prevSuccess *Success, err *errorx.Error, report *StepReport) *Failure {
+func NewFailedRun(prevSuccess *Success, err error, report *StepReport) *Failure {
 	report.Action = RunAction
-	report.FailureReason = errorx.WithContext(err, ctx)
+	report.FailureReason = errorx.EnsureStackTrace(err)
 	prevSuccess.workflowReport.Append(report, RunAction, StatusFailed)
 	return &Failure{err: err, workflowReport: prevSuccess.workflowReport}
 }
 
 // NewFailedRollback returns a Failure event when steps rollback action failed
 // It sets the step's RollbackAction status as StatusFailed
-func NewFailedRollback(ctx context.Context, prevFailure *Failure, err *errorx.Error, report *StepReport) *Failure {
+func NewFailedRollback(prevFailure *Failure, err error, report *StepReport) *Failure {
 	report.Action = RollbackAction
-	report.FailureReason = errorx.WithContext(err, ctx)
+	report.FailureReason = errorx.EnsureStackTrace(err)
 	prevFailure.workflowReport.Append(report, RollbackAction, StatusFailed)
 	return &Failure{err: err, workflowReport: prevFailure.workflowReport}
 }

@@ -31,14 +31,14 @@ type mockRestartContainersStep struct {
 }
 
 // run implements SagaRun function for execution of run logic
-func (s *mockStopContainersStep) run(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *mockStopContainersStep) run(ctx context.Context) (skipped bool, err error) {
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 	return false, nil
 }
 
 // rollback implements SagaRollback function for execution of rollback logic
-func (s *mockStopContainersStep) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *mockStopContainersStep) rollback(ctx context.Context) (skipped bool, err error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
 
 	// mock error on rollback
@@ -46,40 +46,40 @@ func (s *mockStopContainersStep) rollback(ctx context.Context) (skipped bool, er
 }
 
 // run implements SagaRun function for execution of run logic
-func (s *mockFetchLatestStep) run(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *mockFetchLatestStep) run(ctx context.Context) (skipped bool, err error) {
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 	return false, nil
 }
 
 // rollback implements SagaRollback function for execution of rollback logic
-func (s *mockFetchLatestStep) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *mockFetchLatestStep) rollback(ctx context.Context) (skipped bool, err error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return false, nil
 }
 
 // run implements SagaRun function for execution of run logic
-func (s *mockNotifyStep) run(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *mockNotifyStep) run(ctx context.Context) (skipped bool, err error) {
 	fmt.Printf("SKIP RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("SKIP ROLLBACK - %q", s.ID))
 	return true, nil
 }
 
 // rollback implements SagaRollback function for execution of rollback logic
-func (s *mockNotifyStep) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *mockNotifyStep) rollback(ctx context.Context) (skipped bool, err error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return true, nil
 }
 
 // run implements SagaRun function for execution of run logic
-func (s *mockRestartContainersStep) run(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *mockRestartContainersStep) run(ctx context.Context) (skipped bool, err error) {
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 	return false, errorx.IllegalState.New("Mock error on restart")
 }
 
 // rollback implements SagaRollback function for execution of rollback logic
-func (s *mockRestartContainersStep) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *mockRestartContainersStep) rollback(ctx context.Context) (skipped bool, err error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return false, nil
 }

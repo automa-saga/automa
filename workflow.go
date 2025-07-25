@@ -2,7 +2,6 @@ package automa
 
 import (
 	"context"
-	"github.com/joomcode/errorx"
 	"github.com/rs/zerolog"
 	"sync"
 	"time"
@@ -98,11 +97,11 @@ func (wf *Workflow) GetID() string {
 }
 
 // Start starts the workflow and returns the WorkflowReport
-func (wf *Workflow) Start(ctx context.Context) (WorkflowReport, *errorx.Error) {
+func (wf *Workflow) Start(ctx context.Context) (WorkflowReport, error) {
 	wf.mutex.Lock()
 	defer wf.mutex.Unlock()
 
-	var err *errorx.Error
+	var err error
 
 	if wf.firstStep != nil {
 		wf.report.StepSequence = wf.stepIDs

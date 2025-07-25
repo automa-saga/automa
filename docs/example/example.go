@@ -64,7 +64,7 @@ type RestartContainers struct {
 	logger *zerolog.Logger
 }
 
-func (s *StopContainers) run(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *StopContainers) run(ctx context.Context) (skipped bool, err error) {
 	// reset cache
 	s.cache = InMemCache{}
 
@@ -74,14 +74,14 @@ func (s *StopContainers) run(ctx context.Context) (skipped bool, err *errorx.Err
 	return false, nil
 }
 
-func (s *StopContainers) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *StopContainers) rollback(ctx context.Context) (skipped bool, err error) {
 	// use cache
 	s.logger.Debug().Msg(s.cache.GetString(keyRollbackMsg))
 
 	return false, nil
 }
 
-func (s *FetchLatest) run(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *FetchLatest) run(ctx context.Context) (skipped bool, err error) {
 	// reset cache
 	s.cache = InMemCache{}
 
@@ -91,14 +91,14 @@ func (s *FetchLatest) run(ctx context.Context) (skipped bool, err *errorx.Error)
 	return false, nil
 }
 
-func (s *FetchLatest) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *FetchLatest) rollback(ctx context.Context) (skipped bool, err error) {
 	// use cache
 	s.logger.Debug().Msg(s.cache.GetString(keyRollbackMsg))
 
 	return false, nil
 }
 
-func (s *NotifyAll) run(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *NotifyAll) run(ctx context.Context) (skipped bool, err error) {
 	// reset cache
 	s.cache = InMemCache{}
 
@@ -109,14 +109,14 @@ func (s *NotifyAll) run(ctx context.Context) (skipped bool, err *errorx.Error) {
 	return true, nil
 }
 
-func (s *NotifyAll) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *NotifyAll) rollback(ctx context.Context) (skipped bool, err error) {
 	// use cache
 	s.logger.Debug().Msg(s.cache.GetString(keyRollbackMsg))
 
 	return true, nil
 }
 
-func (s *RestartContainers) run(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *RestartContainers) run(ctx context.Context) (skipped bool, err error) {
 	// reset cache
 	s.cache = InMemCache{}
 
@@ -126,7 +126,7 @@ func (s *RestartContainers) run(ctx context.Context) (skipped bool, err *errorx.
 	return false, errorx.IllegalState.New("Mock error during %q", s.GetID())
 }
 
-func (s *RestartContainers) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *RestartContainers) rollback(ctx context.Context) (skipped bool, err error) {
 	// use cache
 	s.logger.Debug().Msg(s.cache.GetString(keyRollbackMsg))
 

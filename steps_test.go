@@ -14,13 +14,13 @@ type mockSuccessStep struct {
 	cache map[string][]byte
 }
 
-func (s *mockSuccessStep) run(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *mockSuccessStep) run(ctx context.Context) (skipped bool, err error) {
 	fmt.Printf("RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("ROLLBACK - %q", s.ID))
 	return false, nil
 }
 
-func (s *mockSuccessStep) rollback(ctx context.Context) (skipped bool, err *errorx.Error) {
+func (s *mockSuccessStep) rollback(ctx context.Context) (skipped bool, err error) {
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return false, nil
 }
@@ -32,15 +32,15 @@ type mockFailedStep struct {
 }
 
 // override the AtomicStep.Run from Step
-func (s *mockFailedStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, *errorx.Error) {
+func (s *mockFailedStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("SKIP RUN - %q", s.ID)
 	s.cache["rollbackMsg"] = []byte(fmt.Sprintf("SKIP ROLLBACK - %q", s.ID))
-	return s.Rollback(ctx, NewFailedRun(ctx, prevSuccess, errorx.IllegalState.New("Mock error"), report))
+	return s.Rollback(ctx, NewFailedRun(prevSuccess, errorx.IllegalState.New("Mock error"), report))
 }
 
 // override the AtomicStep.Rollback from Step
-func (s *mockFailedStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, *errorx.Error) {
+func (s *mockFailedStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
 	return s.RollbackPrev(ctx, prevFailure, report)
