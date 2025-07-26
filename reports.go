@@ -19,11 +19,11 @@ type WorkflowReport struct {
 	StartTime    time.Time     `yaml:"start_time" json:"startTime"`
 	EndTime      time.Time     `yaml:"end_time" json:"endTime"`
 	Status       Status        `yaml:"status" json:"status"`
-	StepSequence StepIDs       `yaml:"step_sequence" json:"stepSequence"`
+	StepSequence []string      `yaml:"step_sequence" json:"stepSequence"`
 	StepReports  []*StepReport `yaml:"step_reports" json:"stepReports"`
 }
 
-// StepReport defines the report data model for each AtomicStep execution
+// StepReport defines the report data model for each Step execution
 type StepReport struct {
 	StepID        string            `yaml:"step_id" json:"stepID"`
 	Action        StepActionType    `yaml:"action" json:"action"`
@@ -48,13 +48,13 @@ func (wfr *WorkflowReport) Append(stepReport *StepReport, action StepActionType,
 }
 
 // NewWorkflowReport returns an instance of WorkflowReport
-func NewWorkflowReport(id string, steps StepIDs) *WorkflowReport {
+func NewWorkflowReport(id string, stepIDs []string) *WorkflowReport {
 	return &WorkflowReport{
 		WorkflowID:   id,
 		StartTime:    time.Now(),
 		EndTime:      time.Now(),
 		Status:       StatusUndefined,
-		StepSequence: steps,
+		StepSequence: stepIDs,
 		StepReports:  []*StepReport{},
 	}
 }

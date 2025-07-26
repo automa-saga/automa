@@ -33,7 +33,7 @@ func NewFailedRollback(prevFailure *Failure, err error, report *StepReport) *Fai
 }
 
 // NewStartTrigger returns a Success event to be use for Run method
-// It is used by the Workflow to trigger the execution of the first step
+// It is used by the workflow to trigger the execution of the first step
 func NewStartTrigger(reports WorkflowReport) *Success {
 	return &Success{
 		workflowReport: reports,

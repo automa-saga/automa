@@ -9,12 +9,12 @@ import (
 
 var nolog = zerolog.Nop()
 
-// Workflow implements AtomicWorkflow interface
+// workflow implements Workflow interface
 // It implements a Saga workflow using Choreography execution pattern
 //
 // In order to enable Choreography pattern it forms a double linked list of AtomicSteps to traverse 'Forward'
 // on Success and 'Backward' on Failure
-type Workflow struct {
+type workflow struct {
 	id    string
 	mutex sync.Mutex
 
@@ -22,19 +22,19 @@ type Workflow struct {
 	failedStep  *failedStep
 
 	// terminal steps
-	firstStep AtomicStep
-	lastStep  AtomicStep
+	firstStep Step
+	lastStep  Step
 
 	// local cache for accumulating report from all internal states
 	// this is passed along to accumulate report from all internal states
 	report WorkflowReport
 
 	logger  *zerolog.Logger
-	stepIDs StepIDs
+	stepIDs []string
 }
 
-// addStep add an AtomicStep in the internal double linked list of steps
-func (wf *Workflow) addStep(s AtomicStep) {
+// addStep add a Step in the internal double linked list of steps
+func (wf *workflow) addStep(s Step) {
 	if wf.firstStep == nil {
 		wf.firstStep = s
 		wf.firstStep.SetPrev(wf.failedStep)
@@ -47,12 +47,12 @@ func (wf *Workflow) addStep(s AtomicStep) {
 	wf.lastStep.SetNext(wf.successStep)
 }
 
-// WorkflowOption exposes "constructor with option" pattern for Workflow
-type WorkflowOption func(wf *Workflow)
+// WorkflowOption exposes "constructor with option" pattern for workflow
+type WorkflowOption func(wf *workflow)
 
-// WithSteps allow Workflow to be initialized with the list of ordered steps
-func WithSteps(steps ...AtomicStep) WorkflowOption {
-	return func(wf *Workflow) {
+// WithSteps allow workflow to be initialized with the list of ordered steps
+func WithSteps(steps ...Step) WorkflowOption {
+	return func(wf *workflow) {
 		for _, step := range steps {
 			wf.addStep(step)
 			wf.stepIDs = append(wf.stepIDs, step.GetID())
@@ -60,23 +60,23 @@ func WithSteps(steps ...AtomicStep) WorkflowOption {
 	}
 }
 
-// WithLogger allows Workflow to be initialized with a logx
-// By default a Workflow is initialized with a NoOp logx
+// WithLogger allows workflow to be initialized with a logx
+// By default a workflow is initialized with a NoOp logx
 func WithLogger(logger *zerolog.Logger) WorkflowOption {
-	return func(wf *Workflow) {
+	return func(wf *workflow) {
 		if logger != nil {
 			wf.logger = logger
 		}
 	}
 }
 
-// NewWorkflow returns an instance of WorkFlow that implements AtomicWorkflow interface
-func NewWorkflow(id string, opts ...WorkflowOption) *Workflow {
+// NewWorkflow returns an instance of WorkFlow that implements Workflow interface
+func NewWorkflow(id string, opts ...WorkflowOption) Workflow {
 	fs := &failedStep{}
 	ss := &successStep{}
 	report := NewWorkflowReport(id, nil)
 
-	wf := &Workflow{
+	wf := &workflow{
 		id:          id,
 		failedStep:  fs,
 		successStep: ss,
@@ -91,13 +91,13 @@ func NewWorkflow(id string, opts ...WorkflowOption) *Workflow {
 	return wf
 }
 
-// GetID returns the id of the Workflow
-func (wf *Workflow) GetID() string {
+// GetID returns the id of the workflow
+func (wf *workflow) GetID() string {
 	return wf.id
 }
 
 // Start starts the workflow and returns the WorkflowReport
-func (wf *Workflow) Start(ctx context.Context) (WorkflowReport, error) {
+func (wf *workflow) Start(ctx context.Context) (WorkflowReport, error) {
 	wf.mutex.Lock()
 	defer wf.mutex.Unlock()
 
@@ -122,7 +122,7 @@ func (wf *Workflow) Start(ctx context.Context) (WorkflowReport, error) {
 	return wf.report, nil
 }
 
-// End performs any cleanup after the Workflow execution
+// End performs any cleanup after the workflow execution
 // This is a NOOP currently, but left as  placeholder for any future cleanup steps if required
-func (wf *Workflow) End(ctx context.Context) {
+func (wf *workflow) End(ctx context.Context) {
 }

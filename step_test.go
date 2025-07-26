@@ -10,7 +10,7 @@ import (
 )
 
 type mockSuccessStep struct {
-	Step
+	AbstractStep
 	cache map[string][]byte
 }
 
@@ -25,13 +25,13 @@ func (s *mockSuccessStep) rollback(ctx context.Context) (skipped bool, err error
 	return false, nil
 }
 
-// this is an example of AtomicStep that extends Step but overrides the Run and Rollback methods
+// this is an example of Step that extends AbstractStep but overrides the Run and Rollback methods
 type mockFailedStep struct {
-	Step
+	AbstractStep
 	cache map[string][]byte
 }
 
-// override the AtomicStep.Run from Step
+// override the Step.Run from AbstractStep
 func (s *mockFailedStep) Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RunAction)
 	fmt.Printf("SKIP RUN - %q", s.ID)
@@ -39,7 +39,7 @@ func (s *mockFailedStep) Run(ctx context.Context, prevSuccess *Success) (Workflo
 	return s.Rollback(ctx, NewFailedRun(prevSuccess, errorx.IllegalState.New("Mock error"), report))
 }
 
-// override the AtomicStep.Rollback from Step
+// override the Step.Rollback from AbstractStep
 func (s *mockFailedStep) Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error) {
 	report := NewStepReport(s.ID, RollbackAction)
 	fmt.Println(string(s.cache["rollbackMsg"]))
@@ -48,14 +48,14 @@ func (s *mockFailedStep) Rollback(ctx context.Context, prevFailure *Failure) (Wo
 
 func TestSkippedRun(t *testing.T) {
 	s1 := &mockSuccessStep{
-		Step:  Step{ID: "Stop containers"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "Stop containers"},
+		cache:        map[string][]byte{},
 	}
 	s1.RegisterSaga(s1.run, s1.rollback)
 
 	s2 := &mockSuccessStep{
-		Step:  Step{ID: "Fetch latest images"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "Fetch latest images"},
+		cache:        map[string][]byte{},
 	}
 
 	ctx := context.Background()
@@ -88,14 +88,14 @@ func TestSkippedRun(t *testing.T) {
 
 func TestSkippedRollbackPrev(t *testing.T) {
 	s1 := &mockSuccessStep{
-		Step:  Step{ID: "stop_containers"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "stop_containers"},
+		cache:        map[string][]byte{},
 	}
 	s1.RegisterSaga(s1.run, s1.rollback)
 
 	s2 := &mockFailedStep{
-		Step:  Step{ID: "fetch_latest_images"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "fetch_latest_images"},
+		cache:        map[string][]byte{},
 	}
 
 	ctx := context.Background()
@@ -123,14 +123,14 @@ func TestSkippedRollbackPrev(t *testing.T) {
 
 func TestRollbackPrev(t *testing.T) {
 	s1 := &mockSuccessStep{
-		Step:  Step{ID: "stop_containers"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "stop_containers"},
+		cache:        map[string][]byte{},
 	}
 	s1.RegisterSaga(s1.run, s1.rollback)
 
 	s2 := &mockFailedStep{
-		Step:  Step{ID: "fetch_latest_images"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "fetch_latest_images"},
+		cache:        map[string][]byte{},
 	}
 
 	ctx := context.Background()
@@ -158,14 +158,14 @@ func TestRollbackPrev(t *testing.T) {
 
 func TestFailedRollback(t *testing.T) {
 	s1 := &mockSuccessStep{
-		Step:  Step{ID: "stop_containers"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "stop_containers"},
+		cache:        map[string][]byte{},
 	}
 	s1.RegisterSaga(s1.run, s1.rollback)
 
 	s2 := &mockFailedStep{
-		Step:  Step{ID: "fetch_latest_images"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "fetch_latest_images"},
+		cache:        map[string][]byte{},
 	}
 
 	ctx := context.Background()
@@ -193,8 +193,8 @@ func TestFailedRollback(t *testing.T) {
 
 func TestNextPrev(t *testing.T) {
 	s1 := &mockSuccessStep{
-		Step:  Step{ID: "stop_containers"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "stop_containers"},
+		cache:        map[string][]byte{},
 	}
 	s1.RegisterSaga(s1.run, s1.rollback)
 
@@ -202,8 +202,8 @@ func TestNextPrev(t *testing.T) {
 	assert.Nil(t, s1.GetPrev())
 
 	s2 := &mockSuccessStep{
-		Step:  Step{ID: "fetch_latest_images"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "fetch_latest_images"},
+		cache:        map[string][]byte{},
 	}
 
 	assert.Nil(t, s2.GetNext())
@@ -221,13 +221,13 @@ func TestNextPrev(t *testing.T) {
 
 func TestRunSuccess(t *testing.T) {
 	s1 := &mockSuccessStep{
-		Step:  Step{ID: "Step -1"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "Step -1"},
+		cache:        map[string][]byte{},
 	}
 
 	s2 := &mockSuccessStep{
-		Step:  Step{ID: "Step -2"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "Step -2"},
+		cache:        map[string][]byte{},
 	}
 	s2.RegisterSaga(s2.run, s2.rollback)
 
@@ -260,12 +260,12 @@ func TestRunSuccess(t *testing.T) {
 
 func TestRunWithFailure(t *testing.T) {
 	s1 := &mockSuccessStep{
-		Step:  Step{ID: "Step -1"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "Step -1"},
+		cache:        map[string][]byte{},
 	}
 	s2 := &mockFailedStep{
-		Step:  Step{ID: "Step -2"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "Step -2"},
+		cache:        map[string][]byte{},
 	}
 
 	ctx := context.Background()
