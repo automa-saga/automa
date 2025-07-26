@@ -24,7 +24,7 @@ func TestReportYAML(t *testing.T) {
 	stepReport1Rollback := NewStepReport("step-1", RollbackAction)
 	stepReport2Run := NewStepReport("step-2", RunAction)
 	stepReport2Rollback := NewStepReport("step-2", RollbackAction)
-	workflowReport := NewWorkflowReport("workflow-id", StepIDs{stepReport1Run.StepID, stepReport2Run.StepID})
+	workflowReport := NewWorkflowReport("workflow-id", []string{stepReport1Run.StepID, stepReport2Run.StepID})
 	workflowReport.Append(stepReport1Run, RunAction, StatusSuccess)
 	workflowReport.Append(stepReport2Run, RunAction, StatusSuccess)
 	workflowReport.Append(stepReport2Rollback, RollbackAction, StatusSuccess)

@@ -10,23 +10,23 @@ import (
 )
 
 type mockStopContainersStep struct {
-	Step
+	AbstractStep
 	cache map[string][]byte
 }
 
 type mockFetchLatestStep struct {
-	Step
+	AbstractStep
 	cache map[string][]byte
 }
 
 // it cannot be rollback
 type mockNotifyStep struct {
-	Step
+	AbstractStep
 	cache map[string][]byte
 }
 
 type mockRestartContainersStep struct {
-	Step
+	AbstractStep
 	cache map[string][]byte
 }
 
@@ -89,43 +89,43 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	defer cancel()
 
 	stop := &mockStopContainersStep{
-		Step:  Step{ID: "stop_containers"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "stop_containers"},
+		cache:        map[string][]byte{},
 	}
 	stop.RegisterSaga(stop.run, stop.rollback)
 
 	fetch := &mockFetchLatestStep{
-		Step:  Step{ID: "fetch_latest_images"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "fetch_latest_images"},
+		cache:        map[string][]byte{},
 	}
 	fetch.RegisterSaga(fetch.run, fetch.rollback)
 
 	notify := &mockNotifyStep{
-		Step:  Step{ID: "notify_on_slack"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "notify_on_slack"},
+		cache:        map[string][]byte{},
 	}
 	notify.RegisterSaga(notify.run, notify.rollback)
 
 	restart := &mockRestartContainersStep{
-		Step:  Step{ID: "restart_containers"},
-		cache: map[string][]byte{},
+		AbstractStep: AbstractStep{ID: "restart_containers"},
+		cache:        map[string][]byte{},
 	}
 	restart.RegisterSaga(restart.run, restart.rollback)
 
-	registry := NewStepRegistry(nil).RegisterSteps(map[string]AtomicStep{
+	registry := NewStepRegistry(nil).RegisterSteps(map[string]Step{
 		stop.GetID():    stop,
 		fetch.GetID():   fetch,
 		notify.GetID():  notify,
 		restart.GetID(): restart,
 	})
 
-	_, err := registry.BuildWorkflow("workflow_1", StepIDs{
+	_, err := registry.BuildWorkflow("workflow_1", []string{
 		"INVALID",
 	})
 	assert.Error(t, err)
 
 	// a new workflow with notify in the middle
-	workflow1, err := registry.BuildWorkflow("workflow_1", StepIDs{
+	workflow1, err := registry.BuildWorkflow("workflow_1", []string{
 		stop.GetID(),
 		fetch.GetID(),
 		notify.GetID(),
@@ -141,7 +141,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	assert.Equal(t, 8, len(report.StepReports)) // it will reach all steps and rollback
 
 	// a new workflow with notify at the end
-	workflow2, err := registry.BuildWorkflow("workflow_2", StepIDs{
+	workflow2, err := registry.BuildWorkflow("workflow_2", []string{
 		stop.GetID(),
 		fetch.GetID(),
 		restart.GetID(),
@@ -158,7 +158,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	assert.NotNil(t, report2.StepReports[5].FailureReason)
 
 	// a new workflow with no failure
-	workflow3, err := registry.BuildWorkflow("workflow_3", StepIDs{
+	workflow3, err := registry.BuildWorkflow("workflow_3", []string{
 		stop.GetID(),
 		fetch.GetID(),
 		notify.GetID(),
@@ -172,7 +172,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	assert.NotNil(t, report)
 	assert.Equal(t, 3, len(report3.StepReports))
 	assert.Equal(t, StatusSuccess, report3.Status)
-	assert.Equal(t, StepIDs{stop.GetID(), fetch.GetID(), notify.GetID()}, report3.StepSequence)
+	assert.Equal(t, []string{stop.GetID(), fetch.GetID(), notify.GetID()}, report3.StepSequence)
 	for _, stepReport := range report2.StepReports {
 		if (stepReport.StepID == restart.GetID() && stepReport.Action == RunAction) ||
 			(stepReport.StepID == stop.GetID() && stepReport.Action == RollbackAction) {
@@ -183,7 +183,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	}
 
 	// NoOp scenario when first step is null
-	noopWorkflow, err := registry.BuildWorkflow("noop_workflow", StepIDs{})
+	noopWorkflow, err := registry.BuildWorkflow("noop_workflow", []string{})
 	require.Nil(t, err)
 	report4, err := noopWorkflow.Start(ctx)
 	assert.NotNil(t, report4)

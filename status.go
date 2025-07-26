@@ -1,6 +1,6 @@
 package automa
 
-// Status defines the execution status of the AtomicStep
+// Status defines the execution status of the Step
 type Status string
 
 const (

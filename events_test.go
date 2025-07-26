@@ -13,7 +13,7 @@ func TestNewSkippedRun(t *testing.T) {
 		StartTime:    time.Now(),
 		EndTime:      time.Now(),
 		Status:       "",
-		StepSequence: StepIDs{},
+		StepSequence: []string{},
 		StepReports:  []*StepReport{},
 	}}
 
@@ -37,7 +37,7 @@ func TestNewSkippedRollback(t *testing.T) {
 			StartTime:    time.Now(),
 			EndTime:      time.Now(),
 			Status:       "",
-			StepSequence: StepIDs{},
+			StepSequence: []string{},
 			StepReports:  []*StepReport{},
 		},
 	}

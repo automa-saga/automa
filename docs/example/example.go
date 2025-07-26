@@ -39,13 +39,13 @@ const (
 )
 
 type StopContainers struct {
-	automa.Step
+	automa.AbstractStep
 	cache  InMemCache
 	logger *zerolog.Logger
 }
 
 type FetchLatest struct {
-	automa.Step
+	automa.AbstractStep
 	cache  InMemCache
 	logger *zerolog.Logger
 }
@@ -53,13 +53,13 @@ type FetchLatest struct {
 // NotifyAll notifies on Slack
 // it cannot be rollback
 type NotifyAll struct {
-	automa.Step
+	automa.AbstractStep
 	cache  InMemCache
 	logger *zerolog.Logger
 }
 
 type RestartContainers struct {
-	automa.Step
+	automa.AbstractStep
 	cache  InMemCache
 	logger *zerolog.Logger
 }
@@ -133,37 +133,37 @@ func (s *RestartContainers) rollback(ctx context.Context) (skipped bool, err err
 	return false, nil
 }
 
-func buildWorkflow1(logger *zerolog.Logger) (automa.AtomicWorkflow, error) {
+func buildWorkflow1(logger *zerolog.Logger) (automa.Workflow, error) {
 	stop := &StopContainers{
-		Step:   automa.Step{ID: "stop_containers"},
-		cache:  InMemCache{},
-		logger: logger,
+		AbstractStep: automa.AbstractStep{ID: "stop_containers"},
+		cache:        InMemCache{},
+		logger:       logger,
 	}
 
 	stop.RegisterSaga(stop.run, stop.rollback)
 
 	fetch := &FetchLatest{
-		Step:   automa.Step{ID: "fetch_latest_images"},
-		cache:  InMemCache{},
-		logger: logger,
+		AbstractStep: automa.AbstractStep{ID: "fetch_latest_images"},
+		cache:        InMemCache{},
+		logger:       logger,
 	}
 	fetch.RegisterSaga(fetch.run, fetch.rollback)
 
 	notify := &NotifyAll{
-		Step:   automa.Step{ID: "notify_all_on_slack"},
-		cache:  InMemCache{},
-		logger: logger,
+		AbstractStep: automa.AbstractStep{ID: "notify_all_on_slack"},
+		cache:        InMemCache{},
+		logger:       logger,
 	}
 	notify.RegisterSaga(notify.run, notify.rollback)
 
 	restart := &RestartContainers{
-		Step:   automa.Step{ID: "restart_containers"},
-		cache:  InMemCache{},
-		logger: logger,
+		AbstractStep: automa.AbstractStep{ID: "restart_containers"},
+		cache:        InMemCache{},
+		logger:       logger,
 	}
 	restart.RegisterSaga(restart.run, restart.rollback)
 
-	registry := automa.NewStepRegistry(nil).RegisterSteps(map[string]automa.AtomicStep{
+	registry := automa.NewStepRegistry(nil).RegisterSteps(map[string]automa.Step{
 		stop.ID:    stop,
 		fetch.ID:   fetch,
 		notify.ID:  notify,
@@ -171,7 +171,7 @@ func buildWorkflow1(logger *zerolog.Logger) (automa.AtomicWorkflow, error) {
 	})
 
 	// a new workflow with notify in the middle
-	workflow, err := registry.BuildWorkflow("workflow_1", automa.StepIDs{
+	workflow, err := registry.BuildWorkflow("workflow_1", []string{
 		stop.ID,
 		fetch.ID,
 		notify.ID,
