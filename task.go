@@ -73,18 +73,18 @@ func (t *Task) Execute(ctx *Context) (*WorkflowReport, error) {
 		report.Status = StatusSkipped
 		if t.next != nil {
 			// Proceed to next step if available.
-			return t.next.Execute(ctx.SetValue(KeyPrevSuccess, NewSkippedRun(prevSuccess, report)))
+			return t.next.Execute(ctx.SetValue(KeyPrevSuccess, NewSkippedRunEvent(prevSuccess, report)))
 		}
 		// Append skipped report and finish.
-		prevSuccess.workflowReport.Append(report, RunAction, StatusSkipped)
-		return &prevSuccess.workflowReport, nil
+		prevSuccess.WorkflowReport.Append(report, RunAction, StatusSkipped)
+		return &prevSuccess.WorkflowReport, nil
 	}
 
 	// Execute the Run logic.
 	err := t.Run(ctx)
 	if err != nil {
 		// On error, trigger rollback.
-		return t.Reverse(ctx.SetValue(KeyPrevFailure, NewFailedRun(prevSuccess, err, report)))
+		return t.Reverse(ctx.SetValue(KeyPrevFailure, NewFailedRunEvent(prevSuccess, err, report)))
 	}
 
 	// On success, proceed to next step.
@@ -111,11 +111,11 @@ func (t *Task) Reverse(ctx *Context) (*WorkflowReport, error) {
 		report.Status = StatusSkipped
 		if t.prev != nil {
 			// Proceed to previous step's rollback if available.
-			return t.prev.Reverse(ctx.SetValue(KeyPrevFailure, NewSkippedRollback(prevFailure, report)))
+			return t.prev.Reverse(ctx.SetValue(KeyPrevFailure, NewSkippedRollbackEvent(prevFailure, report)))
 		}
 		// Append skipped report and finish.
-		prevFailure.workflowReport.Append(report, RollbackAction, StatusSkipped)
-		return &prevFailure.workflowReport, prevFailure.err
+		prevFailure.WorkflowReport.Append(report, RollbackAction, StatusSkipped)
+		return &prevFailure.WorkflowReport, prevFailure.Err
 	}
 
 	// Execute the Rollback logic.
@@ -124,11 +124,11 @@ func (t *Task) Reverse(ctx *Context) (*WorkflowReport, error) {
 		report.FailureReason = StepRollbackFailed.Wrap(err, "step rollback failed")
 		if t.prev != nil {
 			// On error, trigger rollback of previous steps.
-			return t.prev.Reverse(ctx.SetValue(KeyPrevFailure, NewFailedRollback(prevFailure, err, report)))
+			return t.prev.Reverse(ctx.SetValue(KeyPrevFailure, NewFailedRollbackEvent(prevFailure, err, report)))
 		}
 		// Append failed report and finish.
-		prevFailure.workflowReport.Append(report, RollbackAction, StatusFailed)
-		return &prevFailure.workflowReport, prevFailure.err
+		prevFailure.WorkflowReport.Append(report, RollbackAction, StatusFailed)
+		return &prevFailure.WorkflowReport, prevFailure.Err
 	}
 
 	// On success, proceed to previous step's rollback.
@@ -137,7 +137,7 @@ func (t *Task) Reverse(ctx *Context) (*WorkflowReport, error) {
 
 // runNext reports the current step as successful and triggers the next step's execution.
 // Marks the current step as StatusSuccess.
-func (t *Task) runNext(ctx *Context, prevSuccess *Success, report *StepReport) (*WorkflowReport, error) {
+func (t *Task) runNext(ctx *Context, prevSuccess *SuccessEvent, report *StepReport) (*WorkflowReport, error) {
 	if ctx == nil {
 		return nil, errorx.IllegalArgument.New("context cannot be nil")
 	}
@@ -150,17 +150,17 @@ func (t *Task) runNext(ctx *Context, prevSuccess *Success, report *StepReport) (
 
 	if t.next != nil {
 		// Proceed to next step.
-		return t.next.Execute(ctx.SetValue(KeyPrevSuccess, NewSuccess(prevSuccess, report)))
+		return t.next.Execute(ctx.SetValue(KeyPrevSuccess, NewSuccessEvent(prevSuccess, report)))
 	}
 
 	// Append success report and finish.
-	prevSuccess.workflowReport.Append(report, RunAction, StatusSuccess)
-	return &prevSuccess.workflowReport, nil
+	prevSuccess.WorkflowReport.Append(report, RunAction, StatusSuccess)
+	return &prevSuccess.WorkflowReport, nil
 }
 
 // rollbackPrev reports the current rollback step as executed and triggers previous step's rollback.
 // Marks the current step as StatusSuccess.
-func (t *Task) rollbackPrev(ctx *Context, prevFailure *Failure, report *StepReport) (*WorkflowReport, error) {
+func (t *Task) rollbackPrev(ctx *Context, prevFailure *FailureEvent, report *StepReport) (*WorkflowReport, error) {
 	if ctx == nil {
 		return nil, errorx.IllegalArgument.New("context cannot be nil")
 	}
@@ -173,10 +173,10 @@ func (t *Task) rollbackPrev(ctx *Context, prevFailure *Failure, report *StepRepo
 
 	if t.prev != nil {
 		// Proceed to previous step's rollback.
-		return t.prev.Reverse(ctx.SetValue(KeyPrevFailure, NewFailure(prevFailure, report)))
+		return t.prev.Reverse(ctx.SetValue(KeyPrevFailure, NewFailureEvent(prevFailure, report)))
 	}
 
 	// Append success report and finish.
-	prevFailure.workflowReport.Append(report, RollbackAction, StatusSuccess)
-	return &prevFailure.workflowReport, prevFailure.err
+	prevFailure.WorkflowReport.Append(report, RollbackAction, StatusSuccess)
+	return &prevFailure.WorkflowReport, prevFailure.Err
 }

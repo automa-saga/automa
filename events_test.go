@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewSkippedRun(t *testing.T) {
-	prevSuccess := &Success{workflowReport: WorkflowReport{
+	prevSuccess := &SuccessEvent{WorkflowReport: WorkflowReport{
 		WorkflowID:   "test",
 		StartTime:    time.Now(),
 		EndTime:      time.Now(),
@@ -17,22 +17,22 @@ func TestNewSkippedRun(t *testing.T) {
 		StepReports:  []*StepReport{},
 	}}
 
-	success := NewSkippedRun(prevSuccess, nil)
+	success := NewSkippedRunEvent(prevSuccess, nil)
 	assert.NotNil(t, success)
-	assert.NotNil(t, success.workflowReport)
-	assert.Equal(t, 0, len(success.workflowReport.StepReports))
+	assert.NotNil(t, success.WorkflowReport)
+	assert.Equal(t, 0, len(success.WorkflowReport.StepReports))
 
 	report := NewStepReport("TEST", RunAction)
-	success = NewSkippedRun(prevSuccess, report)
+	success = NewSkippedRunEvent(prevSuccess, report)
 	assert.NotNil(t, success)
-	assert.NotNil(t, success.workflowReport)
-	assert.Equal(t, 1, len(success.workflowReport.StepReports))
+	assert.NotNil(t, success.WorkflowReport)
+	assert.Equal(t, 1, len(success.WorkflowReport.StepReports))
 }
 
 func TestNewSkippedRollback(t *testing.T) {
-	prevFailure := &Failure{
-		err: errorx.IllegalState.New("Test"),
-		workflowReport: WorkflowReport{
+	prevFailure := &FailureEvent{
+		Err: errorx.IllegalState.New("Test"),
+		WorkflowReport: WorkflowReport{
 			WorkflowID:   "test",
 			StartTime:    time.Now(),
 			EndTime:      time.Now(),
@@ -41,14 +41,14 @@ func TestNewSkippedRollback(t *testing.T) {
 			StepReports:  []*StepReport{},
 		},
 	}
-	failure := NewSkippedRollback(prevFailure, nil)
+	failure := NewSkippedRollbackEvent(prevFailure, nil)
 	assert.NotNil(t, failure)
-	assert.NotNil(t, failure.workflowReport)
-	assert.Equal(t, 0, len(failure.workflowReport.StepReports))
+	assert.NotNil(t, failure.WorkflowReport)
+	assert.Equal(t, 0, len(failure.WorkflowReport.StepReports))
 
 	report := NewStepReport("TEST", RunAction)
-	failure = NewSkippedRollback(prevFailure, report)
+	failure = NewSkippedRollbackEvent(prevFailure, report)
 	assert.NotNil(t, failure)
-	assert.NotNil(t, failure.workflowReport)
-	assert.Equal(t, 1, len(failure.workflowReport.StepReports))
+	assert.NotNil(t, failure.WorkflowReport)
+	assert.Equal(t, 1, len(failure.WorkflowReport.StepReports))
 }

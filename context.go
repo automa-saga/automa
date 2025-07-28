@@ -84,20 +84,20 @@ func NewContext(parentCtx context.Context) *Context {
 
 // getPrevSuccess retrieves the previous success event from the context's custom storage.
 // Returns nil if not set.
-func (c *Context) getPrevSuccess() *Success {
+func (c *Context) getPrevSuccess() *SuccessEvent {
 	prevSuccess := c.GetValue(KeyPrevSuccess)
 	if prevSuccess == nil {
 		return nil
 	}
-	return prevSuccess.(*Success)
+	return prevSuccess.(*SuccessEvent)
 }
 
 // getPrevFailure retrieves the previous failure event from the context's custom storage.
 // Returns nil if not set.
-func (c *Context) getPrevFailure() *Failure {
+func (c *Context) getPrevFailure() *FailureEvent {
 	prevFailure := c.GetValue(KeyPrevFailure)
 	if prevFailure == nil {
 		return nil
 	}
-	return prevFailure.(*Failure)
+	return prevFailure.(*FailureEvent)
 }
