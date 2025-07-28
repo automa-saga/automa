@@ -29,7 +29,7 @@ go get -u github.com/automa-saga/automa
 See an [example](https://github.com/automa-saga/automa/blob/master/docs/example/example.go) in the example directory. 
 
 ## Development
- - `make test` runs the tests. 
+ - `task test` runs the tests (install `task` tool: https://taskfile.dev/installation/).
  - In order to build example, do `cd docs/examples && go build`. Then the example can be then run using `./example`.
 
 ## Contribution
