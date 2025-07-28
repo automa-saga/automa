@@ -5,33 +5,30 @@ import (
 	"sync"
 )
 
-// Context wraps context.Context and allows chaining custom context operations.
-// It provides a thread-safe way to set and get key-value pairs in the context.
-// The Context struct embeds context.Context to maintain compatibility with the standard context package.
+// Context wraps the standard context.Context and adds thread-safe key-value storage.
+// It enables chaining custom context operations and maintains compatibility with the context package.
 type Context struct {
-	context.Context
-	mu     sync.Mutex
-	values map[string]any
+	context.Context                // Embedded standard context for cancellation, deadlines, etc.
+	mu              sync.Mutex     // Mutex to protect concurrent access to values.
+	values          map[string]any // Custom key-value pairs for workflow state.
 }
 
-// SetValue sets a key-value pair in the context.
-// It locks the context to ensure thread safety when accessing the values map.
-// If the values map is nil, it initializes it before setting the value.
+// SetValue stores a key-value pair in the context.
+// Thread-safe: locks the context during mutation.
+// Returns the context for chaining.
 func (c *Context) SetValue(key string, value any) *Context {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Ensure the values map is initialized
 	if c.values == nil {
 		c.values = make(map[string]any)
 	}
-
 	c.values[key] = value
-
 	return c
 }
 
-// GetValue retrieves a value from the context by its key.
+// GetValue retrieves a value by key from the context's custom storage.
+// Returns nil if the key does not exist.
 func (c *Context) GetValue(key string) any {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -39,35 +36,27 @@ func (c *Context) GetValue(key string) any {
 	if c.values == nil {
 		return nil
 	}
-
-	if v, ok := c.values[key]; ok {
-		return v
-	}
-
-	return nil
+	return c.values[key]
 }
 
-// Value retrieves a value from the context using the standard context.Value method.
-// It overrides the default implementation to use the custom GetValue method and support a string key only.
-// This is useful for compatibility with the context package's Value method.
-// If the key is not a string, it returns nil.
+// Value implements context.Context's Value method.
+// Only supports string keys for custom storage.
+// Returns nil for non-string keys or missing values.
 func (c *Context) Value(key any) any {
 	ks, ok := key.(string)
 	if !ok {
 		return nil
 	}
-
 	return c.GetValue(ks)
 }
 
-// WithCancel creates a new Context that is derived from the current context with a cancel function.
-// This allows the new context to be cancelled independently of the parent context.
-// It also copies the values map to ensure that the new context has its own copy of the values.
-// The returned cancel function can be used to cancel the new context.
+// WithCancel creates a new Context derived from the current one, with a cancel function.
+// Copies the custom values to the new context for isolation.
+// Returns the new context and its cancel function.
 func (c *Context) WithCancel() (*Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(c.Context)
 
-	// make copy of the values map
+	// Copy custom values for the new context.
 	valuesCopy := make(map[string]any)
 	c.mu.Lock()
 	if c.values != nil {
@@ -84,16 +73,17 @@ func (c *Context) WithCancel() (*Context, context.CancelFunc) {
 }
 
 // NewContext creates a new automa.Context from a parent context.
-// If parentCtx is nil, it defaults to context.Background().
+// If parentCtx is nil, context.Background() is used.
+// Initializes an empty custom values map.
 func NewContext(parentCtx context.Context) *Context {
 	if parentCtx == nil {
 		parentCtx = context.Background()
 	}
-
 	return &Context{Context: parentCtx, values: make(map[string]any)}
 }
 
-// getPrevSuccess retrieves the previous success event from the context.
+// getPrevSuccess retrieves the previous success event from the context's custom storage.
+// Returns nil if not set.
 func (c *Context) getPrevSuccess() *Success {
 	prevSuccess := c.GetValue(KeyPrevSuccess)
 	if prevSuccess == nil {
@@ -102,7 +92,8 @@ func (c *Context) getPrevSuccess() *Success {
 	return prevSuccess.(*Success)
 }
 
-// getPrevFailure retrieves the previous failure event from the context.
+// getPrevFailure retrieves the previous failure event from the context's custom storage.
+// Returns nil if not set.
 func (c *Context) getPrevFailure() *Failure {
 	prevFailure := c.GetValue(KeyPrevFailure)
 	if prevFailure == nil {

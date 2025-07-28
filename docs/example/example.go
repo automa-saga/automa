@@ -12,12 +12,13 @@ import (
 )
 
 func main() {
-	ctx, cancel := automa.NewContext(context.Background()).WithCancel()
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
 
 	// Inline Task definitions
+	// These tasks represent steps in a workflow.
 	stop := &automa.Task{
 		ID: "stop_containers",
 		Run: func(ctx *automa.Context) error {
@@ -78,7 +79,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	report, err := workflow.Execute(ctx)
+	report, err := workflow.Execute(automa.NewContext(ctx))
 	if err == nil {
 		logger.Error().Msg("Was expecting error, no error received")
 	}

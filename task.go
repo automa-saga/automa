@@ -2,53 +2,61 @@ package automa
 
 import "github.com/joomcode/errorx"
 
+// Task implements the automa.Step interface and represents a workflow step.
+// Each Task can execute (Run) and rollback (Rollback) its operation.
+// Optionally, a Skip function can be defined to conditionally skip execution or rollback.
 type Task struct {
-	ID string
+	ID string // Unique identifier for the step.
 
-	next Step
-	prev Step
+	next Step // Reference to the next step in the workflow (forward direction).
+	prev Step // Reference to the previous step in the workflow (backward direction).
 
-	// user needs to implement these methods
+	// User-defined execution logic for the step.
+	// If not specified, the operation will be skipped.
 	Run      func(ctx *Context) error
-	Skip     func(ctx *Context) bool
 	Rollback func(ctx *Context) error
+
+	// Optional function to determine if the step should be skipped.
+	Skip func(ctx *Context) bool
 }
 
-// GetID returns the step ID
-func (s *Task) GetID() string {
-	return s.ID
+// GetID returns the unique identifier of the step.
+func (t *Task) GetID() string {
+	return t.ID
 }
 
-// SetNext sets the next step of the workflow to be able to move in the forward direction on success
-func (s *Task) SetNext(next Step) {
-	s.next = next
+// SetNext sets the next step in the workflow for forward progression.
+func (t *Task) SetNext(next Step) {
+	t.next = next
 }
 
-// SetPrev sets the previous step of the workflow to be able to move in the backward direction on error
-func (s *Task) SetPrev(prev Step) {
-	s.prev = prev
+// SetPrev sets the previous step in the workflow for backward progression (rollback).
+func (t *Task) SetPrev(prev Step) {
+	t.prev = prev
 }
 
-// GetNext returns the step to be used to move in the forward direction
-func (s *Task) GetNext() Step {
-	return s.next
+// GetNext returns the next step for forward execution.
+func (t *Task) GetNext() Step {
+	return t.next
 }
 
-// GetPrev returns the step to be used to move in the backward direction
-func (s *Task) GetPrev() Step {
-	return s.prev
+// GetPrev returns the previous step for backward execution (rollback).
+func (t *Task) GetPrev() Step {
+	return t.prev
 }
 
-func (s *Task) Reset() Step {
-	// Resetting the next and previous steps to nil
-	// This is useful when the step is reused in a different workflow
-	s.next = nil
-	s.prev = nil
-	return s
+// Reset clears the next and previous step references.
+// Useful when reusing the step in a different workflow.
+func (t *Task) Reset() Step {
+	t.next = nil
+	t.prev = nil
+	return t
 }
 
-// Execute implements controller logic for automa.Step interface
-func (s *Task) Execute(ctx *Context) (*WorkflowReport, error) {
+// Execute runs the step's forward logic.
+// If Run is not defined or Skip returns true, the step is skipped.
+// On error, triggers rollback via Reverse. On success, proceeds to the next step.
+func (t *Task) Execute(ctx *Context) (*WorkflowReport, error) {
 	if ctx == nil {
 		return nil, errorx.IllegalArgument.New("context cannot be nil")
 	}
@@ -58,31 +66,35 @@ func (s *Task) Execute(ctx *Context) (*WorkflowReport, error) {
 		return nil, errorx.IllegalArgument.New("previous success event cannot be nil for forward execution")
 	}
 
-	report := NewStepReport(s.GetID(), RunAction)
+	report := NewStepReport(t.GetID(), RunAction)
 
-	// If the step's Run method is not defined or if Skip is defined and returns true, we skip the run
-	if s.Run == nil || (s.Skip != nil && s.Skip(ctx)) {
+	// Skip execution if Run is not defined or Skip returns true.
+	if t.Run == nil || (t.Skip != nil && t.Skip(ctx)) {
 		report.Status = StatusSkipped
-		if s.next != nil {
-			return s.next.Execute(ctx.SetValue(KeyPrevSuccess, NewSkippedRun(prevSuccess, report)))
+		if t.next != nil {
+			// Proceed to next step if available.
+			return t.next.Execute(ctx.SetValue(KeyPrevSuccess, NewSkippedRun(prevSuccess, report)))
 		}
-
+		// Append skipped report and finish.
 		prevSuccess.workflowReport.Append(report, RunAction, StatusSkipped)
 		return &prevSuccess.workflowReport, nil
 	}
 
-	// Execute the run logic
-	err := s.Run(ctx)
+	// Execute the Run logic.
+	err := t.Run(ctx)
 	if err != nil {
-		return s.Reverse(ctx.SetValue(KeyPrevFailure, NewFailedRun(prevSuccess, err, report)))
+		// On error, trigger rollback.
+		return t.Reverse(ctx.SetValue(KeyPrevFailure, NewFailedRun(prevSuccess, err, report)))
 	}
 
-	// If run is successful, we proceed to the next step's execution
-	return s.runNext(ctx, prevSuccess, report)
+	// On success, proceed to next step.
+	return t.runNext(ctx, prevSuccess, report)
 }
 
-// Reverse implements controller logic for automa.Step interface
-func (s *Task) Reverse(ctx *Context) (*WorkflowReport, error) {
+// Reverse runs the step's rollback logic.
+// If Rollback is not defined or Skip returns true, the rollback is skipped.
+// On error, triggers rollback of previous steps. On success, proceeds to previous step's rollback.
+func (t *Task) Reverse(ctx *Context) (*WorkflowReport, error) {
 	if ctx == nil {
 		return nil, errorx.IllegalArgument.New("context cannot be nil")
 	}
@@ -92,78 +104,79 @@ func (s *Task) Reverse(ctx *Context) (*WorkflowReport, error) {
 		return nil, errorx.IllegalArgument.New("previous failure event cannot be nil for rollback")
 	}
 
-	report := NewStepReport(s.GetID(), RollbackAction)
+	report := NewStepReport(t.GetID(), RollbackAction)
 
-	// If the step's Rollback method is not defined or if Skip is defined and returns true, we skip the rollback
-	if s.Rollback == nil || (s.Skip != nil && s.Skip(ctx)) {
+	// Skip rollback if Rollback is not defined or Skip returns true.
+	if t.Rollback == nil || (t.Skip != nil && t.Skip(ctx)) {
 		report.Status = StatusSkipped
-		if s.prev != nil {
-			return s.prev.Reverse(ctx.SetValue(KeyPrevFailure, NewSkippedRollback(prevFailure, report)))
+		if t.prev != nil {
+			// Proceed to previous step's rollback if available.
+			return t.prev.Reverse(ctx.SetValue(KeyPrevFailure, NewSkippedRollback(prevFailure, report)))
 		}
-
+		// Append skipped report and finish.
 		prevFailure.workflowReport.Append(report, RollbackAction, StatusSkipped)
 		return &prevFailure.workflowReport, prevFailure.err
 	}
 
-	// Execute the rollback logic
-	err := s.Rollback(ctx)
+	// Execute the Rollback logic.
+	err := t.Rollback(ctx)
 	if err != nil {
 		report.FailureReason = StepRollbackFailed.Wrap(err, "step rollback failed")
-
-		if s.prev != nil {
-			return s.prev.Reverse(ctx.SetValue(KeyPrevFailure, NewFailedRollback(prevFailure, err, report)))
+		if t.prev != nil {
+			// On error, trigger rollback of previous steps.
+			return t.prev.Reverse(ctx.SetValue(KeyPrevFailure, NewFailedRollback(prevFailure, err, report)))
 		}
-
+		// Append failed report and finish.
 		prevFailure.workflowReport.Append(report, RollbackAction, StatusFailed)
 		return &prevFailure.workflowReport, prevFailure.err
 	}
 
-	// If rollback is successful, we proceed to the previous step's rollback
-	return s.rollbackPrev(ctx, prevFailure, report)
+	// On success, proceed to previous step's rollback.
+	return t.rollbackPrev(ctx, prevFailure, report)
 }
 
-// runNext is a helper method to report that current step has been successful and trigger next step's execution.
-// It marks the current step as StatusSuccess.
-func (s *Task) runNext(ctx *Context, prevSuccess *Success, report *StepReport) (*WorkflowReport, error) {
+// runNext reports the current step as successful and triggers the next step's execution.
+// Marks the current step as StatusSuccess.
+func (t *Task) runNext(ctx *Context, prevSuccess *Success, report *StepReport) (*WorkflowReport, error) {
 	if ctx == nil {
 		return nil, errorx.IllegalArgument.New("context cannot be nil")
 	}
-
 	if prevSuccess == nil {
 		return nil, errorx.IllegalArgument.New("previous success event cannot be nil for forward execution")
 	}
-
 	if report == nil {
-		report = NewStepReport(s.GetID(), RunAction)
+		report = NewStepReport(t.GetID(), RunAction)
 	}
 
-	if s.next != nil {
-		return s.next.Execute(ctx.SetValue(KeyPrevSuccess, NewSuccess(prevSuccess, report)))
+	if t.next != nil {
+		// Proceed to next step.
+		return t.next.Execute(ctx.SetValue(KeyPrevSuccess, NewSuccess(prevSuccess, report)))
 	}
 
+	// Append success report and finish.
 	prevSuccess.workflowReport.Append(report, RunAction, StatusSuccess)
 	return &prevSuccess.workflowReport, nil
 }
 
-// rollbackPrev is a helper method to report that current rollback step has been executed and trigger previous step's rollback.
-// It marks the current step as StatusFailed.
-func (s *Task) rollbackPrev(ctx *Context, prevFailure *Failure, report *StepReport) (*WorkflowReport, error) {
+// rollbackPrev reports the current rollback step as executed and triggers previous step's rollback.
+// Marks the current step as StatusSuccess.
+func (t *Task) rollbackPrev(ctx *Context, prevFailure *Failure, report *StepReport) (*WorkflowReport, error) {
 	if ctx == nil {
 		return nil, errorx.IllegalArgument.New("context cannot be nil")
 	}
-
 	if prevFailure == nil {
 		return nil, errorx.IllegalArgument.New("previous failure event cannot be nil for rollback")
 	}
-
 	if report == nil {
-		report = NewStepReport(s.GetID(), RollbackAction)
+		report = NewStepReport(t.GetID(), RollbackAction)
 	}
 
-	if s.prev != nil {
-		return s.prev.Reverse(ctx.SetValue(KeyPrevFailure, NewFailure(prevFailure, report)))
+	if t.prev != nil {
+		// Proceed to previous step's rollback.
+		return t.prev.Reverse(ctx.SetValue(KeyPrevFailure, NewFailure(prevFailure, report)))
 	}
 
+	// Append success report and finish.
 	prevFailure.workflowReport.Append(report, RollbackAction, StatusSuccess)
 	return &prevFailure.workflowReport, prevFailure.err
 }

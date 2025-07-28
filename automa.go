@@ -1,70 +1,80 @@
+// Package automa provides interfaces for implementing the Saga pattern and Choreography-based workflows.
 package automa
 
-// Saga interface defines the methods to support Saga pattern where steps can be executed and rolled back.
+// Saga defines the contract for a transactional step in a Saga workflow.
+// Each step must support forward execution and optional rollback.
 type Saga interface {
-	// Execute executes the step in the forward direction.
+	// Execute runs the step in the forward direction.
+	// Returns a WorkflowReport and error if execution fails.
 	Execute(ctx *Context) (*WorkflowReport, error)
 
 	// Reverse rolls back the step in the backward direction.
+	// Returns a WorkflowReport and error if rollback fails.
 	Reverse(ctx *Context) (*WorkflowReport, error)
 }
 
-// Choreographer interface defines the methods to support double link list of workflow steps.
-// This is needed to support Choreography execution of the Saga workflow.
+// Choreographer defines methods for managing a double linked list of workflow steps.
+// Enables chaining steps for Choreography execution in a Saga workflow.
 type Choreographer interface {
-	// SetNext and SetPrev are used to set the next and previous steps in the double linked list of steps
+	// SetNext sets the next step in the workflow sequence.
 	SetNext(next Step)
+	// SetPrev sets the previous step in the workflow sequence.
 	SetPrev(prev Step)
 
-	// GetNext and GetPrev are used to get the next and previous steps in the double linked list of steps
+	// GetNext retrieves the next step in the workflow sequence.
 	GetNext() Step
+	// GetPrev retrieves the previous step in the workflow sequence.
 	GetPrev() Step
 
-	// Reset resets the step to its initial state
+	// Reset restores the step to its initial state.
 	Reset() Step
 }
 
-// Step provides interface for a transactional step within a workflow.
-// Note that a Step may skip rollback if that makes sense and in that case it is not Transactional in nature.
+// Step represents a single transactional unit within a workflow.
+// Combines Saga and Choreographer interfaces for execution and chaining.
 type Step interface {
+	// GetID returns the unique identifier for the step.
 	GetID() string
 	Saga
 	Choreographer
 }
 
-// Registry is a registry for steps.
+// Registry manages registration and lookup of workflow steps.
+// Supports building workflows from registered steps.
 type Registry interface {
-	// AddStep adds a Step to the registry
+	// AddStep registers a single Step in the registry.
 	AddStep(step Step) Registry
 
-	// AddSteps adds multiple Steps to the registry
+	// AddSteps registers multiple Steps in the registry.
 	AddSteps(step ...Step) Registry
 
-	// GetStep returns a Step from the registry given the id
-	// If it doesn't exist, it returns nil. So the caller should handle the nil Step safely.
+	// GetStep retrieves a Step by its ID.
+	// Returns nil if the step does not exist.
 	GetStep(id string) Step
 
-	// GetSteps returns all Steps in the registry
+	// GetSteps returns all registered Steps in the registry.
 	GetSteps() []Step
 
-	// BuildWorkflow builds a Workflow comprising the list of Step identified by ids
+	// BuildWorkflow constructs a Workflow from a list of Step IDs.
+	// Returns an error if any step is missing.
 	BuildWorkflow(workflowID string, stepIDs []string) (Workflow, error)
 }
 
-// Workflow defines interface for a workflow.
+// Workflow defines the contract for a Saga workflow.
+// Supports execution, inspection, and step sequence management.
 type Workflow interface {
-	// GetID returns the workflow ID
+	// GetID returns the workflow's unique identifier.
 	GetID() string
 
-	// Execute starts the workflow and returns the WorkflowReport
+	// Execute starts the workflow and returns a WorkflowReport.
 	Execute(ctx *Context) (*WorkflowReport, error)
 
-	// HasStep checks if the workflow has a Step with the given stepID
+	// HasStep checks if the workflow contains a Step with the given ID.
 	HasStep(stepID string) bool
 
-	// GetStepSequence returns the ordered list of Step IDs in the workflow
+	// GetStepSequence returns the ordered list of Step IDs in the workflow.
 	GetStepSequence() []string
 
-	// GetSteps returns the ordered list of Step in the workflow
+	// GetSteps returns the ordered list of Steps in the workflow.
 	GetSteps() []Step
 }
