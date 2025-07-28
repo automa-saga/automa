@@ -32,11 +32,10 @@ func NewFailedRollback(prevFailure *Failure, err error, report *StepReport) *Fai
 	return &Failure{err: err, workflowReport: prevFailure.workflowReport}
 }
 
-// NewStartTrigger returns a Success event to be use for Forward method
-// It is used by the workflow to trigger the execution of the first step
-func NewStartTrigger(reports WorkflowReport) *Success {
+// NewStartTrigger returns a Success event to be used for the first step Execution
+func NewStartTrigger(reports *WorkflowReport) *Success {
 	return &Success{
-		workflowReport: reports,
+		workflowReport: *reports,
 	}
 }
 

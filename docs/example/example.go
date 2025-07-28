@@ -61,26 +61,37 @@ func main() {
 		},
 	}
 
+	// create a registry with all steps.
+	// registry helps to build different workflows using the same steps instances
 	registry := automa.NewRegistry(nil).AddSteps(stop, fetch, notify, restart)
 
+	// Build the workflow using the registry and the defined steps
 	workflow, err := registry.BuildWorkflow("workflow_1", []string{
-		stop.ID, fetch.ID, notify.ID, restart.ID,
+		stop.ID,
+		fetch.ID,
+		notify.ID,
+		restart.ID,
 	})
+
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to build workflow-1")
 		os.Exit(1)
 	}
-	defer workflow.End(ctx)
 
 	report, err := workflow.Execute(ctx)
 	if err == nil {
 		logger.Error().Msg("Was expecting error, no error received")
 	}
 
-	printReport(&report, &logger)
+	printReport(report, &logger)
 }
 
 func printReport(report *automa.WorkflowReport, logger *zerolog.Logger) {
+	if report == nil {
+		logger.Fatal().Msg("Workflow report is nil")
+		return
+	}
+
 	logger.Debug().Msg("----------------------------------------- ")
 	logger.Debug().Msgf("        Execution StepReport - %s", report.WorkflowID)
 	logger.Debug().Msg("----------------------------------------- ")

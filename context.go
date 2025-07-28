@@ -92,3 +92,21 @@ func NewContext(parentCtx context.Context) *Context {
 
 	return &Context{Context: parentCtx, values: make(map[string]any)}
 }
+
+// getPrevSuccess retrieves the previous success event from the context.
+func (c *Context) getPrevSuccess() *Success {
+	prevSuccess := c.GetValue(KeyPrevSuccess)
+	if prevSuccess == nil {
+		return nil
+	}
+	return prevSuccess.(*Success)
+}
+
+// getPrevFailure retrieves the previous failure event from the context.
+func (c *Context) getPrevFailure() *Failure {
+	prevFailure := c.GetValue(KeyPrevFailure)
+	if prevFailure == nil {
+		return nil
+	}
+	return prevFailure.(*Failure)
+}

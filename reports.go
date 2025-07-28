@@ -4,21 +4,12 @@ import (
 	"time"
 )
 
-// StepActionType defines the action taken by a step
-// It is used as key for StepReport.Actions
-type StepActionType string
-
-const (
-	RunAction      StepActionType = "run"
-	RollbackAction StepActionType = "rollback"
-)
-
 // WorkflowReport defines a map of StepReport with key as the step ID
 type WorkflowReport struct {
 	WorkflowID   string        `yaml:"workflow_id" json:"workflowID"`
 	StartTime    time.Time     `yaml:"start_time" json:"startTime"`
 	EndTime      time.Time     `yaml:"end_time" json:"endTime"`
-	Status       Status        `yaml:"status" json:"status"`
+	Status       string        `yaml:"status" json:"status"`
 	StepSequence []string      `yaml:"step_sequence" json:"stepSequence"`
 	StepReports  []*StepReport `yaml:"step_reports" json:"stepReports"`
 }
@@ -26,17 +17,17 @@ type WorkflowReport struct {
 // StepReport defines the report data model for each Step execution
 type StepReport struct {
 	StepID        string            `yaml:"step_id" json:"stepID"`
-	Action        StepActionType    `yaml:"action" json:"action"`
+	Action        string            `yaml:"action" json:"action"`
 	StartTime     time.Time         `yaml:"start_time" json:"startTime"`
 	EndTime       time.Time         `yaml:"end_time" json:"endTime"`
-	Status        Status            `yaml:"status" json:"status"`
+	Status        string            `yaml:"status" json:"status"`
 	FailureReason error             `yaml:"failure_reason" json:"failure_reason"`
 	Metadata      map[string][]byte `yaml:"metadata" json:"metadata"`
 }
 
 // Append appends the current report to the previous report
 // It adds an end time and sets the status for the current report
-func (wfr *WorkflowReport) Append(stepReport *StepReport, action StepActionType, status Status) {
+func (wfr *WorkflowReport) Append(stepReport *StepReport, action string, status string) {
 	if stepReport == nil {
 		return
 	}
@@ -60,9 +51,10 @@ func NewWorkflowReport(id string, stepIDs []string) *WorkflowReport {
 }
 
 // NewStepReport returns a new report with a given stepID
-func NewStepReport(id string, action StepActionType) *StepReport {
+func NewStepReport(id string, action string) *StepReport {
 	r := &StepReport{
 		StepID:        id,
+		Action:        action,
 		StartTime:     time.Now(),
 		EndTime:       time.Now(),
 		Status:        StatusUndefined,

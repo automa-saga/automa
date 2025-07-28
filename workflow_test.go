@@ -79,7 +79,6 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	assert.Equal(t, []string{stop.GetID(), fetch.GetID(), notify.GetID(), restart.GetID()}, workflow1.GetStepSequence())
 	assert.True(t, workflow1.HasStep(stop.GetID()))
 	assert.False(t, workflow1.HasStep("INVALID"))
-	defer workflow1.End(ctx)
 
 	// modifying the step sequence externally should not affect the workflow
 	seq := workflow1.GetStepSequence()
@@ -104,7 +103,6 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	})
 	require.Nil(t, err)
 	assert.Equal(t, "workflow_2", workflow2.GetID())
-	defer workflow2.End(ctx)
 
 	report2, err := workflow2.Execute(ctx)
 	assert.Error(t, err)
@@ -120,7 +118,6 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	})
 	require.Nil(t, err)
 	assert.Equal(t, "workflow_3", workflow3.GetID())
-	defer workflow3.End(ctx)
 
 	report3, err := workflow3.Execute(ctx)
 	require.Nil(t, err)
