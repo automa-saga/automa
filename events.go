@@ -13,7 +13,7 @@ type Failure struct {
 	workflowReport WorkflowReport
 }
 
-// NewFailedRun returns a Failure event to be used for first Rollback method
+// NewFailedRun returns a Failure event to be used for first Backward method
 // It is used by a step to trigger its own rollback action
 // It sets the step's RunAction status as StatusFailed
 func NewFailedRun(prevSuccess *Success, err error, report *StepReport) *Failure {
@@ -32,7 +32,7 @@ func NewFailedRollback(prevFailure *Failure, err error, report *StepReport) *Fai
 	return &Failure{err: err, workflowReport: prevFailure.workflowReport}
 }
 
-// NewStartTrigger returns a Success event to be use for Run method
+// NewStartTrigger returns a Success event to be use for Forward method
 // It is used by the workflow to trigger the execution of the first step
 func NewStartTrigger(reports WorkflowReport) *Success {
 	return &Success{

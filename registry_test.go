@@ -6,25 +6,32 @@ import (
 	"testing"
 )
 
-func TestNewStepRegistry(t *testing.T) {
-	registry := NewStepRegistry(nil)
+func TestNewRegistry(t *testing.T) {
+	registry := NewRegistry(nil)
 	assert.NotNil(t, registry)
 	assert.NotNil(t, registry.(*stepRegistry).logger)
 
 	logger := zerolog.Nop()
-	registry = NewStepRegistry(&logger)
+	registry = NewRegistry(&logger)
 	assert.NotNil(t, registry)
 	assert.NotNil(t, registry.(*stepRegistry).logger)
 }
 
-func TestStepRegistry_GetStep(t *testing.T) {
-	registry := NewStepRegistry(nil)
+func TestRegistry_GetStep(t *testing.T) {
+	registry := NewRegistry(nil)
 	assert.NotNil(t, registry)
 
-	s1 := &mockSuccessStep{AbstractStep: AbstractStep{ID: "test"}}
-	s1.RegisterSaga(s1.run, s1.run)
+	s1 := &Task{
+		ID: "test",
+		Run: func(ctx *Context) error {
+			return nil
+		},
+		Rollback: func(ctx *Context) error {
+			return nil
+		},
+	}
 
-	registry.RegisterSteps(map[string]Step{s1.ID: s1})
+	registry.AddStep(s1)
 	assert.NotNil(t, registry.GetStep(s1.ID))
 	assert.Nil(t, registry.GetStep("INVALID"))
 
