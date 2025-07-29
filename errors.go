@@ -5,7 +5,6 @@ import "github.com/joomcode/errorx"
 var (
 	ErrNamespace = errorx.NewNamespace("automa")
 
-	InvalidConfig         = ErrNamespace.NewType("invalid_config")
 	StepNotFound          = ErrNamespace.NewType("step_not_found", errorx.NotFound())
 	StepAlreadyExists     = ErrNamespace.NewType("step_already_exists", errorx.Duplicate())
 	WorkflowNotFound      = ErrNamespace.NewType("workflow_not_found", errorx.NotFound())

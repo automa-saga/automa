@@ -1,67 +1,80 @@
+// Package automa provides interfaces for implementing the Saga pattern and Choreography-based workflows.
 package automa
 
-import (
-	"context"
-)
+// Saga defines the contract for a transactional step in a Saga workflow.
+// Each step must support forward execution and optional rollback.
+type Saga interface {
+	// Execute runs the step in the forward direction.
+	// Returns a WorkflowReport and error if execution fails.
+	Execute(ctx *Context) (*WorkflowReport, error)
 
-// Forward defines the methods to execute business logic of an AtomicStep and move the workflow forward
-type Forward interface {
-	// Run runs the business logic to be performed in the AtomicStep
-	Run(ctx context.Context, prevSuccess *Success) (WorkflowReport, error)
+	// Reverse rolls back the step in the backward direction.
+	// Returns a WorkflowReport and error if rollback fails.
+	Reverse(ctx *Context) (*WorkflowReport, error)
 }
 
-// Backward defines the methods to be executed to move the workflow backward on error
-type Backward interface {
-	// Rollback defines the actions compensating the business logic executed in Run method
-	// A step may skip rollback if that makes sense. In that case it would mean the AtomicStep is not Atomic in nature.
-	Rollback(ctx context.Context, prevFailure *Failure) (WorkflowReport, error)
-}
-
-// Choreographer interface defines the methods to support double link list of states
-// This is needed to support Choreography execution of the Saga workflow
+// Choreographer defines methods for managing a double linked list of workflow steps.
+// Enables chaining steps for Choreography execution in a Saga workflow.
 type Choreographer interface {
-	SetNext(next Forward)
-	SetPrev(prev Backward)
-	GetNext() Forward
-	GetPrev() Backward
+	// SetNext sets the next step in the workflow sequence.
+	SetNext(next Step)
+	// SetPrev sets the previous step in the workflow sequence.
+	SetPrev(prev Step)
+
+	// GetNext retrieves the next step in the workflow sequence.
+	GetNext() Step
+	// GetPrev retrieves the previous step in the workflow sequence.
+	GetPrev() Step
+
+	// Reset restores the step to its initial state.
+	Reset() Step
 }
 
-// AtomicStep provides interface for an atomic state
-// Note that an AtomicStep may skip rollback if that makes sense and in that case it is not Atomic in nature.
-type AtomicStep interface {
-	// GetID returns the step ID
+// Step represents a single transactional unit within a workflow.
+// Combines Saga and Choreographer interfaces for execution and chaining.
+type Step interface {
+	// GetID returns the unique identifier for the step.
 	GetID() string
-
-	Forward
-	Backward
+	Saga
 	Choreographer
 }
 
-// StepIDs is just a wrapper definition for a list of string
-type StepIDs []string
+// Registry manages registration and lookup of workflow steps.
+// Supports building workflows from registered steps.
+type Registry interface {
+	// AddStep registers a single Step in the registry.
+	AddStep(step Step) Registry
 
-// AtomicStepRegistry is a registry of rollbackable steps
-type AtomicStepRegistry interface {
-	// RegisterSteps registers a set of AtomicStep
-	// steps argument is a map where key is the step identifier
-	RegisterSteps(steps map[string]AtomicStep) AtomicStepRegistry
+	// AddSteps registers multiple Steps in the registry.
+	AddSteps(step ...Step) Registry
 
-	// GetStep returns an AtomicStep from the registry given the id
-	// If it doesn't exist, it returns nil. So the caller should handle the nil AtomicStep safely.
-	GetStep(id string) AtomicStep
+	// GetStep retrieves a Step by its ID.
+	// Returns nil if the step does not exist.
+	GetStep(id string) Step
 
-	// BuildWorkflow builds an AtomicWorkflow comprising the list of AtomicStep identified by ids
-	BuildWorkflow(id string, stepIDs StepIDs) (AtomicWorkflow, error)
+	// GetSteps returns all registered Steps in the registry.
+	GetSteps() []Step
+
+	// BuildWorkflow constructs a Workflow from a list of Step IDs.
+	// Returns an error if any step is missing.
+	BuildWorkflow(workflowID string, stepIDs []string) (Workflow, error)
 }
 
-// AtomicWorkflow defines interface for a Workflow
-type AtomicWorkflow interface {
-	// GetID returns the workflow ID
+// Workflow defines the contract for a Saga workflow.
+// Supports execution, inspection, and step sequence management.
+type Workflow interface {
+	// GetID returns the workflow's unique identifier.
 	GetID() string
 
-	// Start starts the AtomicWorkflow execution
-	Start(ctx context.Context) (WorkflowReport, error)
+	// Execute starts the workflow and returns a WorkflowReport.
+	Execute(ctx *Context) (*WorkflowReport, error)
 
-	// End performs cleanup after the AtomicWorkflow engine finish its execution
-	End(ctx context.Context)
+	// HasStep checks if the workflow contains a Step with the given ID.
+	HasStep(stepID string) bool
+
+	// GetStepSequence returns the ordered list of Step IDs in the workflow.
+	GetStepSequence() []string
+
+	// GetSteps returns the ordered list of Steps in the workflow.
+	GetSteps() []Step
 }

@@ -11,167 +11,63 @@ import (
 	"os"
 )
 
-// InMemCache is the simples map based in-memory cache
-// It is assumed the type casting will be done properly and safely when values are retrieved
-// This doesn't use mutex so shouldn't be used with coroutines
-// This is just for example purposes.
-type InMemCache map[string]interface{}
+func main() {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-// GetString returns the string value for the given key
-func (ic InMemCache) GetString(key string) string {
-	if s, ok := ic[key].(string); ok {
-		return s
+	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
+
+	// Inline Task definitions
+	// These tasks represent steps in a workflow.
+	stop := &automa.Task{
+		ID: "stop_containers",
+		Run: func(ctx *automa.Context) error {
+			return nil
+		},
+		Rollback: func(ctx *automa.Context) error {
+			return nil
+		},
 	}
 
-	return ""
-}
-
-// SetString returns the string value for the given key
-func (ic InMemCache) SetString(key string, val interface{}) {
-	s, ok := val.(string)
-	if ok {
-		ic[key] = s
-	}
-}
-
-const (
-	keyRollbackMsg = "rollbackMsg"
-)
-
-type StopContainers struct {
-	automa.Step
-	cache  InMemCache
-	logger *zerolog.Logger
-}
-
-type FetchLatest struct {
-	automa.Step
-	cache  InMemCache
-	logger *zerolog.Logger
-}
-
-// NotifyAll notifies on Slack
-// it cannot be rollback
-type NotifyAll struct {
-	automa.Step
-	cache  InMemCache
-	logger *zerolog.Logger
-}
-
-type RestartContainers struct {
-	automa.Step
-	cache  InMemCache
-	logger *zerolog.Logger
-}
-
-func (s *StopContainers) run(ctx context.Context) (skipped bool, err error) {
-	// reset cache
-	s.cache = InMemCache{}
-
-	s.logger.Debug().Msgf("RUN - %q", s.ID)
-	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
-
-	return false, nil
-}
-
-func (s *StopContainers) rollback(ctx context.Context) (skipped bool, err error) {
-	// use cache
-	s.logger.Debug().Msg(s.cache.GetString(keyRollbackMsg))
-
-	return false, nil
-}
-
-func (s *FetchLatest) run(ctx context.Context) (skipped bool, err error) {
-	// reset cache
-	s.cache = InMemCache{}
-
-	s.logger.Debug().Msgf("RUN - %q", s.ID)
-	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
-
-	return false, nil
-}
-
-func (s *FetchLatest) rollback(ctx context.Context) (skipped bool, err error) {
-	// use cache
-	s.logger.Debug().Msg(s.cache.GetString(keyRollbackMsg))
-
-	return false, nil
-}
-
-func (s *NotifyAll) run(ctx context.Context) (skipped bool, err error) {
-	// reset cache
-	s.cache = InMemCache{}
-
-	s.logger.Debug().Msgf("RUN - %q", s.ID)
-	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
-
-	// skip step
-	return true, nil
-}
-
-func (s *NotifyAll) rollback(ctx context.Context) (skipped bool, err error) {
-	// use cache
-	s.logger.Debug().Msg(s.cache.GetString(keyRollbackMsg))
-
-	return true, nil
-}
-
-func (s *RestartContainers) run(ctx context.Context) (skipped bool, err error) {
-	// reset cache
-	s.cache = InMemCache{}
-
-	s.logger.Debug().Msgf("RUN - %q", s.ID)
-	s.cache.SetString(keyRollbackMsg, fmt.Sprintf("ROLLBACK - %q", s.ID))
-
-	return false, errorx.IllegalState.New("Mock error during %q", s.GetID())
-}
-
-func (s *RestartContainers) rollback(ctx context.Context) (skipped bool, err error) {
-	// use cache
-	s.logger.Debug().Msg(s.cache.GetString(keyRollbackMsg))
-
-	return false, nil
-}
-
-func buildWorkflow1(logger *zerolog.Logger) (automa.AtomicWorkflow, error) {
-	stop := &StopContainers{
-		Step:   automa.Step{ID: "stop_containers"},
-		cache:  InMemCache{},
-		logger: logger,
+	fetch := &automa.Task{
+		ID: "fetch_latest_images",
+		Run: func(ctx *automa.Context) error {
+			return nil
+		},
+		Rollback: func(ctx *automa.Context) error {
+			return nil
+		},
 	}
 
-	stop.RegisterSaga(stop.run, stop.rollback)
-
-	fetch := &FetchLatest{
-		Step:   automa.Step{ID: "fetch_latest_images"},
-		cache:  InMemCache{},
-		logger: logger,
+	notify := &automa.Task{
+		ID: "notify_all_on_slack",
+		Run: func(ctx *automa.Context) error {
+			return nil
+		},
+		Skip: func(ctx *automa.Context) bool {
+			return true // this step is skipped
+		},
+		Rollback: func(ctx *automa.Context) error {
+			return nil
+		},
 	}
-	fetch.RegisterSaga(fetch.run, fetch.rollback)
 
-	notify := &NotifyAll{
-		Step:   automa.Step{ID: "notify_all_on_slack"},
-		cache:  InMemCache{},
-		logger: logger,
+	restart := &automa.Task{
+		ID: "restart_containers",
+		Run: func(ctx *automa.Context) error {
+			return errorx.IllegalState.New("error during restart_containers")
+		},
+		Rollback: func(ctx *automa.Context) error {
+			return nil
+		},
 	}
-	notify.RegisterSaga(notify.run, notify.rollback)
 
-	restart := &RestartContainers{
-		Step:   automa.Step{ID: "restart_containers"},
-		cache:  InMemCache{},
-		logger: logger,
-	}
-	restart.RegisterSaga(restart.run, restart.rollback)
+	// create a registry with all steps.
+	// registry helps to build different workflows using the same steps instances
+	registry := automa.NewRegistry(nil).AddSteps(stop, fetch, notify, restart)
 
-	registry := automa.NewStepRegistry(nil).RegisterSteps(map[string]automa.AtomicStep{
-		stop.ID:    stop,
-		fetch.ID:   fetch,
-		notify.ID:  notify,
-		restart.ID: restart,
-	})
-
-	// a new workflow with notify in the middle
-	workflow, err := registry.BuildWorkflow("workflow_1", automa.StepIDs{
+	// Build the workflow using the registry and the defined steps
+	workflow, err := registry.BuildWorkflow("workflow_1", []string{
 		stop.ID,
 		fetch.ID,
 		notify.ID,
@@ -179,43 +75,33 @@ func buildWorkflow1(logger *zerolog.Logger) (automa.AtomicWorkflow, error) {
 	})
 
 	if err != nil {
-		return nil, err
-	}
-
-	return workflow, nil
-}
-
-func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).
-		With().Timestamp().Logger()
-
-	workflow, err := buildWorkflow1(&logger)
-	if err != nil {
 		logger.Fatal().Err(err).Msg("Failed to build workflow-1")
+		os.Exit(1)
 	}
-	defer workflow.End(ctx)
 
-	report, err := workflow.Start(ctx)
+	report, err := workflow.Execute(automa.NewContext(ctx))
 	if err == nil {
-		logger.Error().Err(err).Msg("Was expecting error, no error received")
+		logger.Error().Msg("Was expecting error, no error received")
 	}
 
-	printReport(&report, &logger)
+	printReport(report, &logger)
 }
 
 func printReport(report *automa.WorkflowReport, logger *zerolog.Logger) {
+	if report == nil {
+		logger.Fatal().Msg("Workflow report is nil")
+		return
+	}
+
 	logger.Debug().Msg("----------------------------------------- ")
 	logger.Debug().Msgf("        Execution StepReport - %s", report.WorkflowID)
 	logger.Debug().Msg("----------------------------------------- ")
+
 	out, err := yaml.Marshal(report)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("Could not marshall report to YAML")
 		return
 	}
-
 	fmt.Println(string(out))
 
 	logger.Debug().Msg("----------------------------------------- ")
@@ -225,7 +111,6 @@ func printReport(report *automa.WorkflowReport, logger *zerolog.Logger) {
 		logger.Fatal().Err(err).Msg("Could not marshall report to JSON")
 		return
 	}
-
 	fmt.Println(string(out))
 	logger.Debug().Msg("----------------------------------------- ")
 }
