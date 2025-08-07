@@ -2,7 +2,6 @@ package automa
 
 import (
 	"github.com/joomcode/errorx"
-	"github.com/rs/zerolog"
 	"sync"
 )
 
@@ -11,7 +10,6 @@ import (
 type stepRegistry struct {
 	mu      sync.RWMutex
 	stepMap map[string]Step // Internal map for storing steps by ID.
-	logger  *zerolog.Logger // Logger for registry-level logging.
 }
 
 // AddSteps registers multiple Steps in the registry.
@@ -80,23 +78,23 @@ func (r *stepRegistry) BuildWorkflow(workflowID string, stepIDs []string) (Workf
 	for _, stepID := range stepIDs {
 		step := r.GetStep(stepID)
 		if step != nil {
-			step.Reset()
 			steps = append(steps, step)
 		} else {
 			return nil, errorx.IllegalState.New("invalid step: %s", stepID)
 		}
 	}
 
-	wf := NewWorkflow(workflowID, WithSteps(steps...), WithLogger(r.logger))
+	wf := NewWorkflow(workflowID)
+	err := wf.AddSteps(steps...)
+	if err != nil {
+		return nil, errorx.IllegalState.Wrap(err, "failed to build workflow with ID %s", workflowID)
+	}
+
 	return wf, nil
 }
 
 // NewRegistry creates and returns a new stepRegistry instance implementing Registry.
 // If logger is nil, a NoOp logger is used.
-func NewRegistry(logger *zerolog.Logger) Registry {
-	if logger == nil {
-		logger = &nolog
-	}
-
-	return &stepRegistry{stepMap: map[string]Step{}, logger: logger}
+func NewRegistry() Registry {
+	return &stepRegistry{stepMap: map[string]Step{}}
 }

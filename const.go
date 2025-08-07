@@ -1,8 +1,8 @@
 package automa
 
 const (
-	KeyPrevSuccess = "PREV_SUCCESS"
-	KeyPrevFailure = "PREV_FAILURE"
+	KeyPrevResult = "PREV_RESULT"
+	KeyLogger     = "LOGGER"
 
 	StatusSuccess     = "SUCCESS"
 	StatusFailed      = "FAILED"
