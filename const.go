@@ -1,13 +1,17 @@
 package automa
 
-const (
-	KeyPrevSuccess = "PREV_SUCCESS"
-	KeyPrevFailure = "PREV_FAILURE"
+import "github.com/rs/zerolog"
 
-	StatusSuccess   = "SUCCESS"
-	StatusFailed    = "FAILED"
-	StatusSkipped   = "SKIPPED"
-	StatusUndefined = "UNDEFINED"
+var nolog = zerolog.Nop()
+
+const (
+	KeyPrevResult = "PREV_RESULT"
+	KeyLogger     = "LOGGER"
+
+	StatusSuccess     = "SUCCESS"
+	StatusFailed      = "FAILED"
+	StatusSkipped     = "SKIPPED"
+	StatusInitialized = "INITIALIZED"
 
 	RunAction      = "RUN"
 	RollbackAction = "ROLLBACK"

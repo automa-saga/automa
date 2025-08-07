@@ -2,6 +2,7 @@ package automa
 
 import (
 	"context"
+	"github.com/rs/zerolog"
 	"sync"
 )
 
@@ -82,22 +83,21 @@ func NewContext(parentCtx context.Context) *Context {
 	return &Context{Context: parentCtx, values: make(map[string]any)}
 }
 
-// getPrevSuccess retrieves the previous success event from the context's custom storage.
-// Returns nil if not set.
-func (c *Context) getPrevSuccess() *SuccessEvent {
-	prevSuccess := c.GetValue(KeyPrevSuccess)
-	if prevSuccess == nil {
+func (c *Context) getPrevResult() *Result {
+	prevResult := c.GetValue(KeyPrevResult)
+	if prevResult == nil {
 		return nil
 	}
-	return prevSuccess.(*SuccessEvent)
+	return prevResult.(*Result)
+}
+func (c *Context) setPrevResult(result *Result) *Context {
+	return c.SetValue(KeyPrevResult, result)
 }
 
-// getPrevFailure retrieves the previous failure event from the context's custom storage.
-// Returns nil if not set.
-func (c *Context) getPrevFailure() *FailureEvent {
-	prevFailure := c.GetValue(KeyPrevFailure)
-	if prevFailure == nil {
-		return nil
+func (c *Context) getLogger() zerolog.Logger {
+	logger := c.GetValue(KeyLogger)
+	if logger == nil {
+		return nolog // Return a no-op logger if none is set
 	}
-	return prevFailure.(*FailureEvent)
+	return logger.(zerolog.Logger)
 }

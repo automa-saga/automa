@@ -64,3 +64,25 @@ func TestWithCancel(t *testing.T) {
 		t.Fatal("context was not cancelled")
 	}
 }
+
+func TestGetSetPrevResult(t *testing.T) {
+	c := NewContext(nil)
+	assert.Nil(t, c.getPrevResult())
+
+	result := &Result{}
+	c.setPrevResult(result)
+	assert.Equal(t, result, c.getPrevResult())
+}
+
+func TestGetLogger_DefaultAndCustom(t *testing.T) {
+	c := NewContext(nil)
+	// Should return nolog (no-op logger) if not set
+	logger := c.getLogger()
+	assert.NotNil(t, logger)
+
+	// Set a custom logger
+	customLogger := nolog.With().Str("foo", "bar").Logger()
+	c.SetValue(KeyLogger, customLogger)
+	got := c.getLogger()
+	assert.Equal(t, customLogger, got)
+}
