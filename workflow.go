@@ -2,12 +2,9 @@ package automa
 
 import (
 	"github.com/joomcode/errorx"
-	"github.com/rs/zerolog"
 	"sync"
 	"time"
 )
-
-var nolog = zerolog.Nop()
 
 // workflow implements the Workflow interface.
 // It manages a Saga workflow using a double linked list of Steps,
@@ -48,7 +45,7 @@ func (wf *workflow) addStep(s Step) error {
 	}
 
 	if wf.stepSequence == nil {
-		wf.stepSequence = make([]string, 0, 5) // initial capacity for performance
+		wf.stepSequence = make([]string, 0, 3) // initial capacity for performance
 	}
 
 	// ensure the step ID is unique
@@ -210,19 +207,12 @@ func (wf *workflow) Reverse(ctx *Context) (*Result, error) {
 	return result, nil
 }
 
-func (wf *workflow) funcName(ctx *Context) *Result {
-	result := ctx.getPrevResult()
-	if result == nil {
-		result = &Result{
-			Report: NewWorkflowReport(wf.GetID(), wf.GetStepSequence()),
-		}
-	}
-	return result
-}
-
 // GetStepSequence returns the ordered list of Step IDs in the workflow.
+// This method returns a copy of the stepSequence to avoid external modifications.
 func (wf *workflow) GetStepSequence() []string {
-	return wf.stepSequence
+	copied := make([]string, len(wf.stepSequence))
+	copy(copied, wf.stepSequence)
+	return copied
 }
 
 // HasStep checks if the workflow contains a Step with the given stepID.
@@ -242,7 +232,7 @@ type WorkflowOption func(wf *workflow)
 func NewWorkflow(id string, opts ...WorkflowOption) Workflow {
 	wf := &workflow{
 		id:           id,
-		stepSequence: []string{},
+		stepSequence: make([]string, 0, 3), // initial capacity for performance,
 		stepMap:      make(map[string]Step),
 	}
 	for _, opt := range opts {

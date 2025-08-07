@@ -1,5 +1,9 @@
 package automa
 
+import "github.com/rs/zerolog"
+
+var nolog = zerolog.Nop()
+
 const (
 	KeyPrevResult = "PREV_RESULT"
 	KeyLogger     = "LOGGER"

@@ -9,6 +9,18 @@ import (
 	"testing"
 )
 
+func newSimpleTask(id string) *Task {
+	return &Task{
+		ID: id,
+		Run: func(ctx *Context) error {
+			return nil
+		},
+		Rollback: func(ctx *Context) error {
+			return nil
+		},
+	}
+}
+
 func TestWorkflow_Forward_empty(t *testing.T) {
 	wf := NewWorkflow("empty").(*workflow)
 	ctx := NewContext(context.Background())
@@ -306,4 +318,58 @@ func TestComposableWorkflows_Execution(t *testing.T) {
 	// The composed workflow should execute all steps in order
 	expectedSequence := []string{"wf1", "wf2", "restart"}
 	assert.Equal(t, expectedSequence, composed.GetStepSequence())
+}
+
+func TestWorkflow_Forward_missingStep(t *testing.T) {
+	wf := NewWorkflow("wf_missing").(*workflow)
+	task := newSimpleTask("a")
+	assert.NoError(t, wf.addStep(task))
+	// Remove from map to simulate missing step
+	wf.mutex.Lock()
+	delete(wf.stepMap, "a")
+	wf.mutex.Unlock()
+	ctx := NewContext(nil)
+	_, err := wf.Forward(ctx)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestWorkflow_Reverse_missingStep(t *testing.T) {
+	wf := NewWorkflow("wf_missing_reverse").(*workflow)
+	task := newSimpleTask("a")
+	assert.NoError(t, wf.addStep(task))
+	// Remove from map to simulate missing step
+	wf.mutex.Lock()
+	delete(wf.stepMap, "a")
+	wf.mutex.Unlock()
+	ctx := NewContext(nil)
+	_, err := wf.Reverse(ctx)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestWorkflow_Reverse_noSteps(t *testing.T) {
+	wf := NewWorkflow("empty_reverse").(*workflow)
+	ctx := NewContext(nil)
+	res, err := wf.Reverse(ctx)
+	assert.Nil(t, res)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no steps to reverse")
+}
+
+func TestWorkflow_GetStepSequence_returnsCopy(t *testing.T) {
+	wf := NewWorkflow("copy_seq").(*workflow)
+	assert.NoError(t, wf.addStep(newSimpleTask("a")))
+	seq := wf.GetStepSequence()
+	seq[0] = "changed"
+	// Internal should not be affected
+	assert.Equal(t, []string{"a"}, wf.GetStepSequence())
+}
+
+func TestNewWorkflow_withOptions(t *testing.T) {
+	opt := func(wf *workflow) {
+		_ = wf.addStep(newSimpleTask("opt"))
+	}
+	wf := NewWorkflow("withopt", opt).(*workflow)
+	assert.True(t, wf.HasStep("opt"))
 }

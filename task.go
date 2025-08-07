@@ -80,7 +80,7 @@ func (t *Task) Reverse(ctx *Context) (*Result, error) {
 	report := NewStepReport(t.GetID(), RollbackAction)
 
 	// Skip rollback if Rollback is not defined or Skip returns true.
-	if t.Run == nil || (t.Skip != nil && t.Skip(ctx)) {
+	if t.Rollback == nil || (t.Skip != nil && t.Skip(ctx)) {
 		result.Report.Append(report, StatusSkipped)
 		return result, nil
 	}
