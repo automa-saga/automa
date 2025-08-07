@@ -42,27 +42,31 @@ func (wfr *WorkflowReport) Append(stepReport *StepReport, action string, status 
 }
 
 // NewWorkflowReport creates and initializes a new WorkflowReport.
-// The workflow starts with StatusUndefined and empty step reports.
+// The workflow starts with StatusInitialized and empty step reports.
 func NewWorkflowReport(id string, stepIDs []string) *WorkflowReport {
+	if stepIDs == nil {
+		stepIDs = []string{}
+	}
+
 	return &WorkflowReport{
 		WorkflowID:   id,
 		StartTime:    time.Now(),
 		EndTime:      time.Now(),
-		Status:       StatusUndefined,
+		Status:       StatusInitialized,
 		StepSequence: stepIDs,
 		StepReports:  []*StepReport{},
 	}
 }
 
 // NewStepReport creates and initializes a new StepReport for a given step ID and action.
-// The report starts with StatusUndefined and empty metadata.
+// The report starts with StatusInitialized and empty metadata.
 func NewStepReport(id string, action string) *StepReport {
 	return &StepReport{
 		StepID:        id,
 		Action:        action,
 		StartTime:     time.Now(),
 		EndTime:       time.Now(),
-		Status:        StatusUndefined,
+		Status:        StatusInitialized,
 		FailureReason: nil,
 		Metadata:      map[string][]byte{},
 	}

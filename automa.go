@@ -63,11 +63,8 @@ type Registry interface {
 // Workflow defines the contract for a Saga workflow.
 // Supports execution, inspection, and step sequence management.
 type Workflow interface {
-	// GetID returns the workflow's unique identifier.
-	GetID() string
-
-	// Execute starts the workflow and returns a WorkflowReport.
-	Execute(ctx *Context) (*WorkflowReport, error)
+	// Step interface allowing it to be part of another workflow that can be executed and rolled back.
+	Step
 
 	// HasStep checks if the workflow contains a Step with the given ID.
 	HasStep(stepID string) bool
