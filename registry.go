@@ -3,56 +3,67 @@ package automa
 import (
 	"github.com/joomcode/errorx"
 	"github.com/rs/zerolog"
+	"sync"
 )
 
 // stepRegistry implements the Registry interface.
 // It manages registration, lookup, and workflow construction for Steps.
 type stepRegistry struct {
-	cache  map[string]Step // Internal map for storing steps by ID.
-	logger *zerolog.Logger // Logger for registry-level logging.
-}
-
-// registerStep adds a Step to the registry by its ID.
-// If the step is nil, it is skipped without error.
-// Returns the registry for method chaining.
-func (r *stepRegistry) registerStep(id string, step Step) *stepRegistry {
-	if step != nil {
-		r.cache[id] = step
-	}
-	return r
+	mu      sync.RWMutex
+	stepMap map[string]Step // Internal map for storing steps by ID.
+	logger  *zerolog.Logger // Logger for registry-level logging.
 }
 
 // AddSteps registers multiple Steps in the registry.
 // Returns the registry for method chaining.
 func (r *stepRegistry) AddSteps(steps ...Step) Registry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	for _, step := range steps {
-		r.registerStep(step.GetID(), step)
+		if step != nil {
+			r.stepMap[step.GetID()] = step
+		}
 	}
 	return r
 }
 
-// AddStep registers a single Step in the registry.
-// Returns the registry for method chaining.
-func (r *stepRegistry) AddStep(step Step) Registry {
-	if step != nil {
-		r.registerStep(step.GetID(), step)
+// RemoveSteps removes Steps from the registry by their IDs.
+func (r *stepRegistry) RemoveSteps(stepIDs ...string) Registry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var removedSteps []Step
+	for _, stepID := range stepIDs {
+		if step, exists := r.stepMap[stepID]; exists {
+			removedSteps = append(removedSteps, step)
+			delete(r.stepMap, stepID)
+		}
 	}
+
 	return r
 }
 
 // GetStep retrieves a Step by its ID from the registry.
 // Returns nil if the step does not exist.
 func (r *stepRegistry) GetStep(id string) Step {
-	if step, ok := r.cache[id]; ok {
-		return step
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	step, exists := r.stepMap[id]
+	if !exists {
+		return nil // Step not found
 	}
-	return nil
+	return step
 }
 
 // GetSteps returns all registered Steps in the registry as a slice.
 func (r *stepRegistry) GetSteps() []Step {
-	var steps []Step
-	for _, step := range r.cache {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	steps := make([]Step, 0, len(r.stepMap))
+	for _, step := range r.stepMap {
 		steps = append(steps, step)
 	}
 	return steps
@@ -62,6 +73,9 @@ func (r *stepRegistry) GetSteps() []Step {
 // Resets each step before adding it to the workflow.
 // Returns an error if any step ID is invalid or missing.
 func (r *stepRegistry) BuildWorkflow(workflowID string, stepIDs []string) (Workflow, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	var steps []Step
 	for _, stepID := range stepIDs {
 		step := r.GetStep(stepID)
@@ -83,5 +97,6 @@ func NewRegistry(logger *zerolog.Logger) Registry {
 	if logger == nil {
 		logger = &nolog
 	}
-	return &stepRegistry{cache: map[string]Step{}, logger: logger}
+
+	return &stepRegistry{stepMap: map[string]Step{}, logger: logger}
 }

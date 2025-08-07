@@ -29,6 +29,7 @@ type workflow struct {
 
 	stepSequence []string // Ordered list of Step IDs for execution order.
 
+	// stepMap caches Steps by their ID for quick lookup.
 	stepMap map[string]Step
 }
 
@@ -47,7 +48,7 @@ func (wf *workflow) addStep(s Step) {
 	}
 	wf.last = s
 
-	// cache the step in the map for quick lookup
+	// stepMap the step in the map for quick lookup
 	if wf.stepMap == nil {
 		wf.stepMap = make(map[string]Step)
 	}
@@ -86,19 +87,6 @@ func (wf *workflow) Execute(ctx *Context) (*WorkflowReport, error) {
 
 	// if we have no steps, we return the report as is
 	return wf.report, nil
-}
-
-// GetSteps returns all Steps in the workflow in execution order.
-// Returns a copy to prevent external modification.
-func (wf *workflow) GetSteps() []Step {
-	wf.mutex.Lock()
-	defer wf.mutex.Unlock()
-
-	steps := make([]Step, 0, len(wf.stepMap))
-	for _, step := range wf.stepMap {
-		steps = append(steps, step)
-	}
-	return steps
 }
 
 // GetStepSequence returns the ordered list of Step IDs in the workflow.

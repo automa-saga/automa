@@ -31,8 +31,8 @@ func TestRegistry_GetStep(t *testing.T) {
 		},
 	}
 
-	registry.AddStep(s1)
-	assert.NotNil(t, registry.GetStep(s1.ID))
-	assert.Nil(t, registry.GetStep("INVALID"))
+	registry.AddSteps(s1)
+	assert.NotNil(t, registry.(*stepRegistry).GetStep(s1.ID))
+	assert.Nil(t, registry.(*stepRegistry).GetStep("INVALID"))
 
 }

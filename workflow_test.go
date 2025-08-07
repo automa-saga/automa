@@ -75,7 +75,7 @@ func TestWorkflowEngine_Start(t *testing.T) {
 	})
 	require.Nil(t, err)
 	assert.Equal(t, "workflow_1", workflow1.GetID())
-	assert.Equal(t, 4, len(workflow1.GetSteps()))
+	assert.Equal(t, 4, len(workflow1.GetStepSequence()))
 	assert.Equal(t, []string{stop.GetID(), fetch.GetID(), notify.GetID(), restart.GetID()}, workflow1.GetStepSequence())
 	assert.True(t, workflow1.HasStep(stop.GetID()))
 	assert.False(t, workflow1.HasStep("INVALID"))

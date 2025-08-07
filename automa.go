@@ -42,18 +42,11 @@ type Step interface {
 // Registry manages registration and lookup of workflow steps.
 // Supports building workflows from registered steps.
 type Registry interface {
-	// AddStep registers a single Step in the registry.
-	AddStep(step Step) Registry
-
 	// AddSteps registers multiple Steps in the registry.
 	AddSteps(step ...Step) Registry
 
-	// GetStep retrieves a Step by its ID.
-	// Returns nil if the step does not exist.
-	GetStep(id string) Step
-
-	// GetSteps returns all registered Steps in the registry.
-	GetSteps() []Step
+	// RemoveSteps removes Step from the registry by its ID.
+	RemoveSteps(stepID ...string) Registry
 
 	// BuildWorkflow constructs a Workflow from a list of Step IDs.
 	// Returns an error if any step is missing.
@@ -64,6 +57,7 @@ type Registry interface {
 // Supports execution, inspection, and step sequence management.
 type Workflow interface {
 	// Step interface allowing it to be part of another workflow that can be executed and rolled back.
+	// This interface ensures a workflow can be composed of other workflows and implements the Saga pattern.
 	Step
 
 	// HasStep checks if the workflow contains a Step with the given ID.
@@ -71,7 +65,4 @@ type Workflow interface {
 
 	// GetStepSequence returns the ordered list of Step IDs in the workflow.
 	GetStepSequence() []string
-
-	// GetSteps returns the ordered list of Steps in the workflow.
-	GetSteps() []Step
 }
