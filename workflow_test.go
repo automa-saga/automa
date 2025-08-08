@@ -182,13 +182,13 @@ func TestWorkflowEngine_Forward(t *testing.T) {
 
 	registry := NewRegistry().AddSteps(fetch, stop, notify, restart)
 
-	_, err := registry.BuildWorkflow("workflow_1", []string{
+	_, err := registry.Build("workflow_1", []string{
 		"INVALID",
 	})
 	assert.Error(t, err)
 
 	// a new workflow with notify in the middle
-	workflow1, err := registry.BuildWorkflow("workflow_1", []string{
+	workflow1, err := registry.Build("workflow_1", []string{
 		stop.GetID(),
 		fetch.GetID(),
 		notify.GetID(),
@@ -216,7 +216,7 @@ func TestWorkflowEngine_Forward(t *testing.T) {
 	fmt.Println(string(r))
 
 	// a new workflow with notify at the end
-	workflow2, err := registry.BuildWorkflow("workflow_2", []string{
+	workflow2, err := registry.Build("workflow_2", []string{
 		stop.GetID(),
 		fetch.GetID(),
 		restart.GetID(),
@@ -232,7 +232,7 @@ func TestWorkflowEngine_Forward(t *testing.T) {
 	assert.NotNil(t, result2.Report.StepReports[5].Error)
 
 	// a new workflow with no failure
-	workflow3, err := registry.BuildWorkflow("workflow_3", []string{
+	workflow3, err := registry.Build("workflow_3", []string{
 		stop.GetID(),
 		fetch.GetID(),
 		notify.GetID(),
@@ -261,7 +261,7 @@ func TestWorkflowEngine_Forward(t *testing.T) {
 	}
 
 	// NoOp scenario when first step is null
-	noopWorkflow, err := registry.BuildWorkflow("noop_workflow", []string{})
+	noopWorkflow, err := registry.Build("noop_workflow", []string{})
 	assert.NoError(t, err)
 	report4, err := noopWorkflow.Forward(ctx.setPrevResult(nil))
 	assert.Nil(t, err)

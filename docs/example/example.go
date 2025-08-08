@@ -46,7 +46,7 @@ func main() {
 	registry := automa.NewRegistry().AddSteps(stop, fetch, notify, restart)
 
 	// Build workflow
-	workflow, err := registry.BuildWorkflow("workflow_1", []string{
+	workflow, err := registry.Build("workflow_1", []string{
 		stop.ID, fetch.ID, notify.ID, restart.ID,
 	})
 	if err != nil {

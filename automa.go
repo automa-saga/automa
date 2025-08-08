@@ -9,24 +9,25 @@ type Step interface {
 	GetID() string
 
 	// Forward executes the step in the forward direction.
-	Forward(ctx *Context) (*Result, error)
+	Execute(ctx *Context) (*Result, error)
+	OnSuccess(ctx *Context) (*Result, error)
 
 	// Reverse rolls back the step in the backward direction.
-	Reverse(ctx *Context) (*Result, error)
+	OnRollback(ctx *Context) (*Result, error)
 }
 
-// Registry manages registration and lookup of workflow steps.
+// WorkflowBuilder manages registration and lookup of workflow steps.
 // Supports building workflows from registered steps.
-type Registry interface {
+type WorkflowBuilder interface {
 	// AddSteps registers multiple Steps in the registry.
-	AddSteps(step ...Step) Registry
+	AddSteps(step ...Step) WorkflowBuilder
 
 	// RemoveSteps removes Step from the registry by its ID.
-	RemoveSteps(stepID ...string) Registry
+	RemoveSteps(stepID ...string) WorkflowBuilder
 
 	// BuildWorkflow constructs a Workflow from a list of Step IDs.
 	// Returns an error if any step is missing.
-	BuildWorkflow(workflowID string, stepIDs []string) (Workflow, error)
+	Build(workflowID string, stepIDs []string) (Workflow, error)
 }
 
 // Workflow defines the contract for a Saga workflow.

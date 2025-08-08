@@ -53,7 +53,7 @@ func TestRegistry_BuildWorkflow_Success(t *testing.T) {
 	s2 := newSimpleTask("step2")
 	reg.AddSteps(s1, s2)
 
-	wf, err := reg.(*stepRegistry).BuildWorkflow("wf1", []string{"step1", "step2"})
+	wf, err := reg.(*stepRegistry).Build("wf1", []string{"step1", "step2"})
 	assert.NoError(t, err)
 	assert.NotNil(t, wf)
 }
@@ -63,7 +63,7 @@ func TestRegistry_BuildWorkflow_InvalidStep(t *testing.T) {
 	s1 := newSimpleTask("step1")
 	reg.AddSteps(s1)
 
-	wf, err := reg.(*stepRegistry).BuildWorkflow("wf1", []string{"step1", "missing"})
+	wf, err := reg.(*stepRegistry).Build("wf1", []string{"step1", "missing"})
 	assert.Error(t, err)
 	assert.Nil(t, wf)
 }

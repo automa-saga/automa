@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// stepRegistry implements the Registry interface.
+// stepRegistry implements the WorkflowBuilder interface.
 // It manages registration, lookup, and workflow construction for Steps.
 type stepRegistry struct {
 	mu      sync.RWMutex
@@ -14,7 +14,7 @@ type stepRegistry struct {
 
 // AddSteps registers multiple Steps in the registry.
 // Returns the registry for method chaining.
-func (r *stepRegistry) AddSteps(steps ...Step) Registry {
+func (r *stepRegistry) AddSteps(steps ...Step) WorkflowBuilder {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -27,7 +27,7 @@ func (r *stepRegistry) AddSteps(steps ...Step) Registry {
 }
 
 // RemoveSteps removes Steps from the registry by their IDs.
-func (r *stepRegistry) RemoveSteps(stepIDs ...string) Registry {
+func (r *stepRegistry) RemoveSteps(stepIDs ...string) WorkflowBuilder {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -70,7 +70,7 @@ func (r *stepRegistry) GetSteps() []Step {
 // BuildWorkflow constructs a Workflow from the provided step IDs.
 // Resets each step before adding it to the workflow.
 // Returns an error if any step ID is invalid or missing.
-func (r *stepRegistry) BuildWorkflow(workflowID string, stepIDs []string) (Workflow, error) {
+func (r *stepRegistry) Build(workflowID string, stepIDs []string) (Workflow, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -93,8 +93,8 @@ func (r *stepRegistry) BuildWorkflow(workflowID string, stepIDs []string) (Workf
 	return wf, nil
 }
 
-// NewRegistry creates and returns a new stepRegistry instance implementing Registry.
+// NewRegistry creates and returns a new stepRegistry instance implementing WorkflowBuilder.
 // If logger is nil, a NoOp logger is used.
-func NewRegistry() Registry {
+func NewRegistry() WorkflowBuilder {
 	return &stepRegistry{stepMap: map[string]Step{}}
 }
