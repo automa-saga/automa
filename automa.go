@@ -1,52 +1,70 @@
-// Package automa provides interfaces for implementing the Saga pattern and Choreography-based workflows.
+// Package automa provides interfaces for implementing the Saga pattern for steps and workflows.
 package automa
 
-// Step represents a single transactional unit within a workflow.
-// It defines the contract for executing a step in both forward and backward directions.
-// A reverse operation means rollback in case of failure. If rollback isn't possible, a compensating action should be defined.
+import (
+	"context"
+	"github.com/rs/zerolog"
+	"time"
+)
+
+type Status string
+
+const (
+	StatusSuccess Status = "success"
+	StatusFailed  Status = "failed"
+	StatusSkipped Status = "skipped"
+)
+
+type RollbackMode string
+
+const (
+	RollbackModeContinueOnError RollbackMode = "continue" // continue rolling back previous steps even if one fails
+	RollbackModeStopOnError     RollbackMode = "stop"     // stop rolling back previous steps on first failure
+)
+
+type ActionType string
+
+const (
+	ActionExecute  ActionType = "execute"
+	ActionRollback ActionType = "rollback"
+)
+
+type Report interface {
+	Id() string
+	Action() ActionType
+	StartTime() time.Time
+	EndTime() time.Time
+	Status() Status
+	Error() error
+	Message() string
+	Metadata() map[string]string // optional metadata for additional information
+}
+
 type Step interface {
-	// GetID returns the unique identifier for the step.
-	GetID() string
-
-	// Forward executes the step in the forward direction.
-	Execute(ctx *Context) (*Result, error)
-	OnSuccess(ctx *Context) (*Result, error)
-
-	// Reverse rolls back the step in the backward direction.
-	OnRollback(ctx *Context) (*Result, error)
+	Id() string
+	Prepare(ctx context.Context) (context.Context, error)
+	Execute(ctx context.Context) (Report, error)
+	OnSuccess(ctx context.Context, report Report) // FIXME: Should we pass the report here? Do we need this?
+	OnRollback(ctx context.Context) (Report, error)
 }
 
-// WorkflowBuilder manages registration and lookup of workflow steps.
-// Supports building workflows from registered steps.
-type WorkflowBuilder interface {
-	// AddSteps registers multiple Steps in the registry.
-	AddSteps(step ...Step) WorkflowBuilder
+type Workflow Step
 
-	// RemoveSteps removes Step from the registry by its ID.
-	RemoveSteps(stepID ...string) WorkflowBuilder
-
-	// BuildWorkflow constructs a Workflow from a list of Step IDs.
-	// Returns an error if any step is missing.
-	Build(workflowID string, stepIDs []string) (Workflow, error)
+type Builder interface {
+	Id() string
+	Build() Step
 }
 
-// Workflow defines the contract for a Saga workflow.
-// Supports execution, inspection, and step sequence management.
-type Workflow interface {
-	// Step interface allows a workflow be part of another workflow
-	// A workflow can be composed of multiple steps, including other workflows.
-	// A workflow can be executed in a forward direction (Run) and rolled back in reverse direction (Rollback).
-	Step
+type Registry interface {
+	Add(steps ...Builder) error // return error if step with same ID already exists
+	Of(id string) Builder
+}
 
-	// AddSteps appends one or more Steps to the workflow.
-	AddSteps(steps ...Step) error
-
-	// RemoveSteps removes Step from the workflow by its ID.
-	RemoveSteps(stepID ...string) error
-
-	// HasStep checks if the workflow contains a Step with the given ID.
-	HasStep(stepID string) bool
-
-	// GetStepSequence returns the ordered list of Step IDs in the workflow.
-	GetStepSequence() []string
+type WorkFlowBuilder interface {
+	Builder
+	AddSteps(steps ...Builder) error
+	WithNamed(stepIds ...string) error
+	WithRegistry(sr Registry) WorkFlowBuilder
+	WithLogger(logger zerolog.Logger) WorkFlowBuilder
+	WithRollbackMode(mode RollbackMode) WorkFlowBuilder
 }

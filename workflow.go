@@ -1,243 +1,141 @@
 package automa
 
 import (
-	"github.com/joomcode/errorx"
-	"sync"
+	"context"
+	"fmt"
+	"github.com/rs/zerolog"
 	"time"
 )
 
-// workflow implements the Workflow interface.
-// It manages a Saga workflow using a double linked list of Steps,
-// enabling forward execution on success and reverse traversal on failure.
-// workflow is stateful and thread-safe, allowing concurrent access
 type workflow struct {
-	id string
-
-	// mutex ensures thread-safe access to the workflow's state.
-	mutex sync.Mutex
-
-	stepSequence []string // Ordered list of Step IDs for execution order.
-
-	// stepMap caches Steps by their ID for quick lookup.
-	stepMap map[string]Step
+	id           string
+	steps        []Step
+	logger       zerolog.Logger
+	rollbackMode RollbackMode
 }
 
-// GetID returns the unique identifier of the workflow.
-func (wf *workflow) GetID() string {
-	return wf.id
+// rollbackFrom rollbacks the workflow backward from the given index to the start.
+func (w *workflow) rollbackFrom(ctx context.Context, index int) []Report {
+	var stepReports []Report
+	for i := index; i >= 0; i-- {
+		startTime := time.Now()
+		step := w.steps[i]
+		if report, rollbackErr := step.OnRollback(ctx); rollbackErr != nil {
+			switch w.rollbackMode {
+			case RollbackModeContinueOnError:
+				failedReport := StepFailureReport(step.Id(), ActionRollback,
+					WithStartTime(startTime), WithError(rollbackErr),
+					WithMessage(fmt.Sprintf("continued rollbackFrom after error because of rollbackFrom-mode %q",
+						w.rollbackMode)))
+				stepReports = append(stepReports, failedReport)
+				continue
+			case RollbackModeStopOnError:
+				failedReport := StepFailureReport(step.Id(), ActionRollback,
+					WithStartTime(startTime), WithError(rollbackErr),
+					WithMessage(fmt.Sprintf("stopped rollbackFrom after error because of rollbackFrom-mode %q",
+						w.rollbackMode)))
+				stepReports = append(stepReports, failedReport)
+				break
+			}
+		} else if report.Status() == StatusSkipped {
+			skippedReport := StepSkippedReport(step.Id(), ActionRollback, WithStartTime(startTime), WithMessage(report.Message()))
+			stepReports = append(stepReports, skippedReport)
+		} else if report.Status() == StatusSuccess {
+			successReport := StepSuccessReport(step.Id(), ActionRollback, WithStartTime(startTime), WithMessage(report.Message()))
+			stepReports = append(stepReports, successReport)
+		}
+	}
+
+	return stepReports
 }
 
-// addStep adds a Step to the workflow.
-// It initializes the stepMap and stepSequence if they are nil,
-// ensures the step ID is unique, and appends the step to the sequence.
-func (wf *workflow) addStep(s Step) error {
-	// ensure it is not the same step as the workflow itself
-	if s == wf || s.GetID() == wf.GetID() {
-		return errorx.IllegalArgument.New("step cannot be the workflow itself: %s", wf.GetID())
-	}
-
-	wf.mutex.Lock()
-	defer wf.mutex.Unlock()
-
-	// initialize the stepMap and stepSequence if they are nil
-	if wf.stepMap == nil {
-		wf.stepMap = make(map[string]Step)
-	}
-
-	if wf.stepSequence == nil {
-		wf.stepSequence = make([]string, 0, 3) // initial capacity for performance
-	}
-
-	// ensure the step ID is unique
-	if _, exists := wf.stepMap[s.GetID()]; exists {
-		return errorx.IllegalArgument.New("step with ID %s already exists in workflow", s.GetID())
-	}
-
-	wf.stepMap[s.GetID()] = s
-	wf.stepSequence = append(wf.stepSequence, s.GetID())
-
-	return nil
+func (w *workflow) Id() string {
+	return w.id
 }
 
-// AddSteps is a convenience function to add multiple Steps to the workflow.
-func (wf *workflow) AddSteps(steps ...Step) error {
-	for _, step := range steps {
-		err := wf.addStep(step)
+func (w *workflow) Prepare(ctx context.Context) (context.Context, error) {
+	// Preparation logic for the workflow can be added here
+	// For now, we just return the context as is
+	return ctx, nil
+}
+
+func (w *workflow) Execute(ctx context.Context) (Report, error) {
+	if len(w.steps) == 0 {
+		return nil, fmt.Errorf("workflow %s has no steps to execute", w.id)
+	}
+
+	var stepReports []Report
+	for index, step := range w.steps {
+		startTime := time.Now()
+		stepCtx, err := step.Prepare(ctx)
 		if err != nil {
-			return errorx.IllegalArgument.Wrap(err, "failed to add step %s to workflow %s", step.GetID(), wf.GetID())
-		}
-	}
-	return nil
-}
-
-// RemoveSteps removes Steps from the workflow by their IDs.
-func (wf *workflow) RemoveSteps(stepIDs ...string) error {
-	wf.mutex.Lock()
-	defer wf.mutex.Unlock()
-	for _, stepID := range stepIDs {
-		if _, exists := wf.stepMap[stepID]; exists {
-			delete(wf.stepMap, stepID)
-
-			// Remove the step ID from the sequence
-			for i, id := range wf.stepSequence {
-				if id == stepID {
-					wf.stepSequence = append(wf.stepSequence[:i], wf.stepSequence[i+1:]...)
-					break // exit after removing the first occurrence since IDs are unique
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-// Forward starts the workflow execution and returns a WorkflowReport.
-// This method executes all Steps in the order defined by stepSequence. If error occurs, it rolls back the steps in reverse order.
-func (wf *workflow) Forward(ctx *Context) (*Result, error) {
-	wf.mutex.Lock()
-	defer wf.mutex.Unlock()
-
-	var index int
-	var stepID string
-	var err error
-
-	result := wf.initResult(ctx)
-
-	// forward execution
-	for index, stepID = range wf.stepSequence {
-		step, exists := wf.stepMap[stepID]
-		if !exists {
-			return nil, errorx.IllegalArgument.New("step %s not found in workflow", stepID)
+			return nil, err
 		}
 
-		// Forward the step
-		result, err = step.Forward(ctx.setPrevResult(result))
+		report, err := step.Execute(stepCtx)
 		if err != nil {
-			result.Report.FirstFailureOnForward = &StepFailure{
-				StepID: stepID,
-				Action: RunAction,
-				Error:  errorx.EnsureStackTrace(err),
-			}
-			break // start rolling back steps
+			failureReport := StepFailureReport(step.Id(), ActionExecute, WithStartTime(startTime), WithError(err), WithMessage(err.Error()))
+			stepReports = append(stepReports, failureReport)
+			rollbackReports := w.rollbackFrom(ctx, index)
+			stepReports = append(stepReports, rollbackReports...)
+
+			return NewWorkflowReport(w.id, StatusFailed, stepReports,
+				fmt.Sprintf("%q execution failed at step %q; rollbacked %d steps",
+					w.id, step.Id(), len(rollbackReports))), nil
+		}
+
+		if report.Status() == StatusSkipped {
+			skippedReport := StepSkippedReport(step.Id(), ActionExecute, WithStartTime(startTime), WithMessage(report.Message()))
+			stepReports = append(stepReports, skippedReport)
+		} else if report.Status() == StatusSuccess {
+			successReport := StepSuccessReport(step.Id(), ActionExecute, WithStartTime(startTime), WithMessage(report.Message()))
+			stepReports = append(stepReports, successReport)
+			step.OnSuccess(stepCtx, report)
 		}
 	}
 
-	// reverse execution if there was an error
-	if err != nil {
-		result.Report.Status = StatusFailed
-		for ; index >= 0; index-- {
-			stepID = wf.stepSequence[index]
-			step, exists := wf.stepMap[stepID]
-			if !exists {
-				return nil, errorx.IllegalArgument.New("step %s not found in workflow", stepID)
-			}
+	return NewWorkflowReport(w.id, StatusSuccess, stepReports,
+		fmt.Sprintf("%q execution completed with %d steps", w.id, len(w.steps))), nil
+}
 
-			// Reverse the step
-			result, err = step.Reverse(ctx.setPrevResult(result))
-			if err != nil {
-				result.Report.LastFailureOnReverse = &StepFailure{
-					StepID: stepID,
-					Action: RollbackAction,
-					Error:  errorx.EnsureStackTrace(err),
-				}
+func (w *workflow) OnSuccess(ctx context.Context, report Report) {
+	// any post successful execution logic can be added here
+	// no-op for now
+}
 
-				continue // continue rolling back previous steps
-			}
-		}
-	} else {
-		// If all steps succeeded, set the final status to success
-		result.Report.Status = StatusSuccess
+func (w *workflow) OnRollback(ctx context.Context) (Report, error) {
+	reports := w.rollbackFrom(ctx, len(w.steps)-1)
+	return NewWorkflowReport(w.id, StatusSuccess, reports,
+		fmt.Sprintf("%q rollbacked %d steps", w.id, len(w.steps))), nil
+}
+
+// WorkflowOption defines a function that modifies a workflow.
+type WorkflowOption func(*workflow)
+
+// WithLogger returns a WorkflowOption that sets the logger.
+func WithLogger(logger zerolog.Logger) WorkflowOption {
+	return func(w *workflow) {
+		w.logger = logger
 	}
-
-	// Set the end time for the workflow report
-	result.Report.EndTime = time.Now()
-
-	return result, nil
 }
 
-func (wf *workflow) initResult(ctx *Context) *Result {
-	result := ctx.getPrevResult()
-	if result == nil {
-		result = &Result{
-			Report: NewWorkflowReport(wf.GetID(), wf.GetStepSequence()),
-		}
+func WithRollbackMode(mode RollbackMode) WorkflowOption {
+	return func(w *workflow) {
+		w.rollbackMode = mode
 	}
-	return result
 }
 
-// Reverse rolls back the workflow execution.
-// This is invoked once a workflow has already been executed, but needed to be reversed because of a failure in
-// subsequent steps or workflows. Therefore, it traverses the stepSequence in reverse order from the last executed step.
-func (wf *workflow) Reverse(ctx *Context) (*Result, error) {
-	wf.mutex.Lock()
-	defer wf.mutex.Unlock()
-
-	if len(wf.stepSequence) == 0 {
-		return nil, errorx.IllegalState.New("no steps to reverse in workflow %s", wf.GetID())
-	}
-
-	var index int
-	var stepID string
-	var err error
-
-	result := wf.initResult(ctx)
-
-	// reverse execution
-	for index = len(wf.stepSequence) - 1; index >= 0; index-- {
-		stepID = wf.stepSequence[index]
-		step, exists := wf.stepMap[stepID]
-		if !exists {
-			return nil, errorx.IllegalArgument.New("step %s not found in workflow", stepID)
-		}
-
-		// Reverse the step
-		result, err = step.Reverse(ctx.SetValue(KeyPrevResult, result))
-		if err != nil {
-			result.Report.LastFailureOnReverse = &StepFailure{
-				StepID: stepID,
-				Action: RollbackAction,
-				Error:  errorx.EnsureStackTrace(err),
-			}
-			continue // continue rolling back previous steps
-		}
-	}
-
-	// Set the end time for the workflow report
-	result.Report.EndTime = time.Now()
-	return result, nil
-}
-
-// GetStepSequence returns the ordered list of Step IDs in the workflow.
-// This method returns a copy of the stepSequence to avoid external modifications.
-func (wf *workflow) GetStepSequence() []string {
-	copied := make([]string, len(wf.stepSequence))
-	copy(copied, wf.stepSequence)
-	return copied
-}
-
-// HasStep checks if the workflow contains a Step with the given stepID.
-func (wf *workflow) HasStep(stepID string) bool {
-	wf.mutex.Lock()
-	defer wf.mutex.Unlock()
-
-	_, exists := wf.stepMap[stepID]
-	return exists
-}
-
-// WorkflowOption defines a functional option for configuring a workflow.
-type WorkflowOption func(wf *workflow)
-
-// NewWorkflow creates a new Workflow instance with the given ID and options.
-// Applies all provided WorkflowOptions for configuration.
-func NewWorkflow(id string, opts ...WorkflowOption) Workflow {
-	wf := &workflow{
+func NewWorkflow(id string, steps []Step, opts ...WorkflowOption) Step {
+	w := &workflow{
 		id:           id,
-		stepSequence: make([]string, 0, 3), // initial capacity for performance,
-		stepMap:      make(map[string]Step),
-	}
-	for _, opt := range opts {
-		opt(wf)
+		rollbackMode: RollbackModeContinueOnError,
+		steps:        steps,
+		logger:       zerolog.Nop(),
 	}
 
-	return wf
+	for _, opt := range opts {
+		opt(w)
+	}
+
+	return w
 }
