@@ -21,7 +21,7 @@ func (r *registry) Add(steps ...Builder) error {
 	for _, s := range steps {
 		id := s.Id()
 		if _, exists := r.steps[id]; exists {
-			return StepAlreadyExists.New("step with id %q already exists", id)
+			return StepAlreadyExists.New("step with Id %q already exists", id)
 		}
 		r.steps[id] = s
 	}

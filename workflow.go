@@ -11,37 +11,31 @@ type workflow struct {
 	id           string
 	steps        []Step
 	logger       zerolog.Logger
-	rollbackMode RollbackMode
+	rollbackMode TypeRollbackMode
 }
 
 // rollbackFrom rollbacks the workflow backward from the given index to the start.
-func (w *workflow) rollbackFrom(ctx context.Context, index int) []Report {
-	var stepReports []Report
+func (w *workflow) rollbackFrom(ctx context.Context, index int) []*Report {
+	var stepReports []*Report
 	for i := index; i >= 0; i-- {
 		startTime := time.Now()
 		step := w.steps[i]
 		if report, rollbackErr := step.OnRollback(ctx); rollbackErr != nil {
 			switch w.rollbackMode {
 			case RollbackModeContinueOnError:
-				failedReport := StepFailureReport(step.Id(), ActionRollback,
-					WithStartTime(startTime), WithError(rollbackErr),
-					WithMessage(fmt.Sprintf("continued rollbackFrom after error because of rollbackFrom-mode %q",
-						w.rollbackMode)))
+				failedReport := StepFailureReport(step.Id(), WithStartTime(startTime), WithError(rollbackErr))
 				stepReports = append(stepReports, failedReport)
 				continue
 			case RollbackModeStopOnError:
-				failedReport := StepFailureReport(step.Id(), ActionRollback,
-					WithStartTime(startTime), WithError(rollbackErr),
-					WithMessage(fmt.Sprintf("stopped rollbackFrom after error because of rollbackFrom-mode %q",
-						w.rollbackMode)))
+				failedReport := StepFailureReport(step.Id(), WithStartTime(startTime), WithError(rollbackErr))
 				stepReports = append(stepReports, failedReport)
 				break
 			}
-		} else if report.Status() == StatusSkipped {
-			skippedReport := StepSkippedReport(step.Id(), ActionRollback, WithStartTime(startTime), WithMessage(report.Message()))
+		} else if report.Status == StatusSkipped {
+			skippedReport := NewReport(step.Id(), WithStatus(StatusSkipped), WithStartTime(startTime))
 			stepReports = append(stepReports, skippedReport)
-		} else if report.Status() == StatusSuccess {
-			successReport := StepSuccessReport(step.Id(), ActionRollback, WithStartTime(startTime), WithMessage(report.Message()))
+		} else if report.Status == StatusSuccess {
+			successReport := StepSuccessReport(step.Id(), WithStartTime(startTime))
 			stepReports = append(stepReports, successReport)
 		}
 	}
@@ -59,12 +53,12 @@ func (w *workflow) Prepare(ctx context.Context) (context.Context, error) {
 	return ctx, nil
 }
 
-func (w *workflow) Execute(ctx context.Context) (Report, error) {
+func (w *workflow) Execute(ctx context.Context) (*Report, error) {
 	if len(w.steps) == 0 {
 		return nil, fmt.Errorf("workflow %s has no steps to execute", w.id)
 	}
 
-	var stepReports []Report
+	var stepReports []*Report
 	for index, step := range w.steps {
 		startTime := time.Now()
 		stepCtx, err := step.Prepare(ctx)
@@ -74,39 +68,42 @@ func (w *workflow) Execute(ctx context.Context) (Report, error) {
 
 		report, err := step.Execute(stepCtx)
 		if err != nil {
-			failureReport := StepFailureReport(step.Id(), ActionExecute, WithStartTime(startTime), WithError(err), WithMessage(err.Error()))
+			failureReport := StepFailureReport(step.Id(), WithStartTime(startTime), WithError(err))
 			stepReports = append(stepReports, failureReport)
 			rollbackReports := w.rollbackFrom(ctx, index)
 			stepReports = append(stepReports, rollbackReports...)
 
-			return NewWorkflowReport(w.id, StatusFailed, stepReports,
-				fmt.Sprintf("%q execution failed at step %q; rollbacked %d steps",
-					w.id, step.Id(), len(rollbackReports))), nil
+			return NewReport(w.id, WithStatus(StatusFailed), WithReports(stepReports...)), nil
 		}
 
-		if report.Status() == StatusSkipped {
-			skippedReport := StepSkippedReport(step.Id(), ActionExecute, WithStartTime(startTime), WithMessage(report.Message()))
+		if report.Status == StatusSkipped {
+			skippedReport := StepSkippedReport(step.Id(), ActionExecute, WithStartTime(startTime))
 			stepReports = append(stepReports, skippedReport)
-		} else if report.Status() == StatusSuccess {
-			successReport := StepSuccessReport(step.Id(), ActionExecute, WithStartTime(startTime), WithMessage(report.Message()))
+		} else if report.Status == StatusSuccess {
+			successReport := StepSuccessReport(step.Id(), WithStartTime(startTime))
 			stepReports = append(stepReports, successReport)
-			step.OnSuccess(stepCtx, report)
 		}
+
+		step.OnCompletion(stepCtx, report)
 	}
 
-	return NewWorkflowReport(w.id, StatusSuccess, stepReports,
-		fmt.Sprintf("%q execution completed with %d steps", w.id, len(w.steps))), nil
+	return NewReport(w.id, WithStatus(StatusSuccess), WithReports(stepReports...)), nil
 }
 
-func (w *workflow) OnSuccess(ctx context.Context, report Report) {
+func (w *workflow) OnCompletion(ctx context.Context, report *Report) {
 	// any post successful execution logic can be added here
 	// no-op for now
 }
 
-func (w *workflow) OnRollback(ctx context.Context) (Report, error) {
+func (w *workflow) OnRollback(ctx context.Context) (*RollbackReport, error) {
+	startTime := time.Now()
 	reports := w.rollbackFrom(ctx, len(w.steps)-1)
-	return NewWorkflowReport(w.id, StatusSuccess, reports,
-		fmt.Sprintf("%q rollbacked %d steps", w.id, len(w.steps))), nil
+	return &RollbackReport{
+		StartTime:   startTime,
+		EndTime:     time.Now(),
+		Status:      StatusSuccess,
+		StepReports: reports,
+	}, nil
 }
 
 // WorkflowOption defines a function that modifies a workflow.
@@ -119,7 +116,7 @@ func WithLogger(logger zerolog.Logger) WorkflowOption {
 	}
 }
 
-func WithRollbackMode(mode RollbackMode) WorkflowOption {
+func WithRollbackMode(mode TypeRollbackMode) WorkflowOption {
 	return func(w *workflow) {
 		w.rollbackMode = mode
 	}

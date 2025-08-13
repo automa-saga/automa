@@ -5,7 +5,7 @@ import "github.com/rs/zerolog"
 type workflowBuilder struct {
 	id           string
 	registry     Registry
-	rollbackMode RollbackMode
+	rollbackMode TypeRollbackMode
 	logger       zerolog.Logger
 	stepBuilders map[string]Builder
 }
@@ -26,7 +26,7 @@ func (wb *workflowBuilder) Build() Step {
 	return NewWorkflow(wb.id, steps, WithLogger(wb.logger), WithRollbackMode(wb.rollbackMode))
 }
 
-func (wb *workflowBuilder) AddSteps(steps ...Builder) error {
+func (wb *workflowBuilder) Steps(steps ...Builder) error {
 	for _, step := range steps {
 		if _, exists := wb.stepBuilders[step.Id()]; exists {
 			return StepAlreadyExists.New("step with ID %s already exists", step.Id())
@@ -37,7 +37,7 @@ func (wb *workflowBuilder) AddSteps(steps ...Builder) error {
 	return nil
 }
 
-func (wb *workflowBuilder) WithNamed(stepIds ...string) error {
+func (wb *workflowBuilder) NamedSteps(stepIds ...string) error {
 	if wb.registry == nil {
 		return RegistryNotProvided.New("registry is not set, cannot resolve step builders by ID")
 	}
@@ -69,7 +69,7 @@ func (wb *workflowBuilder) WithLogger(logger zerolog.Logger) WorkFlowBuilder {
 	return wb
 }
 
-func (wb *workflowBuilder) WithRollbackMode(mode RollbackMode) WorkFlowBuilder {
+func (wb *workflowBuilder) WithRollbackMode(mode TypeRollbackMode) WorkFlowBuilder {
 	wb.rollbackMode = mode
 	return wb
 }

@@ -11,30 +11,30 @@ import (
 )
 
 //w1, err := NewWorkFlowBuilder("workflow1").
-//AddSteps(NewStep("step1", bl.doSomething, WithPrepare(bl.prepare), WithRollback(bl.doRollback))).
-//AddSteps(NewStep("step2", bl.doSomething2, WithRollback(bl.doRollback2)))
+//Steps(NewStep("step1", bl.doSomething, WithPrepare(bl.prepare), WithRollback(bl.doRollback))).
+//Steps(NewStep("step2", bl.doSomething2, WithRollback(bl.doRollback2)))
 //
 //sr := NewStepRegistry()
-//err := sr.AddSteps(NewStep("step1", bl.doSomething, WithRollback(bl.doRollback)))
+//err := sr.Steps(NewStep("step1", bl.doSomething, WithRollback(bl.doRollback)))
 //
 //
 //w1 := NewWorkFlowBuilder("workflow1").
 //WithRegistry(sr).
-//WithNamed(stepIDs ...string).
+//NamedSteps(stepIDs ...string).
 //Build()
 //
 //w2, err := NewWorkFlowBuilder().
 //WithId("workflow2").
 //WithLogger(logger).
-//RollbackMode("FAIL_ON_ERR"). // or "CONTINUE_ON_ERR" WARN_OR_ERR, IGNORE_ERR
-//AddSteps(s1, s2, sr.Of("wf1", "wf2"), s3, sr.Of("wf3"), sr.Of("s4", "s5"))
+//TypeRollbackMode("FAIL_ON_ERR"). // or "CONTINUE_ON_ERR" WARN_OR_ERR, IGNORE_ERR
+//Steps(s1, s2, sr.Of("wf1", "wf2"), s3, sr.Of("wf3"), sr.Of("s4", "s5"))
 
-func SimpleWorkflowExample() (automa.Workflow, error) {
+func SimpleWorkflowExample() (automa.Builder, error) {
 	// Create a workflow builder
 	wb := automa.NewWorkFlowBuilder("example_workflow")
 
 	// Add steps to the workflow
-	err := wb.AddSteps(
+	err := wb.Steps(
 		automa.NewStep("step1", bl.Step1Execute, automa.WithRollback(bl.Step1Rollback)),
 		automa.NewStep("step2", bl.Step2Execute),
 	)
@@ -45,15 +45,15 @@ func SimpleWorkflowExample() (automa.Workflow, error) {
 	}
 
 	// Build the workflow
-	return wb.Build(), nil
+	return wb, nil
 }
 
-func CompositeWorkflowExample() (automa.Workflow, error) {
+func CompositeWorkflowExample() (automa.Builder, error) {
 	// Create a workflow builder
 	wf1 := automa.NewWorkFlowBuilder("workflow1")
 
 	// Add steps to the first workflow
-	err := wf1.AddSteps(
+	err := wf1.Steps(
 		automa.NewStep("step1", bl.Step1Execute, automa.WithRollback(bl.Step1Rollback)),
 		automa.NewStep("step2", bl.Step2Execute),
 	)
@@ -67,7 +67,7 @@ func CompositeWorkflowExample() (automa.Workflow, error) {
 	wf2 := automa.NewWorkFlowBuilder("composite_workflow")
 
 	// Add the first workflow and a new step to the second workflow
-	err = wf2.AddSteps(wf1, automa.NewStep("step3", bl.Step3Execute, automa.WithRollback(bl.Step3Rollback)))
+	err = wf2.Steps(wf1, automa.NewStep("step3", bl.Step3Execute, automa.WithRollback(bl.Step3Rollback)))
 
 	// Check for errors in adding steps
 	if err != nil {
@@ -75,7 +75,7 @@ func CompositeWorkflowExample() (automa.Workflow, error) {
 	}
 
 	// Build the composite workflow
-	return wf2.Build(), nil
+	return wf2, nil
 }
 
 func WorkflowUsingStepRegistry() (automa.Workflow, error) {
@@ -97,7 +97,7 @@ func WorkflowUsingStepRegistry() (automa.Workflow, error) {
 	wb := automa.NewWorkFlowBuilder("workflow_with_registry").
 		WithRegistry(sr)
 
-	err = wb.WithNamed("step1", "step2")
+	err = wb.NamedSteps("step1", "step2")
 	if err != nil {
 		return nil, errorx.IllegalState.New("Error creating workflow from registry: %v", err)
 	}

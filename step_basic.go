@@ -32,7 +32,7 @@ func (s *basicStep) Execute(ctx context.Context) (Report, error) {
 	return StepSkippedReport(s.id, ActionExecute, WithMessage("no execute function defined")), nil
 }
 
-func (s *basicStep) OnSuccess(ctx context.Context, report Report) {
+func (s *basicStep) OnCompletion(ctx context.Context, report Report) {
 	if s.onSuccess != nil {
 		s.onSuccess(ctx, report)
 	}

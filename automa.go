@@ -4,67 +4,65 @@ package automa
 import (
 	"context"
 	"github.com/rs/zerolog"
-	"time"
 )
 
-type Status string
+type TypeAction uint8
 
 const (
-	StatusSuccess Status = "success"
-	StatusFailed  Status = "failed"
-	StatusSkipped Status = "skipped"
+	ActionExecute  TypeAction = 1 // "execute"
+	ActionRollback TypeAction = 2 // "rollback"
 )
 
-type RollbackMode string
+type TypeRollbackMode uint8
 
 const (
-	RollbackModeContinueOnError RollbackMode = "continue" // continue rolling back previous steps even if one fails
-	RollbackModeStopOnError     RollbackMode = "stop"     // stop rolling back previous steps on first failure
+	RollbackModeContinueOnError TypeRollbackMode = 1 // "continue" // continue rolling back previous steps even if one fails
+	RollbackModeStopOnError     TypeRollbackMode = 2 // "stop"     // stop rolling back previous steps on first failure
 )
 
-type ActionType string
+type TypeReport uint8
 
 const (
-	ActionExecute  ActionType = "execute"
-	ActionRollback ActionType = "rollback"
+	StepReportType     TypeReport = 1
+	WorkflowReportType TypeReport = 2
 )
 
-type Report interface {
-	Id() string
-	Action() ActionType
-	StartTime() time.Time
-	EndTime() time.Time
-	Status() Status
-	Error() error
-	Message() string
-	Metadata() map[string]string // optional metadata for additional information
-}
+type TypeStatus uint8
+
+const (
+	StatusSuccess TypeStatus = 1 // "success"
+	StatusFailed  TypeStatus = 2 // "failed"
+	StatusSkipped TypeStatus = 3 //"skipped"
+)
 
 type Step interface {
 	Id() string
 	Prepare(ctx context.Context) (context.Context, error)
-	Execute(ctx context.Context) (Report, error)
-	OnSuccess(ctx context.Context, report Report) // FIXME: Should we pass the report here? Do we need this?
-	OnRollback(ctx context.Context) (Report, error)
+	Execute(ctx context.Context) (*Report, error)
+	OnCompletion(ctx context.Context, report *Report)
+	OnRollback(ctx context.Context) (*RollbackReport, error)
 }
 
 type Workflow Step
 
 type Builder interface {
 	Id() string
-	Build() Step
+	Validate() error
+	Build() (Step, error)
 }
 
 type Registry interface {
 	Add(steps ...Builder) error // return error if step with same ID already exists
+	Remove(id string) bool
+	Has(id string) bool
 	Of(id string) Builder
 }
 
 type WorkFlowBuilder interface {
 	Builder
-	AddSteps(steps ...Builder) error
-	WithNamed(stepIds ...string) error
+	Steps(steps ...Builder) WorkFlowBuilder
+	NamedSteps(stepIds ...string) WorkFlowBuilder
 	WithRegistry(sr Registry) WorkFlowBuilder
 	WithLogger(logger zerolog.Logger) WorkFlowBuilder
-	WithRollbackMode(mode RollbackMode) WorkFlowBuilder
+	WithRollbackMode(mode TypeRollbackMode) WorkFlowBuilder
 }
