@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/joomcode/errorx v1.2.0
 	github.com/rs/zerolog v1.34.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
