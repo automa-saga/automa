@@ -1,6 +1,11 @@
 package automa
 
-import "github.com/rs/zerolog"
+import (
+	"fmt"
+	"sync"
+
+	"github.com/rs/zerolog"
+)
 
 type workflowBuilder struct {
 	id           string
@@ -8,80 +13,114 @@ type workflowBuilder struct {
 	rollbackMode TypeRollbackMode
 	logger       zerolog.Logger
 	stepBuilders map[string]Builder
+	mu           sync.Mutex
 }
 
 func (wb *workflowBuilder) Id() string {
 	return wb.id
 }
 
-func (wb *workflowBuilder) Build() Step {
+func (wb *workflowBuilder) Build() (Step, error) {
+	wb.mu.Lock()
+	defer wb.mu.Unlock()
+
 	steps := make([]Step, 0, len(wb.stepBuilders))
 	for _, builder := range wb.stepBuilders {
-		step := builder.Build()
-		if step == nil {
-			continue // skip nil steps
+		step, err := builder.Build()
+		if err != nil {
+			return nil, IllegalArgument.New("failed to build step: %w", err)
 		}
-		steps = append(steps, step)
+		if step != nil {
+			steps = append(steps, step)
+		}
 	}
-	return NewWorkflow(wb.id, steps, WithLogger(wb.logger), WithRollbackMode(wb.rollbackMode))
+	return NewWorkflow(wb.id, steps, WithLogger(wb.logger), WithRollbackMode(wb.rollbackMode)), nil
 }
 
-func (wb *workflowBuilder) Steps(steps ...Builder) error {
+func (wb *workflowBuilder) Steps(steps ...Builder) WorkFlowBuilder {
+	wb.mu.Lock()
+	defer wb.mu.Unlock()
+
 	for _, step := range steps {
 		if _, exists := wb.stepBuilders[step.Id()]; exists {
-			return StepAlreadyExists.New("step with ID %s already exists", step.Id())
+			wb.logger.Warn().Str("step_id", step.Id()).Msg("duplicate step, skipping")
+			continue
 		}
 		wb.stepBuilders[step.Id()] = step
 	}
-
-	return nil
+	return wb
 }
 
-func (wb *workflowBuilder) NamedSteps(stepIds ...string) error {
-	if wb.registry == nil {
-		return RegistryNotProvided.New("registry is not set, cannot resolve step builders by ID")
-	}
+func (wb *workflowBuilder) NamedSteps(stepIds ...string) WorkFlowBuilder {
+	wb.mu.Lock()
+	defer wb.mu.Unlock()
 
-	if len(stepIds) == 0 {
-		return StepIdsNotProvided.New("no step IDs provided, cannot resolve step builders")
+	if wb.registry == nil || len(stepIds) == 0 {
+		return wb
 	}
-
 	for _, id := range stepIds {
 		builder := wb.registry.Of(id)
 		if builder == nil {
-			return StepNotFound.New("step with ID %s not found", id)
+			wb.logger.Warn().Str("step_id", id).Msg("step not found in registry")
+			continue
 		}
 		if _, exists := wb.stepBuilders[id]; exists {
-			return StepAlreadyExists.New("step with ID %s already exists", id)
+			wb.logger.Warn().Str("step_id", id).Msg("duplicate step, skipping")
+			continue
 		}
 		wb.stepBuilders[id] = builder
+	}
+	return wb
+}
+
+func (wb *workflowBuilder) Validate() error {
+	wb.mu.Lock()
+	defer wb.mu.Unlock()
+
+	if len(wb.stepBuilders) == 0 {
+		return StepNotFound.New("no steps provided for workflow")
+	}
+	var errs []error
+	for id, builder := range wb.stepBuilders {
+		if err := builder.Validate(); err != nil {
+			errs = append(errs, fmt.Errorf("step with ID %s failed validation: %w", id, err))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("validation errors: %v", errs)
 	}
 	return nil
 }
 
 func (wb *workflowBuilder) WithRegistry(sr Registry) WorkFlowBuilder {
+	wb.mu.Lock()
+	defer wb.mu.Unlock()
 	wb.registry = sr
 	return wb
 }
 
 func (wb *workflowBuilder) WithLogger(logger zerolog.Logger) WorkFlowBuilder {
+	wb.mu.Lock()
+	defer wb.mu.Unlock()
 	wb.logger = logger
 	return wb
 }
 
 func (wb *workflowBuilder) WithRollbackMode(mode TypeRollbackMode) WorkFlowBuilder {
+	wb.mu.Lock()
+	defer wb.mu.Unlock()
 	wb.rollbackMode = mode
 	return wb
 }
 
 func NewWorkFlowBuilder(id string) WorkFlowBuilder {
-	wb := &workflowBuilder{
+	if id == "" {
+		panic("workflow id must not be empty")
+	}
+	return &workflowBuilder{
 		id:           id,
-		rollbackMode: RollbackModeContinueOnError, // Default rollback mode
-		registry:     nil,                         // Registry can be set later
-		logger:       zerolog.Nop(),               // Default logger is a no-op
+		rollbackMode: RollbackModeContinueOnError,
+		logger:       zerolog.Nop(),
 		stepBuilders: make(map[string]Builder),
 	}
-
-	return wb
 }

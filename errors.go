@@ -10,6 +10,7 @@ var (
 	StepAlreadyExists    = IllegalArgument.NewSubtype("step_already_exists", errorx.Duplicate())
 	RegistryNotProvided  = IllegalArgument.NewSubtype("registry_not_provided", errorx.NotFound())
 	StepIdsNotProvided   = IllegalArgument.NewSubtype("step_ids_not_provided", errorx.NotFound())
+	StepValidationFailed = IllegalArgument.NewSubtype("step_validation_failed")
 	ErrInvalidReportType = IllegalArgument.NewSubtype("invalid_report_type", errorx.NotFound())
 
 	StepExecutionError          = ErrNamespace.NewType("step_execution_error")
