@@ -1,4 +1,4 @@
-package automa
+package types
 
 import (
 	"encoding/json"
@@ -6,7 +6,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func (rm *TypeRollbackMode) String() string {
+func (rm *RollbackMode) String() string {
 	switch *rm {
 	case RollbackModeContinueOnError:
 		return "continue"
@@ -17,11 +17,11 @@ func (rm *TypeRollbackMode) String() string {
 	}
 }
 
-func (rm *TypeRollbackMode) MarshalJSON() ([]byte, error) {
+func (rm *RollbackMode) MarshalJSON() ([]byte, error) {
 	return json.Marshal(rm.String())
 }
 
-func (rm *TypeRollbackMode) UnmarshalJSON(data []byte) error {
+func (rm *RollbackMode) UnmarshalJSON(data []byte) error {
 	var s string
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
@@ -32,16 +32,16 @@ func (rm *TypeRollbackMode) UnmarshalJSON(data []byte) error {
 	case "stop":
 		*rm = RollbackModeStopOnError
 	default:
-		return errors.New("unknown TypeRollbackMode")
+		return errors.New("unknown RollbackMode")
 	}
 	return nil
 }
 
-func (rm *TypeRollbackMode) MarshalYAML() (interface{}, error) {
+func (rm *RollbackMode) MarshalYAML() (interface{}, error) {
 	return rm.String(), nil
 }
 
-func (rm *TypeRollbackMode) UnmarshalYAML(value *yaml.Node) error {
+func (rm *RollbackMode) UnmarshalYAML(value *yaml.Node) error {
 	var s string
 	if err := value.Decode(&s); err != nil {
 		return err
@@ -52,7 +52,7 @@ func (rm *TypeRollbackMode) UnmarshalYAML(value *yaml.Node) error {
 	case "stop":
 		*rm = RollbackModeStopOnError
 	default:
-		return errors.New("unknown TypeRollbackMode")
+		return errors.New("unknown RollbackMode")
 	}
 	return nil
 }

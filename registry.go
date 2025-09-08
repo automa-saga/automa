@@ -15,6 +15,23 @@ func NewRegistry() Registry {
 	}
 }
 
+func (r *registry) Has(id string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, exists := r.steps[id]
+	return exists
+}
+
+func (r *registry) Remove(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.steps[id]; exists {
+		delete(r.steps, id)
+		return true
+	}
+	return false
+}
+
 func (r *registry) Add(steps ...Builder) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

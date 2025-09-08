@@ -2,6 +2,7 @@ package automa
 
 import (
 	"fmt"
+	"github.com/automa-saga/automa/types"
 	"sync"
 
 	"github.com/rs/zerolog"
@@ -10,7 +11,7 @@ import (
 type workflowBuilder struct {
 	id           string
 	registry     Registry
-	rollbackMode TypeRollbackMode
+	rollbackMode types.RollbackMode
 	logger       zerolog.Logger
 	stepBuilders map[string]Builder
 	mu           sync.Mutex
@@ -106,7 +107,7 @@ func (wb *workflowBuilder) WithLogger(logger zerolog.Logger) WorkFlowBuilder {
 	return wb
 }
 
-func (wb *workflowBuilder) WithRollbackMode(mode TypeRollbackMode) WorkFlowBuilder {
+func (wb *workflowBuilder) WithRollbackMode(mode types.RollbackMode) WorkFlowBuilder {
 	wb.mu.Lock()
 	defer wb.mu.Unlock()
 	wb.rollbackMode = mode
@@ -119,7 +120,7 @@ func NewWorkFlowBuilder(id string) WorkFlowBuilder {
 	}
 	return &workflowBuilder{
 		id:           id,
-		rollbackMode: RollbackModeContinueOnError,
+		rollbackMode: types.RollbackModeContinueOnError,
 		logger:       zerolog.Nop(),
 		stepBuilders: make(map[string]Builder),
 	}

@@ -3,36 +3,8 @@ package automa
 
 import (
 	"context"
+	"github.com/automa-saga/automa/types"
 	"github.com/rs/zerolog"
-)
-
-type TypeAction uint8
-
-const (
-	ActionExecute  TypeAction = 1 // "execute"
-	ActionRollback TypeAction = 2 // "rollback"
-)
-
-type TypeRollbackMode uint8
-
-const (
-	RollbackModeContinueOnError TypeRollbackMode = 1 // "continue" // continue rolling back previous steps even if one fails
-	RollbackModeStopOnError     TypeRollbackMode = 2 // "stop"     // stop rolling back previous steps on first failure
-)
-
-type TypeReport uint8
-
-const (
-	StepReportType     TypeReport = 1
-	WorkflowReportType TypeReport = 2
-)
-
-type TypeStatus uint8
-
-const (
-	StatusSuccess TypeStatus = 1 // "success"
-	StatusFailed  TypeStatus = 2 // "failed"
-	StatusSkipped TypeStatus = 3 //"skipped"
 )
 
 type Step interface {
@@ -40,7 +12,7 @@ type Step interface {
 	Prepare(ctx context.Context) (context.Context, error)
 	Execute(ctx context.Context) (*Report, error)
 	OnCompletion(ctx context.Context, report *Report)
-	OnRollback(ctx context.Context) (*RollbackReport, error)
+	OnRollback(ctx context.Context) (*Report, error)
 }
 
 type Workflow Step
@@ -64,5 +36,5 @@ type WorkFlowBuilder interface {
 	NamedSteps(stepIds ...string) WorkFlowBuilder
 	WithRegistry(sr Registry) WorkFlowBuilder
 	WithLogger(logger zerolog.Logger) WorkFlowBuilder
-	WithRollbackMode(mode TypeRollbackMode) WorkFlowBuilder
+	WithRollbackMode(mode types.RollbackMode) WorkFlowBuilder
 }
