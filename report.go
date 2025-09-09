@@ -1,16 +1,15 @@
 package automa
 
 import (
-	"github.com/automa-saga/automa/types"
 	"time"
 )
 
 type Report struct {
 	Id          string
-	Type        types.Report      `yaml:"type" json:"type"` // step or workflow report
+	Type        TypeReport        `yaml:"type" json:"type"` // step or workflow report
 	StartTime   time.Time         `yaml:"StartTime" json:"StartTime"`
 	EndTime     time.Time         `yaml:"EndTime" json:"EndTime"`
-	Status      types.Status      `yaml:"Status" json:"Status"`
+	Status      TypeStatus        `yaml:"TypeStatus" json:"TypeStatus"`
 	Error       error             `yaml:"error" json:"error"`             // error during execution, if any
 	Metadata    map[string]string `yaml:"metadata" json:"metadata"`       // optional Metadata for additional information
 	StepReports []*Report         `yaml:"stepReports" json:"stepReports"` // optional, only for workflow report
@@ -34,7 +33,7 @@ func WithRollbackReport(rollback *Report) ReportOption {
 	}
 }
 
-func WithReportType(t types.Report) ReportOption {
+func WithReportType(t TypeReport) ReportOption {
 	return func(sr *Report) {
 		sr.Type = t
 	}
@@ -52,7 +51,7 @@ func WithError(err error) ReportOption {
 	}
 }
 
-func WithStatus(status types.Status) ReportOption {
+func WithStatus(status TypeStatus) ReportOption {
 	return func(sr *Report) {
 		sr.Status = status
 	}
@@ -79,10 +78,10 @@ func WithEndTime(endTime time.Time) ReportOption {
 func NewReport(id string, opts ...ReportOption) *Report {
 	r := &Report{
 		Id:        id,
-		Type:      types.StepReport,
+		Type:      StepReport,
 		StartTime: time.Now(),
 		EndTime:   time.Now(),
-		Status:    types.StatusSuccess,
+		Status:    StatusSuccess,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -92,18 +91,18 @@ func NewReport(id string, opts ...ReportOption) *Report {
 
 // StepSuccessReport constructs a success report with options
 func StepSuccessReport(id string, opts ...ReportOption) *Report {
-	opts = append(opts, WithStatus(types.StatusSuccess), WithEndTime(time.Now()))
+	opts = append(opts, WithStatus(StatusSuccess), WithEndTime(time.Now()))
 	return NewReport(id, opts...)
 }
 
 // StepFailureReport constructs a failure report with options
 func StepFailureReport(id string, opts ...ReportOption) *Report {
-	opts = append(opts, WithStatus(types.StatusFailed), WithEndTime(time.Now()))
+	opts = append(opts, WithStatus(StatusFailed), WithEndTime(time.Now()))
 	return NewReport(id, opts...)
 }
 
 // StepSkippedReport constructs a skipped report with options
-func StepSkippedReport(id string, action types.Action, opts ...ReportOption) *Report {
-	opts = append(opts, WithStatus(types.StatusSkipped), WithEndTime(time.Now()))
+func StepSkippedReport(id string, action TypeAction, opts ...ReportOption) *Report {
+	opts = append(opts, WithStatus(StatusSkipped), WithEndTime(time.Now()))
 	return NewReport(id, opts...)
 }

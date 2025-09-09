@@ -1,11 +1,11 @@
-package types
+package automa
 
 import (
 	"encoding/json"
 	"gopkg.in/yaml.v3"
 )
 
-func (s *Status) String() string {
+func (s *TypeStatus) String() string {
 	switch *s {
 	case StatusSuccess:
 		return "success"
@@ -18,11 +18,11 @@ func (s *Status) String() string {
 	}
 }
 
-func (s *Status) MarshalJSON() ([]byte, error) {
+func (s *TypeStatus) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s.String())
 }
 
-func (s *Status) UnmarshalJSON(data []byte) error {
+func (s *TypeStatus) UnmarshalJSON(data []byte) error {
 	var str string
 	if err := json.Unmarshal(data, &str); err != nil {
 		return err
@@ -40,11 +40,11 @@ func (s *Status) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (s *Status) MarshalYAML() (interface{}, error) {
+func (s *TypeStatus) MarshalYAML() (interface{}, error) {
 	return s.String(), nil
 }
 
-func (s *Status) UnmarshalYAML(value *yaml.Node) error {
+func (s *TypeStatus) UnmarshalYAML(value *yaml.Node) error {
 	var str string
 	if err := value.Decode(&str); err != nil {
 		return err

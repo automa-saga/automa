@@ -1,17 +1,16 @@
-package steps
+package automa
 
 import (
 	"context"
-	"github.com/automa-saga/automa"
 	"github.com/rs/zerolog"
 )
 
 type StepOption func(*StepBuilder)
-type OnExecuteFunc func(ctx context.Context) (*automa.Report, error)
-type OnRollbackFunc func(ctx context.Context) (*automa.Report, error)
+type OnExecuteFunc func(ctx context.Context) (*Report, error)
+type OnRollbackFunc func(ctx context.Context) (*Report, error)
 type OnPrepareFunc func(ctx context.Context) (context.Context, error)
-type OnCompletionFunc func(ctx context.Context, report *automa.Report)
-type OnBuildFunc func() (automa.Step, error)
+type OnCompletionFunc func(ctx context.Context, report *Report)
+type OnBuildFunc func() (Step, error)
 type OnValidateFunc func() error
 
 // StepBuilder is a builder for creating steps with optional OnPrepare, OnExecute, OnSuccess, and OnRollback functions.
@@ -29,13 +28,14 @@ type StepBuilder struct {
 func (s *StepBuilder) Validate() error {
 	// Ensure that the step has a valid ID and an OnExecute function.
 	if s.ID == "" {
-		return automa.IllegalArgument.New("step ID cannot be empty")
-	}
-	if s.OnExecute == nil {
-		return automa.IllegalArgument.New("OnExecute function cannot be nil")
+		return IllegalArgument.New("step ID cannot be empty")
 	}
 
-	if s.OnValidate == nil {
+	if s.OnExecute == nil {
+		return IllegalArgument.New("OnExecute function cannot be nil")
+	}
+
+	if s.OnValidate != nil {
 		return s.OnValidate()
 	}
 
@@ -90,7 +90,7 @@ func (s *StepBuilder) Id() string {
 	return s.ID
 }
 
-func (s *StepBuilder) Build() (automa.Step, error) {
+func (s *StepBuilder) Build() (Step, error) {
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}

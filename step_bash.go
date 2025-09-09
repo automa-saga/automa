@@ -1,8 +1,7 @@
-package steps
+package automa
 
 import (
 	"context"
-	"github.com/automa-saga/automa"
 	"github.com/rs/zerolog"
 	"os/exec"
 	"strings"
@@ -20,7 +19,7 @@ func RunBashScript(scripts []string, workDir string, logger *zerolog.Logger) err
 
 		output, err := c.CombinedOutput()
 		if err != nil {
-			return automa.StepExecutionError.New("command failed: %s\nerror: %v\noutput: %s",
+			return StepExecutionError.New("command failed: %s\nerror: %v\noutput: %s",
 				script, err, strings.TrimSpace(string(output)))
 		}
 
@@ -36,18 +35,18 @@ func RunBashScript(scripts []string, workDir string, logger *zerolog.Logger) err
 // Caller can optionally provide OnRollback, OnPrepare, OnSuccess functions via opts.
 // Note, any OnExecute function provided in opts will be overridden.
 // The step returns a success report if all scripts execute successfully, otherwise it returns an error report.
-func NewBashScriptStep(id string, scripts []string, workDir string, opts ...StepOption) automa.Builder {
+func NewBashScriptStep(id string, scripts []string, workDir string, opts ...StepOption) Builder {
 	sb := NewStepBuilder(id, opts...)
 
 	// Define the OnExecute function to run the bash scripts.
 	// Note, it overrides any OnExecute function provided in opts.
-	sb.OnExecute = func(ctx context.Context) (*automa.Report, error) {
+	sb.OnExecute = func(ctx context.Context) (*Report, error) {
 		err := RunBashScript(scripts, workDir, sb.Logger)
 		if err != nil {
 			return nil, err
 		}
 
-		return automa.StepSuccessReport(sb.Id()), nil
+		return StepSuccessReport(sb.Id()), nil
 	}
 
 	return sb

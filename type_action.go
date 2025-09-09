@@ -1,11 +1,11 @@
-package types
+package automa
 
 import (
 	"encoding/json"
 	"gopkg.in/yaml.v3"
 )
 
-func (a *Action) String() string {
+func (a *TypeAction) String() string {
 	switch *a {
 	case ActionExecute:
 		return "execute"
@@ -16,11 +16,11 @@ func (a *Action) String() string {
 	}
 }
 
-func (a *Action) MarshalJSON() ([]byte, error) {
+func (a *TypeAction) MarshalJSON() ([]byte, error) {
 	return json.Marshal(a.String())
 }
 
-func (a *Action) UnmarshalJSON(data []byte) error {
+func (a *TypeAction) UnmarshalJSON(data []byte) error {
 	var s string
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
@@ -36,11 +36,11 @@ func (a *Action) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (a *Action) MarshalYAML() (interface{}, error) {
+func (a *TypeAction) MarshalYAML() (interface{}, error) {
 	return a.String(), nil
 }
 
-func (a *Action) UnmarshalYAML(value *yaml.Node) error {
+func (a *TypeAction) UnmarshalYAML(value *yaml.Node) error {
 	var s string
 	if err := value.Decode(&s); err != nil {
 		return err

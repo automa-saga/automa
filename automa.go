@@ -3,7 +3,6 @@ package automa
 
 import (
 	"context"
-	"github.com/automa-saga/automa/types"
 	"github.com/rs/zerolog"
 )
 
@@ -36,5 +35,5 @@ type WorkFlowBuilder interface {
 	NamedSteps(stepIds ...string) WorkFlowBuilder
 	WithRegistry(sr Registry) WorkFlowBuilder
 	WithLogger(logger zerolog.Logger) WorkFlowBuilder
-	WithRollbackMode(mode types.RollbackMode) WorkFlowBuilder
+	WithRollbackMode(mode TypeRollbackMode) WorkFlowBuilder
 }

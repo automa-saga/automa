@@ -1,9 +1,7 @@
-package steps
+package automa
 
 import (
 	"context"
-	"github.com/automa-saga/automa"
-	"github.com/automa-saga/automa/types"
 	"github.com/rs/zerolog"
 )
 
@@ -44,24 +42,24 @@ func (s *defaultStep) Prepare(ctx context.Context) (context.Context, error) {
 	return s.ctx, nil
 }
 
-func (s *defaultStep) Execute(ctx context.Context) (*automa.Report, error) {
+func (s *defaultStep) Execute(ctx context.Context) (*Report, error) {
 	if s.onExecute != nil {
 		return s.onExecute(ctx)
 	}
 
-	return automa.StepSkippedReport(s.id, types.ActionExecute), nil
+	return StepSkippedReport(s.id, ActionExecute), nil
 }
 
-func (s *defaultStep) OnCompletion(ctx context.Context, report *automa.Report) {
+func (s *defaultStep) OnCompletion(ctx context.Context, report *Report) {
 	if s.onCompletion != nil {
 		s.onCompletion(ctx, report)
 	}
 }
 
-func (s *defaultStep) OnRollback(ctx context.Context) (*automa.Report, error) {
+func (s *defaultStep) OnRollback(ctx context.Context) (*Report, error) {
 	if s.onRollback != nil {
 		return s.onRollback(ctx)
 	}
 
-	return automa.StepSkippedReport(s.id, types.ActionRollback), nil
+	return StepSkippedReport(s.id, ActionRollback), nil
 }

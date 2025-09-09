@@ -3,7 +3,6 @@ package automa
 import (
 	"context"
 	"fmt"
-	"github.com/automa-saga/automa/types"
 	"github.com/joomcode/errorx"
 	"github.com/rs/zerolog"
 	"time"
@@ -13,7 +12,7 @@ type workflow struct {
 	id           string
 	steps        []Step
 	logger       zerolog.Logger
-	rollbackMode types.RollbackMode
+	rollbackMode TypeRollbackMode
 }
 
 // rollbackFrom rollbacks the workflow backward from the given index to the start.
@@ -27,15 +26,15 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int) []*Report {
 			stepReports = append(stepReports, failedReport)
 
 			switch w.rollbackMode {
-			case types.RollbackModeContinueOnError:
+			case RollbackModeContinueOnError:
 				continue
-			case types.RollbackModeStopOnError:
+			case RollbackModeStopOnError:
 				break
 			}
-		} else if report.Status == types.StatusSkipped {
-			skippedReport := NewReport(step.Id(), WithStatus(types.StatusSkipped), WithStartTime(startTime))
+		} else if report.Status == StatusSkipped {
+			skippedReport := NewReport(step.Id(), WithStatus(StatusSkipped), WithStartTime(startTime))
 			stepReports = append(stepReports, skippedReport)
-		} else if report.Status == types.StatusSuccess {
+		} else if report.Status == StatusSuccess {
 			successReport := StepSuccessReport(step.Id(), WithStartTime(startTime))
 			stepReports = append(stepReports, successReport)
 		}
@@ -74,17 +73,17 @@ func (w *workflow) Execute(ctx context.Context) (*Report, error) {
 			rollbackReports := w.rollbackFrom(ctx, index)
 			stepReports = append(stepReports, rollbackReports...)
 
-			return NewReport(w.id, WithStatus(types.StatusFailed), WithReports(stepReports...)), nil
+			return NewReport(w.id, WithStatus(StatusFailed), WithReports(stepReports...)), nil
 		}
 
 		if report == nil {
 			return nil, errorx.IllegalState.New("step %s returned no report", step.Id())
 		}
 
-		if report.Status == types.StatusSkipped {
-			skippedReport := StepSkippedReport(step.Id(), types.ActionExecute, WithStartTime(startTime))
+		if report.Status == StatusSkipped {
+			skippedReport := StepSkippedReport(step.Id(), ActionExecute, WithStartTime(startTime))
 			stepReports = append(stepReports, skippedReport)
-		} else if report.Status == types.StatusSuccess {
+		} else if report.Status == StatusSuccess {
 			successReport := StepSuccessReport(step.Id(), WithStartTime(startTime))
 			stepReports = append(stepReports, successReport)
 		}
@@ -92,7 +91,7 @@ func (w *workflow) Execute(ctx context.Context) (*Report, error) {
 		step.OnCompletion(stepCtx, report)
 	}
 
-	return NewReport(w.id, WithStatus(types.StatusSuccess), WithReports(stepReports...)), nil
+	return NewReport(w.id, WithStatus(StatusSuccess), WithReports(stepReports...)), nil
 }
 
 func (w *workflow) OnCompletion(ctx context.Context, report *Report) {
@@ -109,14 +108,14 @@ func (w *workflow) OnRollback(ctx context.Context) (*Report, error) {
 // WorkflowOption defines a function that modifies a workflow.
 type WorkflowOption func(*workflow)
 
-// WithLogger returns a WorkflowOption that sets the logger.
-func WithLogger(logger zerolog.Logger) WorkflowOption {
+// WithWorkflowLogger returns a WorkflowOption that sets the logger.
+func WithWorkflowLogger(logger zerolog.Logger) WorkflowOption {
 	return func(w *workflow) {
 		w.logger = logger
 	}
 }
 
-func WithRollbackMode(mode types.RollbackMode) WorkflowOption {
+func WithRollbackMode(mode TypeRollbackMode) WorkflowOption {
 	return func(w *workflow) {
 		w.rollbackMode = mode
 	}
@@ -125,7 +124,7 @@ func WithRollbackMode(mode types.RollbackMode) WorkflowOption {
 func NewWorkflow(id string, steps []Step, opts ...WorkflowOption) Step {
 	w := &workflow{
 		id:           id,
-		rollbackMode: types.RollbackModeContinueOnError,
+		rollbackMode: RollbackModeContinueOnError,
 		steps:        steps,
 		logger:       zerolog.Nop(),
 	}
