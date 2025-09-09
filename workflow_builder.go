@@ -28,7 +28,7 @@ func (wb *workflowBuilder) Build() (Step, error) {
 	for _, builder := range wb.stepBuilders {
 		step, err := builder.Build()
 		if err != nil {
-			return nil, IllegalArgument.New("failed to build step: %w", err)
+			return nil, IllegalArgument.New("failed to build step '%s': %v", builder.Id(), err)
 		}
 		if step != nil {
 			steps = append(steps, step)

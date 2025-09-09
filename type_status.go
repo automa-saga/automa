@@ -5,8 +5,16 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func (s *TypeStatus) String() string {
-	switch *s {
+type TypeStatus uint8
+
+const (
+	StatusSuccess TypeStatus = 1
+	StatusFailed  TypeStatus = 2
+	StatusSkipped TypeStatus = 3
+)
+
+func (s TypeStatus) String() string {
+	switch s {
 	case StatusSuccess:
 		return "success"
 	case StatusFailed:
@@ -18,7 +26,7 @@ func (s *TypeStatus) String() string {
 	}
 }
 
-func (s *TypeStatus) MarshalJSON() ([]byte, error) {
+func (s TypeStatus) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s.String())
 }
 
@@ -40,7 +48,7 @@ func (s *TypeStatus) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (s *TypeStatus) MarshalYAML() (interface{}, error) {
+func (s TypeStatus) MarshalYAML() (interface{}, error) {
 	return s.String(), nil
 }
 

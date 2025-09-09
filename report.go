@@ -1,24 +1,39 @@
 package automa
 
 import (
+	"encoding/json"
 	"time"
 )
 
 type Report struct {
 	Id          string
-	Type        TypeReport        `yaml:"type" json:"type"` // step or workflow report
-	StartTime   time.Time         `yaml:"StartTime" json:"StartTime"`
-	EndTime     time.Time         `yaml:"EndTime" json:"EndTime"`
-	Status      TypeStatus        `yaml:"TypeStatus" json:"TypeStatus"`
-	Error       error             `yaml:"error" json:"error"`             // error during execution, if any
-	Metadata    map[string]string `yaml:"metadata" json:"metadata"`       // optional Metadata for additional information
-	StepReports []*Report         `yaml:"stepReports" json:"stepReports"` // optional, only for workflow report
-	Rollback    *Report           `yaml:"rollback" json:"rollback"`       // optional rollback report
+	Action      TypeAction
+	Status      TypeStatus
+	StartTime   time.Time
+	EndTime     time.Time
+	Detail      string
+	Error       error
+	Metadata    map[string]string
+	StepReports []*Report
+	Rollback    *Report
+}
+
+type marshalReport struct {
+	Id          string            `yaml:"id,omitempty" json:"id,omitempty"` // rollback report does not need id
+	Action      TypeAction        `yaml:"action,omitempty" json:"action,omitempty"`
+	Status      TypeStatus        `yaml:"status,omitempty" json:"status,omitempty"`
+	StartTime   time.Time         `yaml:"startTime,omitempty" json:"startTime,omitempty"`
+	EndTime     time.Time         `yaml:"endTime,omitempty" json:"endTime,omitempty"`
+	Detail      string            `yaml:"detail,omitempty" json:"detail,omitempty"`
+	Error       string            `yaml:"error,omitempty" json:"error,omitempty"`
+	Metadata    map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	StepReports []*Report         `yaml:"stepReports,omitempty" json:"steps,omitempty"`
+	Rollback    *Report           `yaml:"rollback,omitempty" json:"rollback,omitempty"`
 }
 
 type ReportOption func(*Report)
 
-func WithReports(reports ...*Report) ReportOption {
+func WithStepReports(reports ...*Report) ReportOption {
 	return func(sr *Report) {
 		if sr.StepReports == nil {
 			sr.StepReports = make([]*Report, 0, len(reports))
@@ -30,12 +45,6 @@ func WithReports(reports ...*Report) ReportOption {
 func WithRollbackReport(rollback *Report) ReportOption {
 	return func(sr *Report) {
 		sr.Rollback = rollback
-	}
-}
-
-func WithReportType(t TypeReport) ReportOption {
-	return func(sr *Report) {
-		sr.Type = t
 	}
 }
 
@@ -75,10 +84,64 @@ func WithEndTime(endTime time.Time) ReportOption {
 	}
 }
 
+func WithDetail(detail string) ReportOption {
+	return func(sr *Report) {
+		sr.Detail = detail
+	}
+}
+
+func WithReport(report *Report) ReportOption {
+	return func(sr *Report) {
+		if report == nil {
+			return
+		}
+		if report.Detail != "" {
+			sr.Detail = report.Detail
+		}
+		if report.Action != 0 {
+			sr.Action = report.Action
+		}
+		if !report.StartTime.IsZero() {
+			sr.StartTime = report.StartTime
+		}
+		if !report.EndTime.IsZero() {
+			sr.EndTime = report.EndTime
+		}
+		if report.Status != 0 {
+			sr.Status = report.Status
+		}
+		if report.Error != nil {
+			sr.Error = report.Error
+		}
+		if report.Metadata != nil {
+			if sr.Metadata == nil {
+				sr.Metadata = make(map[string]string)
+			}
+			for k, v := range report.Metadata {
+				sr.Metadata[k] = v
+			}
+		}
+		if report.StepReports != nil {
+			if sr.StepReports == nil {
+				sr.StepReports = make([]*Report, 0, len(report.StepReports))
+			}
+			sr.StepReports = append(sr.StepReports, report.StepReports...)
+		}
+		if report.Rollback != nil {
+			sr.Rollback = report.Rollback
+		}
+	}
+}
+
+func WithActionType(actionType TypeAction) ReportOption {
+	return func(sr *Report) {
+		sr.Action = actionType
+	}
+}
+
 func NewReport(id string, opts ...ReportOption) *Report {
 	r := &Report{
 		Id:        id,
-		Type:      StepReport,
 		StartTime: time.Now(),
 		EndTime:   time.Now(),
 		Status:    StatusSuccess,
@@ -102,7 +165,47 @@ func StepFailureReport(id string, opts ...ReportOption) *Report {
 }
 
 // StepSkippedReport constructs a skipped report with options
-func StepSkippedReport(id string, action TypeAction, opts ...ReportOption) *Report {
+func StepSkippedReport(id string, opts ...ReportOption) *Report {
 	opts = append(opts, WithStatus(StatusSkipped), WithEndTime(time.Now()))
 	return NewReport(id, opts...)
+}
+
+func (r *Report) MarshalJSON() ([]byte, error) {
+	m := marshalReport{
+		Action:      r.Action,
+		Status:      r.Status,
+		StartTime:   r.StartTime,
+		EndTime:     r.EndTime,
+		Detail:      r.Detail,
+		Metadata:    r.Metadata,
+		StepReports: r.StepReports,
+		Rollback:    r.Rollback,
+	}
+
+	if r.Id != "" {
+		m.Id = r.Id
+	}
+
+	if r.Error != nil {
+		m.Error = r.Error.Error()
+	}
+	return json.Marshal(m)
+}
+
+func (r *Report) MarshalYAML() (interface{}, error) {
+	m := marshalReport{
+		Id:          r.Id,
+		Action:      r.Action,
+		Status:      r.Status,
+		StartTime:   r.StartTime,
+		EndTime:     r.EndTime,
+		Detail:      r.Detail,
+		Metadata:    r.Metadata,
+		StepReports: r.StepReports,
+		Rollback:    r.Rollback,
+	}
+	if r.Error != nil {
+		m.Error = r.Error.Error()
+	}
+	return m, nil
 }

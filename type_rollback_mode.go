@@ -6,8 +6,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func (rm *TypeRollbackMode) String() string {
-	switch *rm {
+type TypeRollbackMode uint8
+
+const (
+	RollbackModeContinueOnError TypeRollbackMode = 1
+	RollbackModeStopOnError     TypeRollbackMode = 2
+)
+
+func (rm TypeRollbackMode) String() string {
+	switch rm {
 	case RollbackModeContinueOnError:
 		return "continue"
 	case RollbackModeStopOnError:
@@ -17,7 +24,7 @@ func (rm *TypeRollbackMode) String() string {
 	}
 }
 
-func (rm *TypeRollbackMode) MarshalJSON() ([]byte, error) {
+func (rm TypeRollbackMode) MarshalJSON() ([]byte, error) {
 	return json.Marshal(rm.String())
 }
 
@@ -37,7 +44,7 @@ func (rm *TypeRollbackMode) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (rm *TypeRollbackMode) MarshalYAML() (interface{}, error) {
+func (rm TypeRollbackMode) MarshalYAML() (interface{}, error) {
 	return rm.String(), nil
 }
 

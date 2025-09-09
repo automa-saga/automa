@@ -16,7 +16,7 @@ type OnValidateFunc func() error
 // StepBuilder is a builder for creating steps with optional OnPrepare, OnExecute, OnSuccess, and OnRollback functions.
 type StepBuilder struct {
 	ID         string
-	Logger     *zerolog.Logger
+	Logger     zerolog.Logger
 	OnValidate OnValidateFunc
 	OnBuild    OnBuildFunc
 	OnPrepare  OnPrepareFunc
@@ -42,11 +42,9 @@ func (s *StepBuilder) Validate() error {
 	return nil
 }
 
-func WithLogger(logger *zerolog.Logger) StepOption {
+func WithLogger(logger zerolog.Logger) StepOption {
 	return func(s *StepBuilder) {
-		if logger == nil {
-			s.Logger = logger
-		}
+		s.Logger = logger
 	}
 }
 

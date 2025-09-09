@@ -15,8 +15,8 @@
 # vendor/
 
 .idea
-docs/example/example
 .tmp
 mocks.go
 vendor
 unit-test-report.md
+examples/setup_local/setup_local

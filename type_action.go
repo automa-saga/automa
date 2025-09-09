@@ -5,8 +5,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func (a *TypeAction) String() string {
-	switch *a {
+type TypeAction uint8
+
+const (
+	ActionExecute  TypeAction = 1
+	ActionRollback TypeAction = 2
+)
+
+func (a TypeAction) String() string {
+	switch a {
 	case ActionExecute:
 		return "execute"
 	case ActionRollback:
@@ -16,7 +23,7 @@ func (a *TypeAction) String() string {
 	}
 }
 
-func (a *TypeAction) MarshalJSON() ([]byte, error) {
+func (a TypeAction) MarshalJSON() ([]byte, error) {
 	return json.Marshal(a.String())
 }
 
@@ -36,7 +43,7 @@ func (a *TypeAction) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (a *TypeAction) MarshalYAML() (interface{}, error) {
+func (a TypeAction) MarshalYAML() (interface{}, error) {
 	return a.String(), nil
 }
 

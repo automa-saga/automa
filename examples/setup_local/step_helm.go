@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/automa-saga/automa"
+	"github.com/automa-saga/automa/automa_steps"
 	"strings"
 )
 
@@ -27,14 +28,14 @@ func NewInstallHelmStep(id string, version string, opts ...automa.StepOption) au
 				rm -rf $(which helm); 
 			fi
 		`)
-		err := automa.RunBashScript([]string{rollbackCmd}, "", nil)
+		err := automa_steps.RunBashScript([]string{rollbackCmd}, "", nil)
 		if err != nil {
 			return nil, err
 		}
 		return automa.StepSuccessReport(id), nil
 	}))
 
-	return automa.NewBashScriptStep(id, []string{installCmd}, "", newOpts...)
+	return automa_steps.NewBashScriptStep(id, []string{installCmd}, "", newOpts...)
 }
 
 // NewUninstallHelmStep creates a step to uninstall Helm.
@@ -44,7 +45,7 @@ func NewUninstallHelmStep(id string, opts ...automa.StepOption) automa.Builder {
 			rm -rf $(which helm); 
 		fi
 	`)
-	return automa.NewBashScriptStep(id, []string{uninstallCmd}, "", opts...)
+	return automa_steps.NewBashScriptStep(id, []string{uninstallCmd}, "", opts...)
 }
 
 // NewHelmRepoAddStep creates a step to add a Helm repo and update it.
@@ -53,7 +54,7 @@ func NewHelmRepoAddStep(id, repo, url string, opts ...automa.StepOption) automa.
 		fmt.Sprintf("helm repo add %s %s", repo, url),
 		"helm repo update",
 	}
-	return automa.NewBashScriptStep(id, scripts, "", opts...)
+	return automa_steps.NewBashScriptStep(id, scripts, "", opts...)
 }
 
 // NewHelmInstallStep creates a step to install a Helm chart and sets up rollback to uninstall on failure.
@@ -65,14 +66,14 @@ func NewHelmInstallStep(id, repo, chart, releaseName, namespace string, args []s
 	newOpts := append([]automa.StepOption{}, opts...)
 	newOpts = append(newOpts, automa.WithOnRollback(func(ctx context.Context) (*automa.Report, error) {
 		rollbackCmd := fmt.Sprintf("helm uninstall %s --namespace %s", releaseName, namespace)
-		err := automa.RunBashScript([]string{rollbackCmd}, "", nil)
+		err := automa_steps.RunBashScript([]string{rollbackCmd}, "", nil)
 		if err != nil {
 			return nil, err
 		}
 		return automa.StepSuccessReport(id), nil
 	}))
 
-	return automa.NewBashScriptStep(id, []string{cmd}, "", newOpts...)
+	return automa_steps.NewBashScriptStep(id, []string{cmd}, "", newOpts...)
 }
 
 // NewHelmUpgradeStep creates a step to upgrade a Helm chart and sets up rollback to revert to the previous version on failure.
@@ -84,24 +85,24 @@ func NewHelmUpgradeStep(id, repo, chart, releaseName, namespace string, args []s
 	newOpts := append([]automa.StepOption{}, opts...)
 	newOpts = append(newOpts, automa.WithOnRollback(func(ctx context.Context) (*automa.Report, error) {
 		rollbackCmd := fmt.Sprintf("helm rollback %s 1 --namespace %s", releaseName, namespace)
-		err := automa.RunBashScript([]string{rollbackCmd}, "", nil)
+		err := automa_steps.RunBashScript([]string{rollbackCmd}, "", nil)
 		if err != nil {
 			return nil, err
 		}
 		return automa.StepSuccessReport(id), nil
 	}))
 
-	return automa.NewBashScriptStep(id, []string{cmd}, "", newOpts...)
+	return automa_steps.NewBashScriptStep(id, []string{cmd}, "", newOpts...)
 }
 
 // NewHelmUninstallStep creates a step to uninstall a Helm release.
 func NewHelmUninstallStep(id, releaseName, namespace string, opts ...automa.StepOption) automa.Builder {
 	cmd := fmt.Sprintf("helm uninstall %s --namespace %s", releaseName, namespace)
-	return automa.NewBashScriptStep(id, []string{cmd}, "", opts...)
+	return automa_steps.NewBashScriptStep(id, []string{cmd}, "", opts...)
 }
 
 // NewHelmListStep creates a step to list Helm releases in a namespace.
 func NewHelmListStep(id, namespace string, opts ...automa.StepOption) automa.Builder {
 	cmd := fmt.Sprintf("helm list --namespace %s", namespace)
-	return automa.NewBashScriptStep(id, []string{cmd}, "", opts...)
+	return automa_steps.NewBashScriptStep(id, []string{cmd}, "", opts...)
 }
