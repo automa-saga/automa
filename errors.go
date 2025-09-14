@@ -5,18 +5,13 @@ import "github.com/joomcode/errorx"
 var (
 	ErrNamespace = errorx.NewNamespace("automa")
 
-	StepNotFound          = ErrNamespace.NewType("step_not_found", errorx.NotFound())
-	StepAlreadyExists     = ErrNamespace.NewType("step_already_exists", errorx.Duplicate())
-	WorkflowNotFound      = ErrNamespace.NewType("workflow_not_found", errorx.NotFound())
-	WorkflowAlreadyExists = ErrNamespace.NewType("workflow_already_exists", errorx.Duplicate())
-
-	WorkflowExecutionError          = ErrNamespace.NewType("workflow_execution_error")
-	WorkflowExecutionTimeout        = WorkflowExecutionError.NewSubtype("workflow_execution_timeout", errorx.Timeout())
-	WorkflowExecutionAborted        = WorkflowExecutionError.NewSubtype("workflow_execution_aborted")
-	WorkflowExecutionFailed         = WorkflowExecutionError.NewSubtype("workflow_execution_failed")
-	WorkflowExecutionSkipped        = WorkflowExecutionError.NewSubtype("workflow_execution_skipped")
-	WorkflowExecutionNotStarted     = WorkflowExecutionError.NewSubtype("workflow_execution_not_started")
-	WorkflowExecutionAlreadyStarted = WorkflowExecutionError.NewSubtype("workflow_execution_already_started")
+	IllegalArgument      = ErrNamespace.NewType("illegal_argument")
+	StepNotFound         = IllegalArgument.NewSubtype("step_not_found", errorx.NotFound())
+	StepAlreadyExists    = IllegalArgument.NewSubtype("step_already_exists", errorx.Duplicate())
+	RegistryNotProvided  = IllegalArgument.NewSubtype("registry_not_provided", errorx.NotFound())
+	StepIdsNotProvided   = IllegalArgument.NewSubtype("step_ids_not_provided", errorx.NotFound())
+	StepValidationFailed = IllegalArgument.NewSubtype("step_validation_failed")
+	ErrInvalidReportType = IllegalArgument.NewSubtype("invalid_report_type", errorx.NotFound())
 
 	StepExecutionError          = ErrNamespace.NewType("step_execution_error")
 	StepExecutionFailed         = StepExecutionError.NewSubtype("step_execution_failed")

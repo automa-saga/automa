@@ -1,141 +1,157 @@
 package automa
 
 import (
+	"context"
+	"fmt"
+	"github.com/joomcode/errorx"
 	"github.com/rs/zerolog"
-	"sync"
 	"time"
 )
 
-var nolog = zerolog.Nop()
-
-// workflow implements the Workflow interface.
-// It manages a Saga workflow using a double linked list of Steps,
-// enabling forward execution on success and reverse traversal on failure.
 type workflow struct {
-	id    string
-	mutex sync.Mutex
-
-	// first and last are terminal steps for the double linked list.
-	first Step
-	last  Step
-
-	// report contains execution details of the workflow.
-	report *WorkflowReport
-
-	// logger for workflow-level logging.
-	logger *zerolog.Logger
+	id           string
+	steps        []Step
+	logger       zerolog.Logger
+	rollbackMode TypeRollbackMode
 }
 
-// addStep adds a Step to the internal double linked list.
-// Ensures thread safety and maintains correct order.
-func (wf *workflow) addStep(s Step) {
-	wf.mutex.Lock()
-	defer wf.mutex.Unlock()
+// rollbackFrom rollbacks the workflow backward from the given index to the start.
+func (w *workflow) rollbackFrom(ctx context.Context, index int) map[string]*Report {
+	stepReports := map[string]*Report{}
+	for i := index; i >= 0; i-- {
+		startTime := time.Now()
+		step := w.steps[i]
+		if report, rollbackErr := step.OnRollback(ctx); rollbackErr != nil {
+			failedReport := StepFailureReport(step.Id(), WithActionType(ActionRollback), WithStartTime(startTime), WithError(rollbackErr))
+			stepReports[step.Id()] = failedReport
 
-	if wf.first == nil {
-		wf.first = s
-	} else {
-		wf.last.SetNext(s)
-		s.SetPrev(wf.last)
+			switch w.rollbackMode {
+			case RollbackModeContinueOnError:
+				continue
+			case RollbackModeStopOnError:
+				return stepReports
+			}
+		} else if report.Status == StatusSkipped {
+			skippedReport := StepSkippedReport(step.Id(), WithActionType(ActionRollback), WithReport(report), WithStartTime(startTime))
+			stepReports[step.Id()] = skippedReport
+		} else if report.Status == StatusSuccess {
+			successReport := StepSuccessReport(step.Id(), WithActionType(ActionRollback), WithReport(report), WithStartTime(startTime))
+			stepReports[step.Id()] = successReport
+		}
 	}
-	wf.last = s
+
+	return stepReports
 }
 
-// GetID returns the workflow's unique identifier.
-func (wf *workflow) GetID() string {
-	return wf.id
+func (w *workflow) Id() string {
+	return w.id
 }
 
-// Execute starts the workflow execution and returns a WorkflowReport.
-// Traverses steps forward on success, and updates report status accordingly.
-func (wf *workflow) Execute(ctx *Context) (*WorkflowReport, error) {
-	wf.mutex.Lock()
-	defer wf.mutex.Unlock()
+func (w *workflow) Prepare(ctx context.Context) (context.Context, error) {
+	// Preparation logic for the workflow can be added here
+	// For now, we just return the context as is
+	return ctx, nil
+}
 
-	var err error
+func (w *workflow) Execute(ctx context.Context) (*Report, error) {
+	if len(w.steps) == 0 {
+		return nil, fmt.Errorf("workflow %s has no steps to execute", w.id)
+	}
 
-	if wf.first != nil {
-		wf.report.StepSequence = wf.GetStepSequence()
-		wf.report.Status = StatusUndefined
-
-		// Start execution from the first step.
-		wf.report, err = wf.first.Execute(ctx.SetValue(KeyPrevSuccess, NewStartTrigger(wf.report)))
+	var stepReports []*Report
+	for index, step := range w.steps {
+		startTime := time.Now()
+		stepCtx, err := step.Prepare(ctx)
 		if err != nil {
-			wf.report.Status = StatusFailed
-		} else {
-			wf.report.Status = StatusSuccess
+			return nil, err
 		}
-		wf.report.EndTime = time.Now()
-		return wf.report, err
-	}
-	return wf.report, nil
-}
 
-// GetSteps returns all Steps in the workflow in execution order.
-// Returns a copy to prevent external modification.
-func (wf *workflow) GetSteps() []Step {
-	var steps []Step
-	for step := wf.first; step != nil; step = step.GetNext() {
-		steps = append(steps, step)
-	}
-	return steps
-}
+		report, err := step.Execute(stepCtx)
+		if err != nil {
+			// create failure report for the failed step
+			failureReport := StepFailureReport(step.Id(), WithActionType(ActionExecute), WithStartTime(startTime), WithError(err))
+			stepReports = append(stepReports, failureReport)
 
-// GetStepSequence returns the ordered list of Step IDs in the workflow.
-// Returns a copy to prevent external modification.
-func (wf *workflow) GetStepSequence() []string {
-	var stepSequence []string
-	for step := wf.first; step != nil; step = step.GetNext() {
-		stepSequence = append(stepSequence, step.GetID())
-	}
-	return stepSequence
-}
+			// Perform rollback for all executed steps up to the current one
+			rollbackReports := w.rollbackFrom(ctx, index)
+			if len(rollbackReports) != len(stepReports) && w.rollbackMode != RollbackModeContinueOnError {
+				return nil, errorx.IllegalState.New("mismatched rollback reports and step reports lengths, "+
+					"rollback reports: %d, step reports: %d", len(rollbackReports), len(stepReports))
+			}
 
-// HasStep checks if the workflow contains a Step with the given stepID.
-func (wf *workflow) HasStep(stepID string) bool {
-	if stepID == "" {
-		return false
-	}
-	for step := wf.first; step != nil; step = step.GetNext() {
-		if step.GetID() == stepID {
-			return true
+			// Attach rollback reports to corresponding step reports
+			for _, stepReport := range stepReports {
+				if rollback, ok := rollbackReports[stepReport.Id]; ok {
+					stepReport.Rollback = rollback
+				}
+			}
+
+			// Return the workflow report with failure status and step reports
+			return NewReport(w.id, WithActionType(ActionExecute), WithStatus(StatusFailed), WithStepReports(stepReports...)), nil
 		}
-	}
-	return false
-}
 
-// WorkflowOption defines a functional option for configuring a workflow.
-type WorkflowOption func(wf *workflow)
-
-// WithSteps initializes the workflow with an ordered list of steps.
-func WithSteps(steps ...Step) WorkflowOption {
-	return func(wf *workflow) {
-		for _, step := range steps {
-			wf.addStep(step)
+		if report == nil {
+			return nil, errorx.IllegalState.New("step %s returned no report", step.Id())
 		}
+
+		if report.Status == StatusSkipped {
+			skippedReport := StepSkippedReport(step.Id(), WithActionType(ActionExecute), WithStartTime(startTime))
+			stepReports = append(stepReports, skippedReport)
+		} else if report.Status == StatusSuccess {
+			successReport := StepSuccessReport(step.Id(), WithActionType(ActionExecute), WithStartTime(startTime))
+			stepReports = append(stepReports, successReport)
+		}
+
+		step.OnCompletion(stepCtx, report)
 	}
+
+	return NewReport(w.id, WithActionType(ActionExecute), WithStatus(StatusSuccess), WithStepReports(stepReports...)), nil
 }
 
-// WithLogger sets a custom logger for the workflow.
-func WithLogger(logger *zerolog.Logger) WorkflowOption {
-	return func(wf *workflow) {
-		if logger != nil {
-			wf.logger = logger
+func (w *workflow) OnCompletion(ctx context.Context, report *Report) {
+	// any post successful execution logic can be added here
+	// no-op for now
+}
+
+func (w *workflow) OnRollback(ctx context.Context) (*Report, error) {
+	startTime := time.Now()
+	rollbackReports := w.rollbackFrom(ctx, len(w.steps)-1)
+	var stepReports []*Report
+	for _, step := range w.steps {
+		if report, ok := rollbackReports[step.Id()]; ok {
+			stepReports = append(stepReports, report)
 		}
 	}
+	return StepSuccessReport(w.id, WithActionType(ActionRollback), WithStartTime(startTime), WithStepReports(stepReports...)), nil
 }
 
-// NewWorkflow creates a new Workflow instance with the given ID and options.
-// Applies all provided WorkflowOptions for configuration.
-func NewWorkflow(id string, opts ...WorkflowOption) Workflow {
-	report := NewWorkflowReport(id, nil)
-	wf := &workflow{
-		id:     id,
-		report: report,
-		logger: &nolog,
+// WorkflowOption defines a function that modifies a workflow.
+type WorkflowOption func(*workflow)
+
+// WithWorkflowLogger returns a WorkflowOption that sets the logger.
+func WithWorkflowLogger(logger zerolog.Logger) WorkflowOption {
+	return func(w *workflow) {
+		w.logger = logger
 	}
+}
+
+func WithRollbackMode(mode TypeRollbackMode) WorkflowOption {
+	return func(w *workflow) {
+		w.rollbackMode = mode
+	}
+}
+
+func NewWorkflow(id string, steps []Step, opts ...WorkflowOption) Step {
+	w := &workflow{
+		id:           id,
+		rollbackMode: RollbackModeContinueOnError,
+		steps:        steps,
+		logger:       zerolog.Nop(),
+	}
+
 	for _, opt := range opts {
-		opt(wf)
+		opt(w)
 	}
-	return wf
+
+	return w
 }

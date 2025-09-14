@@ -13,7 +13,7 @@ The name `automa` is derived from the word `automate`.
 - Sequential execution of workflow steps
 - Automatic rollback on error
 - Compensating actions for non-reversible steps
-- Step-level execution reporting
+- Step-level execution reporting (with JSON/YAML marshalling support)
 - Extensible step interface
 
 ## Getting Started
@@ -26,7 +26,7 @@ The name `automa` is derived from the word `automate`.
 go get -u github.com/automa-saga/automa
 ```
 
-See an [example](https://github.com/automa-saga/automa/blob/master/docs/example/example.go) in the example directory. 
+See an [examples](https://github.com/automa-saga/automa/blob/master/examples) in the examples directory. 
 
 ## Development
  - `task test` runs the tests (install `task` tool: https://taskfile.dev/installation/).

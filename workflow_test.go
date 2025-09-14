@@ -2,143 +2,231 @@ package automa
 
 import (
 	"context"
-	"fmt"
-	"github.com/joomcode/errorx"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
+	"errors"
 	"testing"
+
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestWorkflowEngine_Start(t *testing.T) {
-	ctx, cancel := NewContext(context.Background()).WithCancel()
-	defer cancel()
+func TestNewWorkflow_ExecutesAllSteps(t *testing.T) {
+	s1 := &defaultStep{id: "s1"}
+	s2 := &defaultStep{id: "s2"}
+	wf := NewWorkflow("wf", []Step{s1, s2})
 
-	stop := &Task{
-		ID: "stop_containers",
-		Run: func(ctx *Context) error {
-			return nil
-		},
-		Rollback: func(ctx *Context) error {
-			return errorx.IllegalState.New("Mock error on rollback")
-		},
-	}
-
-	fetch := &Task{
-		ID: "fetch_latest_images",
-		Run: func(ctx *Context) error {
-			return nil
-		},
-		Rollback: func(ctx *Context) error {
-			return nil
-		},
-	}
-
-	notify := &Task{
-		ID: "notify_all_on_slack",
-		Skip: func(ctx *Context) bool {
-			return true // this step is skipped
-		},
-		Run: func(ctx *Context) error {
-			fmt.Println("notify_all_on_slack:Run this shouldn't be printed as it is meant to be skipped")
-			return nil
-		},
-		Rollback: func(ctx *Context) error {
-			fmt.Println("notify_all_on_slack:Rollback this shouldn't be printed as it is meant to be skipped")
-			return nil
-		},
-	}
-
-	restart := &Task{
-		ID: "restart_containers",
-		Run: func(ctx *Context) error {
-			return errorx.IllegalState.New("Mock error on restart")
-		},
-		Rollback: func(ctx *Context) error {
-			return nil
-		},
-	}
-
-	registry := NewRegistry(nil).AddSteps(fetch, stop, notify, restart)
-
-	_, err := registry.BuildWorkflow("workflow_1", []string{
-		"INVALID",
-	})
-	assert.Error(t, err)
-
-	// a new workflow with notify in the middle
-	workflow1, err := registry.BuildWorkflow("workflow_1", []string{
-		stop.GetID(),
-		fetch.GetID(),
-		notify.GetID(),
-		restart.GetID(),
-	})
-	require.Nil(t, err)
-	assert.Equal(t, "workflow_1", workflow1.GetID())
-	assert.Equal(t, 4, len(workflow1.GetSteps()))
-	assert.Equal(t, []string{stop.GetID(), fetch.GetID(), notify.GetID(), restart.GetID()}, workflow1.GetStepSequence())
-	assert.True(t, workflow1.HasStep(stop.GetID()))
-	assert.False(t, workflow1.HasStep("INVALID"))
-
-	// modifying the step sequence externally should not affect the workflow
-	seq := workflow1.GetStepSequence()
-	seq = append(seq, "notify_all_on_slack")
-	assert.Equal(t, []string{stop.GetID(), fetch.GetID(), notify.GetID(), restart.GetID()}, workflow1.GetStepSequence())
-
-	report, err := workflow1.Execute(ctx)
-	assert.Error(t, err)
+	report, err := wf.Execute(context.Background())
+	assert.NoError(t, err)
 	assert.NotNil(t, report)
-	assert.Equal(t, 8, len(report.StepReports)) // it will reach all steps and rollback
+	assert.Equal(t, StatusSuccess, report.Status)
+}
 
-	r, err := yaml.Marshal(report)
-	require.NoError(t, err)
-	fmt.Println(string(r))
+func TestNewWorkflow_StopsOnStepError(t *testing.T) {
+	s1 := &defaultStep{id: "s1"}
+	s2 := &defaultStep{id: "s2", onExecute: func(ctx context.Context) (*Report, error) {
+		return nil, errors.New("some error")
+	}}
+	wf := NewWorkflow("wf", []Step{s1, s2})
 
-	// a new workflow with notify at the end
-	workflow2, err := registry.BuildWorkflow("workflow_2", []string{
-		stop.GetID(),
-		fetch.GetID(),
-		restart.GetID(),
-		notify.GetID(),
-	})
-	require.Nil(t, err)
-	assert.Equal(t, "workflow_2", workflow2.GetID())
+	report, err := wf.Execute(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusFailed, report.Status)
+}
 
-	report2, err := workflow2.Execute(ctx)
+func TestNewWorkflow_RollbackModeStopOnError(t *testing.T) {
+	s := &defaultStep{id: "s", onExecute: func(ctx context.Context) (*Report, error) {
+		return nil, errors.New("some error")
+	}}
+	wf := NewWorkflow("wf", []Step{s}, WithRollbackMode(RollbackModeStopOnError))
+
+	report, err := wf.Execute(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusFailed, report.Status)
+}
+
+func TestNewWorkflow_WithLogger(t *testing.T) {
+	logger := zerolog.Nop()
+	wf := NewWorkflow("wf", nil, WithWorkflowLogger(logger))
+	assert.Equal(t, logger, wf.(*workflow).logger)
+}
+
+func TestNewWorkflow_Id(t *testing.T) {
+	wf := NewWorkflow("mywf", nil)
+	assert.Equal(t, "mywf", wf.Id())
+}
+
+func TestNewWorkflow_EmptySteps(t *testing.T) {
+	wf := NewWorkflow("wf", nil)
+	report, err := wf.Execute(context.Background())
 	assert.Error(t, err)
-	assert.NotNil(t, report)
-	assert.Equal(t, 6, len(report2.StepReports)) // it will not reach notify step
-	assert.NotNil(t, report2.StepReports[5].FailureReason)
+	assert.Nil(t, report)
+}
 
-	// a new workflow with no failure
-	workflow3, err := registry.BuildWorkflow("workflow_3", []string{
-		stop.GetID(),
-		fetch.GetID(),
-		notify.GetID(),
-	})
-	require.Nil(t, err)
-	assert.Equal(t, "workflow_3", workflow3.GetID())
+func TestWorkflow_OnRollback(t *testing.T) {
+	ctx := context.Background()
+	rollbackCalled := make(map[string]bool)
 
-	report3, err := workflow3.Execute(ctx)
-	require.Nil(t, err)
-	assert.NotNil(t, report)
-	assert.Equal(t, 3, len(report3.StepReports))
-	assert.Equal(t, StatusSuccess, report3.Status)
-	assert.Equal(t, []string{stop.GetID(), fetch.GetID(), notify.GetID()}, report3.StepSequence)
-	for _, stepReport := range report2.StepReports {
-		if (stepReport.StepID == restart.GetID() && stepReport.Action == RunAction) ||
-			(stepReport.StepID == stop.GetID() && stepReport.Action == RollbackAction) {
-			assert.Equal(t, StatusFailed, stepReport.Status)
-		} else {
-			assert.Equal(t, StatusSuccess, stepReport.Status)
-		}
+	// Custom defaultStep with OnRollback tracking
+	step1 := &defaultStep{
+		id: "step1",
+		onRollback: func(ctx context.Context) (*Report, error) {
+			rollbackCalled["step1"] = true
+			return StepSuccessReport("step1"), nil
+		},
+	}
+	step2 := &defaultStep{
+		id: "step2",
+		onRollback: func(ctx context.Context) (*Report, error) {
+			rollbackCalled["step2"] = true
+			return StepSuccessReport("step2"), nil
+		},
 	}
 
-	// NoOp scenario when first step is null
-	noopWorkflow, err := registry.BuildWorkflow("noop_workflow", []string{})
-	require.Nil(t, err)
-	report4, err := noopWorkflow.Execute(ctx)
-	assert.NotNil(t, report4)
-	assert.Equal(t, 0, len(report4.StepReports))
-	assert.Nil(t, err)
+	wf := NewWorkflow("wf", []Step{step1, step2}).(*workflow)
+	report, err := wf.OnRollback(ctx)
+	assert.NoError(t, err)
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, ActionRollback, report.Action)
+	assert.Len(t, report.StepReports, 2)
+	assert.True(t, rollbackCalled["step1"])
+	assert.True(t, rollbackCalled["step2"])
+}
+
+func TestWorkflow_Execute_StatusSuccess(t *testing.T) {
+	ctx := context.Background()
+	step1 := &defaultStep{
+		id: "step1",
+		onExecute: func(ctx context.Context) (*Report, error) {
+			return StepSuccessReport("step1"), nil
+		},
+	}
+	step2 := &defaultStep{
+		id: "step2",
+		onExecute: func(ctx context.Context) (*Report, error) {
+			return StepSuccessReport("step2"), nil
+		},
+	}
+	wf := NewWorkflow("wf-success", []Step{step1, step2})
+
+	report, err := wf.Execute(ctx)
+	assert.NoError(t, err)
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, ActionExecute, report.Action)
+	assert.Len(t, report.StepReports, 2)
+	for _, sr := range report.StepReports {
+		assert.Equal(t, StatusSuccess, sr.Status)
+	}
+}
+
+func TestWorkflow_RollbackFrom_FailedRollback(t *testing.T) {
+	ctx := context.Background()
+	failErr := errors.New("rollback failed")
+	step1 := &defaultStep{
+		id: "step1",
+		onRollback: func(ctx context.Context) (*Report, error) {
+			return nil, failErr
+		},
+	}
+	step2 := &defaultStep{
+		id: "step2",
+		onRollback: func(ctx context.Context) (*Report, error) {
+			return StepSuccessReport("step2"), nil
+		},
+	}
+	wf := &workflow{
+		id:    "wf",
+		steps: []Step{step1, step2},
+	}
+
+	reports := wf.rollbackFrom(ctx, 1)
+	assert.Len(t, reports, 2)
+	assert.Equal(t, StatusFailed, reports["step1"].Status)
+	assert.Equal(t, failErr, reports["step1"].Error)
+	assert.Equal(t, StatusSuccess, reports["step2"].Status)
+}
+
+func TestWorkflow_RollbackFrom_ContinueOnError(t *testing.T) {
+	ctx := context.Background()
+	failErr := errors.New("rollback failed")
+	step1 := &defaultStep{
+		id: "step1",
+		onRollback: func(ctx context.Context) (*Report, error) {
+			return nil, failErr
+		},
+	}
+	step2 := &defaultStep{
+		id: "step2",
+		onRollback: func(ctx context.Context) (*Report, error) {
+			return StepSuccessReport("step2"), nil
+		},
+	}
+	wf := &workflow{
+		id:           "wf",
+		steps:        []Step{step1, step2},
+		rollbackMode: RollbackModeContinueOnError,
+	}
+
+	reports := wf.rollbackFrom(ctx, 1)
+	assert.Len(t, reports, 2)
+	assert.Equal(t, StatusFailed, reports["step1"].Status)
+	assert.Equal(t, failErr, reports["step1"].Error)
+	assert.Equal(t, StatusSuccess, reports["step2"].Status)
+}
+
+func TestWorkflow_RollbackFrom_StopOnError(t *testing.T) {
+	ctx := context.Background()
+	failErr := errors.New("rollback failed")
+	step1 := &defaultStep{
+		id: "step1",
+		onRollback: func(ctx context.Context) (*Report, error) {
+			return StepSuccessReport("step2"), nil
+		},
+	}
+	step2 := &defaultStep{
+		id: "step2",
+		onRollback: func(ctx context.Context) (*Report, error) {
+			return nil, failErr
+		},
+	}
+	wf := &workflow{
+		id:           "wf",
+		steps:        []Step{step1, step2},
+		rollbackMode: RollbackModeStopOnError,
+	}
+
+	reports := wf.rollbackFrom(ctx, 1)
+	assert.Len(t, reports, 1)
+	assert.Equal(t, StatusFailed, reports["step2"].Status)
+	assert.Equal(t, failErr, reports["step2"].Error)
+	_, ok := reports["step1"]
+	assert.False(t, ok, "step1 should not be rolled back after failure in stop-on-error mode")
+}
+
+func TestWorkflow_RollbackFrom_SkippedStatus(t *testing.T) {
+	ctx := context.Background()
+	step1 := &defaultStep{
+		id: "step1",
+		onRollback: func(ctx context.Context) (*Report, error) {
+			return &Report{Status: StatusSkipped}, nil
+		},
+	}
+	step2 := &defaultStep{
+		id: "step2",
+		onRollback: func(ctx context.Context) (*Report, error) {
+			return StepSuccessReport("step2"), nil
+		},
+	}
+	wf := &workflow{
+		id:           "wf",
+		steps:        []Step{step1, step2},
+		rollbackMode: RollbackModeContinueOnError,
+	}
+
+	reports := wf.rollbackFrom(ctx, 1)
+	assert.Len(t, reports, 2)
+	assert.Equal(t, StatusSkipped, reports["step1"].Status)
+	assert.Equal(t, StatusSuccess, reports["step2"].Status)
 }
