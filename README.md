@@ -1,10 +1,5 @@
 # Automa
-![test](https://github.com/automa-saga/automa/actions/workflows/test.yaml/badge.svg)
-[![Commitizen friendly](https://img.shields.io/badge/commitizen-friendly-brightgreen.svg)](http://commitizen.github.io/cz-cli/)
-[![semantic-release: go](https://img.shields.io/badge/semantic--release-go?logo=semantic-release)](https://github.com/semantic-release/semantic-release)
-[![codecov](https://codecov.io/gh/automa-saga/automa/branch/master/graph/badge.svg?token=DMRN5J6TJW)](https://codecov.io/gh/automa-saga/automa)
-
-Automa is a Saga Workflow Engine for Go, designed for sequential and transactional business processes. It implements the choreography Saga pattern without a centralized message broker: each step calls the next on success or triggers rollback on error.
+Automa is a Saga Workflow Engine for Go, designed for sequential and transactional business processes. 
 
 The name `automa` is derived from the word `automate`.
 
@@ -26,7 +21,7 @@ The name `automa` is derived from the word `automate`.
 go get -u github.com/automa-saga/automa
 ```
 
-See an [examples](https://github.com/automa-saga/automa/blob/master/examples) in the examples directory. 
+See an [example](https://github.com/automa-saga/automa/blob/master/examples) in the examples directory. 
 
 ## Development
  - `task test` runs the tests (install `task` tool: https://taskfile.dev/installation/).
