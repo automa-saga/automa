@@ -1,6 +1,7 @@
 package automa
 
 import (
+	"context"
 	"errors"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -99,4 +100,26 @@ func TestWorkFlowBuilder_WithLogger_WithRollbackMode_WithRegistry(t *testing.T) 
 	assert.Equal(t, logger, wb.logger)
 	assert.Equal(t, RollbackModeStopOnError, wb.rollbackMode)
 	assert.Equal(t, reg, wb.registry)
+}
+
+func TestWorkFlowBuilder_MaintainsStepSequence(t *testing.T) {
+	b1 := NewStepBuilder("z", WithOnExecute(func(ctx context.Context) (*Report, error) { return &Report{}, nil }))
+	b2 := NewStepBuilder("a", WithOnExecute(func(ctx context.Context) (*Report, error) { return &Report{}, nil }))
+	b3 := NewStepBuilder("y", WithOnExecute(func(ctx context.Context) (*Report, error) { return &Report{}, nil }))
+	b4 := NewStepBuilder("c", WithOnExecute(func(ctx context.Context) (*Report, error) { return &Report{}, nil }))
+	b5 := NewStepBuilder("x", WithOnExecute(func(ctx context.Context) (*Report, error) { return &Report{}, nil }))
+
+	wb := NewWorkFlowBuilder("wf").(*workflowBuilder)
+	wb.Steps(b1, b2, b3, b4, b5)
+	wf, err := wb.Build()
+	require.NoError(t, err)
+	require.NotNil(t, wf)
+
+	steps := wf.(*workflow).steps
+	require.Len(t, steps, 5)
+	assert.Equal(t, "z", steps[0].Id())
+	assert.Equal(t, "a", steps[1].Id())
+	assert.Equal(t, "y", steps[2].Id())
+	assert.Equal(t, "c", steps[3].Id())
+	assert.Equal(t, "x", steps[4].Id())
 }

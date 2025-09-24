@@ -12,6 +12,7 @@ type workflowBuilder struct {
 	registry     Registry
 	rollbackMode TypeRollbackMode
 	logger       zerolog.Logger
+	stepSequence []string
 	stepBuilders map[string]Builder
 	mu           sync.Mutex
 }
@@ -25,7 +26,12 @@ func (wb *workflowBuilder) Build() (Step, error) {
 	defer wb.mu.Unlock()
 
 	steps := make([]Step, 0, len(wb.stepBuilders))
-	for _, builder := range wb.stepBuilders {
+	for _, stepId := range wb.stepSequence {
+		builder, exists := wb.stepBuilders[stepId]
+		if !exists {
+			return nil, fmt.Errorf("step with id '%s' not found in builders map", stepId)
+		}
+
 		step, err := builder.Build()
 		if err != nil {
 			return nil, IllegalArgument.New("failed to build step '%s': %v", builder.Id(), err)
@@ -47,6 +53,7 @@ func (wb *workflowBuilder) Steps(steps ...Builder) WorkFlowBuilder {
 			continue
 		}
 		wb.stepBuilders[step.Id()] = step
+		wb.stepSequence = append(wb.stepSequence, step.Id())
 	}
 	return wb
 }
@@ -69,6 +76,7 @@ func (wb *workflowBuilder) NamedSteps(stepIds ...string) WorkFlowBuilder {
 			continue
 		}
 		wb.stepBuilders[id] = builder
+		wb.stepSequence = append(wb.stepSequence, id)
 	}
 	return wb
 }
@@ -122,5 +130,6 @@ func NewWorkFlowBuilder(id string) WorkFlowBuilder {
 		rollbackMode: RollbackModeContinueOnError,
 		logger:       zerolog.Nop(),
 		stepBuilders: make(map[string]Builder),
+		stepSequence: []string{},
 	}
 }
