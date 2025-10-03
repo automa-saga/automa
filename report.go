@@ -21,7 +21,7 @@ type Report struct {
 
 type marshalReport struct {
 	Id          string            `yaml:"id,omitempty" json:"id,omitempty"` // rollback report does not need id
-	IsWorkflow  bool              `yaml:"isWorkflow,omitempty" json:"isWorkflow,omitempty"`
+	IsWorkflow  bool              `yaml:"isWorkflow" json:"isWorkflow"`
 	Action      TypeAction        `yaml:"action,omitempty" json:"action,omitempty"`
 	Status      TypeStatus        `yaml:"status,omitempty" json:"status,omitempty"`
 	StartTime   time.Time         `yaml:"startTime,omitempty" json:"startTime,omitempty"`
@@ -220,6 +220,7 @@ func SkippedReport(s Step, opts ...ReportOption) *Report {
 func (r *Report) MarshalJSON() ([]byte, error) {
 	m := marshalReport{
 		Action:      r.Action,
+		IsWorkflow:  r.IsWorkflow,
 		Status:      r.Status,
 		StartTime:   r.StartTime,
 		EndTime:     r.EndTime,
@@ -242,6 +243,7 @@ func (r *Report) MarshalJSON() ([]byte, error) {
 func (r *Report) MarshalYAML() (interface{}, error) {
 	m := marshalReport{
 		Id:          r.Id,
+		IsWorkflow:  r.IsWorkflow,
 		Action:      r.Action,
 		Status:      r.Status,
 		StartTime:   r.StartTime,

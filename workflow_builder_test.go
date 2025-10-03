@@ -27,7 +27,7 @@ func (b *mockStepBuilder) Validate() error {
 func (b *mockStepBuilder) Build() (Step, error) { return b.buildStep, nil }
 
 func TestWorkflowBuilder_Steps_AddAndBuild(t *testing.T) {
-	wb := NewWorkflowBuilder()
+	wb := NewWorkflowBuilder().WithId("workflow")
 	b1 := &mockStepBuilder{id: "step1", valid: true, buildStep: &defaultStep{id: "step1"}}
 	b2 := &mockStepBuilder{id: "step2", valid: true, buildStep: &defaultStep{id: "step2"}}
 	wb.Steps(b1, b2)
@@ -52,7 +52,7 @@ func TestWorkflowBuilder_NamedSteps_UsesRegistry(t *testing.T) {
 }
 
 func TestWorkflowBuilder_Validate_Errors(t *testing.T) {
-	wb := NewWorkflowBuilder()
+	wb := NewWorkflowBuilder().WithId("workflow")
 	b1 := &mockStepBuilder{id: "bad", valid: false}
 	wb.Steps(b1)
 	err := wb.Validate()

@@ -46,7 +46,7 @@ func TestRunBashScript_WorkDir(t *testing.T) {
 }
 
 func TestNewBashScriptStep_Success(t *testing.T) {
-	step, err := NewBashScriptStep("bash1", []string{"echo ok"}, "").Build()
+	step, err := BashScriptStep("bash1", []string{"echo ok"}, "").Build()
 	assert.NoError(t, err)
 
 	report := step.Execute(context.Background())
@@ -56,7 +56,7 @@ func TestNewBashScriptStep_Success(t *testing.T) {
 }
 
 func TestNewBashScriptStep_Failure(t *testing.T) {
-	step, err := NewBashScriptStep("bash2", []string{"exit 2"}, "").Build()
+	step, err := BashScriptStep("bash2", []string{"exit 2"}, "").Build()
 	assert.NoError(t, err)
 	report := step.Execute(context.Background())
 	assert.Equal(t, automa.StatusFailed, report.Status)
@@ -66,7 +66,7 @@ func TestNewBashScriptStep_Failure(t *testing.T) {
 }
 
 func TestNewBashScriptStep_EmptyScripts(t *testing.T) {
-	step, err := NewBashScriptStep("bash3", []string{}, "").Build()
+	step, err := BashScriptStep("bash3", []string{}, "").Build()
 	require.NoError(t, err)
 
 	report := step.Execute(context.Background())

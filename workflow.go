@@ -25,6 +25,30 @@ func IsWorkflow(step Step) bool {
 	return ok
 }
 
+func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
+	wf, err := wb.Build()
+	if err != nil {
+		return FailureReport(nil,
+			WithActionType(ActionExecute),
+			WithError(StepExecutionError.
+				Wrap(err, "workflow %q build failed: %v", wb.Id(), err).
+				WithProperty(StepIdProperty, wb.Id()),
+			))
+	}
+
+	preparedCtx, err := wf.Prepare(ctx)
+	if err != nil {
+		return FailureReport(wf,
+			WithActionType(ActionExecute),
+			WithError(StepExecutionError.
+				Wrap(err, "workflow %q preparation failed: %v", wf.Id(), err).
+				WithProperty(StepIdProperty, wf.Id()),
+			))
+	}
+
+	return wf.Execute(preparedCtx)
+}
+
 // rollbackFrom rollbacks the workflow backward from the given index to the start.
 func (w *workflow) rollbackFrom(ctx context.Context, index int) map[string]*Report {
 	stepReports := map[string]*Report{}
@@ -53,6 +77,9 @@ func (w *workflow) Id() string {
 
 func (w *workflow) Prepare(ctx context.Context) (context.Context, error) {
 	w.state = GetStateBagFromContext(ctx)
+
+	// inject the state bag into the context for use in execute/rollback
+	w.ctx = context.WithValue(ctx, KeyState, w.state)
 
 	if w.prepare != nil {
 		c, err := w.prepare(ctx)

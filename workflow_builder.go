@@ -89,6 +89,10 @@ func (wb *WorkflowBuilder) Validate() error {
 		return StepNotFound.New("no steps provided for workflow")
 	}
 
+	if wb.workflow.id == "" {
+		return IllegalArgument.New("workflow id cannot be empty")
+	}
+
 	var errs []error
 	for id, builder := range wb.stepBuilders {
 		if err := builder.Validate(); err != nil {

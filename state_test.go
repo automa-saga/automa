@@ -9,8 +9,7 @@ import (
 
 func TestSyncStateBag_SetAndGet(t *testing.T) {
 	bag := &SyncStateBag{}
-	val := bag.Set("foo", 42)
-	assert.Equal(t, 42, val)
+	bag.Set("foo", 42)
 
 	got, ok := bag.Get("foo")
 	assert.True(t, ok)
