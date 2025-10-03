@@ -84,21 +84,29 @@ func (s *defaultStep) Rollback(ctx context.Context) *Report {
 	start := time.Now()
 	if s.rollback != nil {
 		report := s.rollback(ctx)
+
+		// we regenerate the completion report here to ensure consistency
+		// in case the user-provided rollback function does not
+		// follow the expected conventions
+		var rollbackReport *Report
 		if report.Error != nil {
-			failureReport := FailureReport(s,
-				WithReport(report),
+			rollbackReport = FailureReport(s,
+				WithReport(report), // include user report details
 				WithActionType(ActionRollback),
 				WithStartTime(start))
-			s.handleFailure(ctx, failureReport)
-			return failureReport
+		} else if report.Status == StatusSkipped {
+			rollbackReport = SkippedReport(s,
+				WithReport(report), // include user report details
+				WithActionType(ActionRollback),
+				WithStartTime(start))
+		} else {
+			rollbackReport = SuccessReport(s,
+				WithReport(report), // include user report details
+				WithActionType(ActionRollback),
+				WithStartTime(start))
 		}
 
-		successReport := SuccessReport(s,
-			WithReport(report),
-			WithActionType(ActionRollback),
-			WithStartTime(start))
-		s.handleCompletion(ctx, successReport)
-		return successReport
+		return rollbackReport
 	}
 
 	return SkippedReport(s,

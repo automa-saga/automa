@@ -36,7 +36,7 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int) map[string]*Repo
 			case RollbackModeContinueOnError:
 				continue
 			case RollbackModeStopOnError:
-				break
+				return stepReports
 			}
 		}
 	}

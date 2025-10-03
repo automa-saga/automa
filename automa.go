@@ -3,8 +3,6 @@ package automa
 
 import (
 	"context"
-
-	"github.com/rs/zerolog"
 )
 
 type Step interface {
@@ -40,13 +38,4 @@ type Registry interface {
 	Remove(id string) bool
 	Has(id string) bool
 	Of(id string) Builder
-}
-
-type WorkFlowBuilder interface {
-	Builder
-	Steps(steps ...Builder) WorkFlowBuilder
-	NamedSteps(stepIds ...string) WorkFlowBuilder
-	WithRegistry(sr Registry) WorkFlowBuilder
-	WithLogger(logger zerolog.Logger) WorkFlowBuilder
-	WithRollbackMode(mode TypeRollbackMode) WorkFlowBuilder
 }

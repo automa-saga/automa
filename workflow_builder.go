@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-type workflowBuilder struct {
+type WorkflowBuilder struct {
 	workflow     *workflow
 	registry     Registry
 	stepSequence []string
@@ -14,11 +14,11 @@ type workflowBuilder struct {
 	mu           sync.Mutex
 }
 
-func (wb *workflowBuilder) Id() string {
+func (wb *WorkflowBuilder) Id() string {
 	return wb.workflow.id
 }
 
-func (wb *workflowBuilder) Build() (Step, error) {
+func (wb *WorkflowBuilder) Build() (Step, error) {
 	wb.mu.Lock()
 	defer wb.mu.Unlock()
 
@@ -49,7 +49,7 @@ func (wb *workflowBuilder) Build() (Step, error) {
 	return finished, nil
 }
 
-func (wb *workflowBuilder) Steps(steps ...Builder) WorkFlowBuilder {
+func (wb *WorkflowBuilder) Steps(steps ...Builder) *WorkflowBuilder {
 	wb.mu.Lock()
 	defer wb.mu.Unlock()
 
@@ -63,7 +63,7 @@ func (wb *workflowBuilder) Steps(steps ...Builder) WorkFlowBuilder {
 	return wb
 }
 
-func (wb *workflowBuilder) NamedSteps(stepIds ...string) WorkFlowBuilder {
+func (wb *WorkflowBuilder) NamedSteps(stepIds ...string) *WorkflowBuilder {
 	wb.mu.Lock()
 	defer wb.mu.Unlock()
 
@@ -84,10 +84,7 @@ func (wb *workflowBuilder) NamedSteps(stepIds ...string) WorkFlowBuilder {
 	return wb
 }
 
-func (wb *workflowBuilder) Validate() error {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
-
+func (wb *WorkflowBuilder) Validate() error {
 	if len(wb.stepBuilders) == 0 {
 		return StepNotFound.New("no steps provided for workflow")
 	}
@@ -104,7 +101,7 @@ func (wb *workflowBuilder) Validate() error {
 	return nil
 }
 
-func (wb *workflowBuilder) WithId(id string) WorkFlowBuilder {
+func (wb *WorkflowBuilder) WithId(id string) *WorkflowBuilder {
 	wb.mu.Lock()
 	defer wb.mu.Unlock()
 
@@ -112,7 +109,7 @@ func (wb *workflowBuilder) WithId(id string) WorkFlowBuilder {
 	return wb
 }
 
-func (wb *workflowBuilder) WithRegistry(sr Registry) WorkFlowBuilder {
+func (wb *WorkflowBuilder) WithRegistry(sr Registry) *WorkflowBuilder {
 	wb.mu.Lock()
 	defer wb.mu.Unlock()
 
@@ -120,28 +117,28 @@ func (wb *workflowBuilder) WithRegistry(sr Registry) WorkFlowBuilder {
 	return wb
 }
 
-func (wb *workflowBuilder) WithLogger(logger zerolog.Logger) WorkFlowBuilder {
+func (wb *WorkflowBuilder) WithLogger(logger zerolog.Logger) *WorkflowBuilder {
 	wb.workflow.logger = logger
 	return wb
 }
 
-func (wb *workflowBuilder) WithRollbackMode(mode TypeRollbackMode) WorkFlowBuilder {
+func (wb *WorkflowBuilder) WithRollbackMode(mode TypeRollbackMode) *WorkflowBuilder {
 	wb.workflow.rollbackMode = mode
 	return wb
 }
 
-func (wb *workflowBuilder) WithOnCompletion(f OnCompletionFunc) WorkFlowBuilder {
+func (wb *WorkflowBuilder) WithOnCompletion(f OnCompletionFunc) *WorkflowBuilder {
 	wb.workflow.onCompletion = f
 	return wb
 }
 
-func (wb *workflowBuilder) WithOnFailure(f OnFailureFunc) WorkFlowBuilder {
+func (wb *WorkflowBuilder) WithOnFailure(f OnFailureFunc) *WorkflowBuilder {
 	wb.workflow.onFailure = f
 	return wb
 }
 
-func NewWorkFlowBuilder() WorkFlowBuilder {
-	return &workflowBuilder{
+func NewWorkflowBuilder() *WorkflowBuilder {
+	return &WorkflowBuilder{
 		workflow:     newWorkflow(),
 		stepBuilders: make(map[string]Builder),
 		stepSequence: []string{},

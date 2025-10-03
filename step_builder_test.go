@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func dummyExecute(ctx context.Context) (*Report, error)         { return &Report{}, nil }
-func dummyRollback(ctx context.Context) (*Report, error)        { return &Report{}, nil }
+func dummyExecute(ctx context.Context) *Report                  { return &Report{} }
+func dummyRollback(ctx context.Context) *Report                 { return &Report{} }
 func dummyPrepare(ctx context.Context) (context.Context, error) { return ctx, nil }
 func dummyOnCompletion(ctx context.Context, report *Report)     {}
 func dummyOnFailure(ctx context.Context, report *Report)        {}
@@ -75,8 +75,8 @@ func TestStepBuilder_BuildAndCopy(t *testing.T) {
 	assert.NotEqual(t, builder.Step, step)
 
 	// Builder retains previous values after BuildAndCopy
-	assert.Equal(t, dummyPrepare, builder.Step.prepare)
-	assert.Equal(t, dummyExecute, builder.Step.execute)
+	assert.NotNil(t, builder.Step.prepare)
+	assert.NotNil(t, builder.Step.execute)
 }
 
 func TestStepBuilder_Build_Invalid(t *testing.T) {

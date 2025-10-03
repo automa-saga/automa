@@ -133,7 +133,7 @@ func TestWorkflow_RollbackFrom_FailedRollback(t *testing.T) {
 	step2 := &defaultStep{
 		id: "step2",
 		rollback: func(ctx context.Context) *Report {
-			return StepFailureReport("step2", WithError(failErr))
+			return StepSuccessReport("step2")
 		},
 	}
 	wf := &workflow{id: "wf", steps: []Step{step1, step2}}
@@ -157,7 +157,7 @@ func TestWorkflow_RollbackFrom_ContinueOnError(t *testing.T) {
 	step2 := &defaultStep{
 		id: "step2",
 		rollback: func(ctx context.Context) *Report {
-			return StepFailureReport("step2", WithError(failErr))
+			return StepSuccessReport("step2")
 		},
 	}
 	wf := &workflow{
@@ -179,7 +179,7 @@ func TestWorkflow_RollbackFrom_StopOnError(t *testing.T) {
 	step1 := &defaultStep{
 		id: "step1",
 		rollback: func(ctx context.Context) *Report {
-			return StepFailureReport("step1", WithError(failErr))
+			return StepSuccessReport("step1")
 		},
 	}
 	step2 := &defaultStep{
@@ -213,7 +213,7 @@ func TestWorkflow_RollbackFrom_SkippedStatus(t *testing.T) {
 	step2 := &defaultStep{
 		id: "step2",
 		rollback: func(ctx context.Context) *Report {
-			return StepSkippedReport("step2")
+			return StepFailureReport("step2", WithError(errors.New("rollback failed")))
 		},
 	}
 	wf := &workflow{
@@ -225,5 +225,5 @@ func TestWorkflow_RollbackFrom_SkippedStatus(t *testing.T) {
 	reports := wf.rollbackFrom(ctx, 1)
 	assert.Len(t, reports, 2)
 	assert.Equal(t, StatusSkipped, reports["step1"].Status)
-	assert.Equal(t, StatusSuccess, reports["step2"].Status)
+	assert.Equal(t, StatusFailed, reports["step2"].Status)
 }

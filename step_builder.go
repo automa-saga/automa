@@ -17,6 +17,10 @@ type StepBuilder struct {
 	Step *defaultStep
 }
 
+func (s *StepBuilder) Id() string {
+	return s.Step.id
+}
+
 func (s *StepBuilder) WithId(id string) *StepBuilder {
 	s.Step.id = id
 	return s

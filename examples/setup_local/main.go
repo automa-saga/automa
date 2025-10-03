@@ -86,7 +86,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	wb := automa.NewWorkFlowBuilder("setup_local_dev_workflow").
+	wb := automa.NewWorkflowBuilder().
+		WithId("setup_local_dev_workflow").
 		WithRegistry(registry).
 		WithRollbackMode(automa.RollbackModeStopOnError).
 		NamedSteps(
@@ -110,9 +111,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	report, err := workflow.Execute(context.Background())
-	if err != nil {
-		log.Fatal(err)
+	report := workflow.Execute(context.Background())
+	if report.Error != nil {
+		log.Fatal(report.Error)
 	}
 
 	printReport("Workflow completed", report)

@@ -80,12 +80,10 @@ func TestDefaultStep_Execute_Skipped(t *testing.T) {
 func TestDefaultStep_Rollback_Success(t *testing.T) {
 	step := newDefaultStep()
 	step.id = "rb"
-	step.rollback = func(ctx context.Context) *Report {
-		return SuccessReport(step, WithActionType(ActionRollback))
-	}
 	called := false
-	step.onCompletion = func(ctx context.Context, report *Report) {
+	step.rollback = func(ctx context.Context) *Report {
 		called = true
+		return SuccessReport(step, WithActionType(ActionRollback))
 	}
 	report := step.Rollback(context.Background())
 	assert.NoError(t, report.Error)
@@ -97,13 +95,12 @@ func TestDefaultStep_Rollback_Success(t *testing.T) {
 func TestDefaultStep_Rollback_Failure(t *testing.T) {
 	step := newDefaultStep()
 	step.id = "rbfail"
-	step.rollback = func(ctx context.Context) *Report {
-		return FailureReport(step)
-	}
 	called := false
-	step.onFailure = func(ctx context.Context, report *Report) {
+	step.rollback = func(ctx context.Context) *Report {
 		called = true
+		return FailureReport(step, WithError(errors.New("rollback error")))
 	}
+
 	report := step.Rollback(context.Background())
 	assert.Error(t, report.Error)
 	assert.Equal(t, "rbfail", report.Id)
