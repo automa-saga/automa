@@ -59,7 +59,7 @@ fi`, setupDir, setupDir, version, setupDir))
 			}
 			err = os.Remove(p)
 			if err != nil {
-				return automa.StepFailureReport(installTaskStepId, automa.WithError(err))
+				return automa.StepFailureReport(installTaskStepId, automa.WithActionType(automa.ActionRollback), automa.WithError(err))
 			}
 			return automa.StepSuccessReport(installTaskStepId, automa.WithActionType(automa.ActionRollback))
 		})

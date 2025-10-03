@@ -3,15 +3,15 @@ package automa
 import (
 	"fmt"
 	"github.com/rs/zerolog"
-	"sync"
 )
 
+// WorkflowBuilder is a builder for creating workflows with a sequence of steps.
+// This is a mutable builder, and should not be used concurrently.
 type WorkflowBuilder struct {
 	workflow     *workflow
 	registry     Registry
 	stepSequence []string
 	stepBuilders map[string]Builder
-	mu           sync.Mutex
 }
 
 func (wb *WorkflowBuilder) Id() string {
@@ -19,9 +19,6 @@ func (wb *WorkflowBuilder) Id() string {
 }
 
 func (wb *WorkflowBuilder) Build() (Step, error) {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
-
 	if err := wb.Validate(); err != nil {
 		return nil, err
 	}
@@ -50,9 +47,6 @@ func (wb *WorkflowBuilder) Build() (Step, error) {
 }
 
 func (wb *WorkflowBuilder) Steps(steps ...Builder) *WorkflowBuilder {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
-
 	for _, step := range steps {
 		if _, exists := wb.stepBuilders[step.Id()]; exists {
 			continue
@@ -64,9 +58,6 @@ func (wb *WorkflowBuilder) Steps(steps ...Builder) *WorkflowBuilder {
 }
 
 func (wb *WorkflowBuilder) NamedSteps(stepIds ...string) *WorkflowBuilder {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
-
 	if wb.registry == nil || len(stepIds) == 0 {
 		return wb
 	}
@@ -106,17 +97,11 @@ func (wb *WorkflowBuilder) Validate() error {
 }
 
 func (wb *WorkflowBuilder) WithId(id string) *WorkflowBuilder {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
-
 	wb.workflow.id = id
 	return wb
 }
 
 func (wb *WorkflowBuilder) WithRegistry(sr Registry) *WorkflowBuilder {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
-
 	wb.registry = sr
 	return wb
 }

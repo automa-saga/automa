@@ -40,10 +40,9 @@ func RunBashScript(scripts []string, workDir string) (string, error) {
 	return outputs.String(), nil
 }
 
-// BashScriptStep creates a new step that executes a list of bash scripts in the specified working directory.
-// Caller can optionally provide Rollback, onPrepare, completion functions via opts.
-// Note, any execute function provided in opts will be overridden.
-// The step returns a success report if all scripts execute successfully, otherwise it returns an error report.
+// BashScriptStep creates a new step builder that executes a list of bash scripts in the specified working directory.
+// The returned StepBuilder can be further configured via method chaining (e.g., to add rollback, onPrepare, or completion functions).
+// The step will return a success report if all scripts execute successfully, otherwise it returns an error report.
 func BashScriptStep(id string, scripts []string, workDir string) *automa.StepBuilder {
 	return automa.NewStepBuilder().
 		WithId(id).

@@ -87,7 +87,7 @@ func (w *workflow) Prepare(ctx context.Context) (context.Context, error) {
 	w.ctx = context.WithValue(ctx, KeyState, w.state)
 
 	if w.prepare != nil {
-		c, err := w.prepare(ctx)
+		c, err := w.prepare(w.ctx)
 		if err != nil {
 			return nil, err
 		}

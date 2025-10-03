@@ -150,7 +150,7 @@ func TestWorkflow_RollbackFrom_ContinueOnError(t *testing.T) {
 	step1 := &defaultStep{
 		id: "step1",
 		rollback: func(ctx context.Context) *Report {
-			return StepFailureReport("step2", WithError(failErr))
+			return StepFailureReport("step1", WithError(failErr))
 		},
 	}
 	step2 := &defaultStep{
