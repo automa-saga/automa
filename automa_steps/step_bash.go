@@ -57,7 +57,7 @@ func NewBashScriptStep(id string, scripts []string, workDir string, opts ...auto
 			return nil, err
 		}
 
-		return automa.StepSuccessReport(sb.Id()), nil
+		return automa.SuccessReport(sb.Id()), nil
 	}
 
 	return sb

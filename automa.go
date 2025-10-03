@@ -10,8 +10,8 @@ import (
 type Step interface {
 	Id() string
 	Prepare(ctx context.Context) (context.Context, error)
-	Execute(ctx context.Context) (*Report, error)
-	Rollback(ctx context.Context) (*Report, error)
+	Execute(ctx context.Context) *Report
+	Rollback(ctx context.Context) *Report
 	State() StateBag
 }
 

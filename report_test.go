@@ -115,3 +115,37 @@ func TestReport_MarshalYAML_Integration(t *testing.T) {
 	assert.Contains(t, string(b), "id: id")
 	assert.Contains(t, string(b), "detail: d")
 }
+
+func TestReport_Duration(t *testing.T) {
+	start := time.Now().Add(-2 * time.Second)
+	end := time.Now()
+	r := NewReport("id", WithStartTime(start), WithEndTime(end))
+	assert.Equal(t, end.Sub(start), r.Duration())
+}
+
+func TestReport_StatusMethods(t *testing.T) {
+	r := NewReport("id", WithStatus(StatusSuccess))
+	assert.True(t, r.IsSuccess())
+	assert.False(t, r.IsFailed())
+	assert.False(t, r.IsSkipped())
+
+	r.Status = StatusFailed
+	assert.True(t, r.IsFailed())
+	assert.False(t, r.IsSuccess())
+
+	r.Status = StatusSkipped
+	assert.True(t, r.IsSkipped())
+}
+
+func TestReport_HasError(t *testing.T) {
+	r := NewReport("id")
+	assert.False(t, r.HasError())
+	r.Error = errors.New("err")
+	assert.True(t, r.HasError())
+}
+
+func TestReport_WithIsWorkflowAndActionType(t *testing.T) {
+	r := NewReport("id", WithIsWorkflow(true), WithActionType(ActionExecute))
+	assert.True(t, r.IsWorkflow)
+	assert.Equal(t, ActionExecute, r.Action)
+}

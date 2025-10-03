@@ -16,7 +16,7 @@ func NewMkdirStep(id string, dirs []string, perm fs.FileMode, opts ...automa.Ste
 		for _, dir := range dirs {
 			_, err := os.Stat(dir)
 			if err == nil {
-				return automa.StepSuccessReport(id), nil
+				return automa.SuccessReport(id), nil
 			}
 
 			err = os.MkdirAll(dir, perm)
@@ -25,7 +25,7 @@ func NewMkdirStep(id string, dirs []string, perm fs.FileMode, opts ...automa.Ste
 			}
 		}
 
-		return automa.StepSuccessReport(id), nil
+		return automa.SuccessReport(id), nil
 	}))
 	return automa.NewStepBuilder(id, newOpts...)
 }
@@ -37,7 +37,7 @@ func NewRemoveDirStep(id string, dirs []string, opts ...automa.StepOption) autom
 			_, err := os.Stat(dir)
 			if os.IsNotExist(err) {
 				// directory does not exist, nothing to do
-				return automa.StepSuccessReport(id), nil
+				return automa.SuccessReport(id), nil
 			}
 
 			err = os.RemoveAll(dir)
@@ -46,7 +46,7 @@ func NewRemoveDirStep(id string, dirs []string, opts ...automa.StepOption) autom
 			}
 		}
 
-		return automa.StepSuccessReport(id), nil
+		return automa.SuccessReport(id), nil
 	}))
 	return automa.NewStepBuilder(id, newOpts...)
 }
@@ -57,7 +57,7 @@ func NewRemoveFileStep(id, filePath string, opts ...automa.StepOption) automa.Bu
 		_, err := os.Stat(filePath)
 		if os.IsNotExist(err) {
 			// file does not exist, nothing to do
-			return automa.StepSuccessReport(id), nil
+			return automa.SuccessReport(id), nil
 		}
 
 		err = os.Remove(filePath)
@@ -65,7 +65,7 @@ func NewRemoveFileStep(id, filePath string, opts ...automa.StepOption) automa.Bu
 			return nil, automa.StepExecutionError.New("failed to remove file %s: %v", filePath, err)
 		}
 
-		return automa.StepSuccessReport(id), nil
+		return automa.SuccessReport(id), nil
 	}))
 	return automa.NewStepBuilder(id, newOpts...)
 }
@@ -121,7 +121,7 @@ func NewCopyFileStep(id, src, dest string, perm fs.FileMode, overwrite bool, opt
 			}
 		}
 
-		return automa.StepSuccessReport(id), nil
+		return automa.SuccessReport(id), nil
 	}))
 
 	return automa.NewStepBuilder(id, newOpts...)
@@ -139,7 +139,7 @@ func NewBackupFileStep(id, src, backupDir string, perm fs.FileMode, opts ...auto
 		_, err := os.Stat(backupPath)
 		if err == nil {
 			// backup file already exists, do not overwrite
-			return automa.StepSuccessReport(id), nil
+			return automa.SuccessReport(id), nil
 		}
 
 		err = copyFile(src, backupPath, perm)
@@ -147,7 +147,7 @@ func NewBackupFileStep(id, src, backupDir string, perm fs.FileMode, opts ...auto
 			return nil, err
 		}
 
-		return automa.StepSuccessReport(id), nil
+		return automa.SuccessReport(id), nil
 	}))
 
 	return automa.NewStepBuilder(id, newOpts...)
@@ -165,7 +165,7 @@ func NewRestoreFileStep(id, src, destDir string, perm fs.FileMode, opts ...autom
 		_, err := os.Stat(dest)
 		if os.IsNotExist(err) {
 			// restored file does not exist, nothing to do
-			return automa.StepSuccessReport(id), nil
+			return automa.SuccessReport(id), nil
 		}
 
 		err = os.Remove(dest)
@@ -173,7 +173,7 @@ func NewRestoreFileStep(id, src, destDir string, perm fs.FileMode, opts ...autom
 			return nil, automa.StepExecutionError.New("failed to remove backup file %s: %v", dest, err)
 		}
 
-		return automa.StepSuccessReport(id), nil
+		return automa.SuccessReport(id), nil
 	}))
 
 	return NewCopyFileStep(id, src, dest, perm, true, newOpts...)

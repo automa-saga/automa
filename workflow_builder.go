@@ -2,28 +2,29 @@ package automa
 
 import (
 	"fmt"
-	"sync"
-
 	"github.com/rs/zerolog"
+	"sync"
 )
 
 type workflowBuilder struct {
-	id           string
+	workflow     *workflow
 	registry     Registry
-	rollbackMode TypeRollbackMode
-	logger       zerolog.Logger
 	stepSequence []string
 	stepBuilders map[string]Builder
 	mu           sync.Mutex
 }
 
 func (wb *workflowBuilder) Id() string {
-	return wb.id
+	return wb.workflow.id
 }
 
 func (wb *workflowBuilder) Build() (Step, error) {
 	wb.mu.Lock()
 	defer wb.mu.Unlock()
+
+	if err := wb.Validate(); err != nil {
+		return nil, err
+	}
 
 	steps := make([]Step, 0, len(wb.stepBuilders))
 	for _, stepId := range wb.stepSequence {
@@ -40,7 +41,12 @@ func (wb *workflowBuilder) Build() (Step, error) {
 			steps = append(steps, step)
 		}
 	}
-	return NewWorkflow(wb.id, steps, WithWorkflowLogger(wb.logger), WithRollbackMode(wb.rollbackMode)), nil
+
+	wb.workflow.steps = steps
+	finished := wb.workflow
+	wb.workflow = newWorkflow()
+
+	return finished, nil
 }
 
 func (wb *workflowBuilder) Steps(steps ...Builder) WorkFlowBuilder {
@@ -49,7 +55,6 @@ func (wb *workflowBuilder) Steps(steps ...Builder) WorkFlowBuilder {
 
 	for _, step := range steps {
 		if _, exists := wb.stepBuilders[step.Id()]; exists {
-			wb.logger.Warn().Str("step_id", step.Id()).Msg("duplicate step, skipping")
 			continue
 		}
 		wb.stepBuilders[step.Id()] = step
@@ -68,11 +73,9 @@ func (wb *workflowBuilder) NamedSteps(stepIds ...string) WorkFlowBuilder {
 	for _, id := range stepIds {
 		builder := wb.registry.Of(id)
 		if builder == nil {
-			wb.logger.Warn().Str("step_id", id).Msg("step not found in registry")
 			continue
 		}
 		if _, exists := wb.stepBuilders[id]; exists {
-			wb.logger.Warn().Str("step_id", id).Msg("duplicate step, skipping")
 			continue
 		}
 		wb.stepBuilders[id] = builder
@@ -88,6 +91,7 @@ func (wb *workflowBuilder) Validate() error {
 	if len(wb.stepBuilders) == 0 {
 		return StepNotFound.New("no steps provided for workflow")
 	}
+
 	var errs []error
 	for id, builder := range wb.stepBuilders {
 		if err := builder.Validate(); err != nil {
@@ -100,35 +104,45 @@ func (wb *workflowBuilder) Validate() error {
 	return nil
 }
 
+func (wb *workflowBuilder) WithId(id string) WorkFlowBuilder {
+	wb.mu.Lock()
+	defer wb.mu.Unlock()
+
+	wb.workflow.id = id
+	return wb
+}
+
 func (wb *workflowBuilder) WithRegistry(sr Registry) WorkFlowBuilder {
 	wb.mu.Lock()
 	defer wb.mu.Unlock()
+
 	wb.registry = sr
 	return wb
 }
 
 func (wb *workflowBuilder) WithLogger(logger zerolog.Logger) WorkFlowBuilder {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
-	wb.logger = logger
+	wb.workflow.logger = logger
 	return wb
 }
 
 func (wb *workflowBuilder) WithRollbackMode(mode TypeRollbackMode) WorkFlowBuilder {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
-	wb.rollbackMode = mode
+	wb.workflow.rollbackMode = mode
 	return wb
 }
 
-func NewWorkFlowBuilder(id string) WorkFlowBuilder {
-	if id == "" {
-		panic("workflow id must not be empty")
-	}
+func (wb *workflowBuilder) WithOnCompletion(f OnCompletionFunc) WorkFlowBuilder {
+	wb.workflow.onCompletion = f
+	return wb
+}
+
+func (wb *workflowBuilder) WithOnFailure(f OnFailureFunc) WorkFlowBuilder {
+	wb.workflow.onFailure = f
+	return wb
+}
+
+func NewWorkFlowBuilder() WorkFlowBuilder {
 	return &workflowBuilder{
-		id:           id,
-		rollbackMode: RollbackModeContinueOnError,
-		logger:       zerolog.Nop(),
+		workflow:     newWorkflow(),
 		stepBuilders: make(map[string]Builder),
 		stepSequence: []string{},
 	}

@@ -8,127 +8,79 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStepBuilder_Validate(t *testing.T) {
-	sb := &StepBuilder{}
-	err := sb.Validate()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "step id cannot be empty")
+func dummyExecute(ctx context.Context) (*Report, error)         { return &Report{}, nil }
+func dummyRollback(ctx context.Context) (*Report, error)        { return &Report{}, nil }
+func dummyPrepare(ctx context.Context) (context.Context, error) { return ctx, nil }
+func dummyOnCompletion(ctx context.Context, report *Report)     {}
+func dummyOnFailure(ctx context.Context, report *Report)        {}
 
-	sb = &StepBuilder{id: "foo"}
-	err = sb.Validate()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "execute function cannot be nil")
-
-	sb = &StepBuilder{
-		id:      "foo",
-		execute: func(ctx context.Context) (*Report, error) { return nil, nil },
-	}
-	err = sb.Validate()
-	assert.NoError(t, err)
-
-	sb.OnValidate = func() error { return IllegalArgument.New("custom error") }
-	err = sb.Validate()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "custom error")
-}
-
-func TestStepBuilder_Build_Default(t *testing.T) {
-	sb := &StepBuilder{
-		id:      "bar",
-		execute: func(ctx context.Context) (*Report, error) { return nil, nil },
-	}
-	step, err := sb.Build()
-	assert.NoError(t, err)
-	assert.NotNil(t, step)
-	assert.Equal(t, "bar", step.Id())
-}
-
-func TestStepBuilder_Build_WithOnBuild(t *testing.T) {
-	sb := &StepBuilder{
-		id:      "baz",
-		execute: func(ctx context.Context) (*Report, error) { return nil, nil },
-		OnBuild: func() (Step, error) {
-			return &defaultStep{id: "custom"}, nil
-		},
-	}
-	step, err := sb.Build()
-	assert.NoError(t, err)
-	assert.NotNil(t, step)
-	assert.Equal(t, "custom", step.Id())
-}
-
-func TestNewStepBuilder_WithOptions(t *testing.T) {
+func TestStepBuilder_WithMethods(t *testing.T) {
 	logger := zerolog.Nop()
-	called := false
-	sb := NewStepBuilder(
-		"opt",
-		WithLogger(logger),
-		WithOnExecute(func(ctx context.Context) (*Report, error) { called = true; return nil, nil }),
-	)
-	assert.Equal(t, "opt", sb.id)
-	assert.Equal(t, logger, sb.Logger)
-	assert.NotNil(t, sb.execute)
+	builder := NewStepBuilder().
+		WithId("step1").
+		WithLogger(logger).
+		WithPrepare(dummyPrepare).
+		WithExecute(dummyExecute).
+		WithRollback(dummyRollback).
+		WithOnCompletion(dummyOnCompletion).
+		WithOnFailure(dummyOnFailure)
 
-	_, err := sb.execute(context.Background())
+	assert.Equal(t, "step1", builder.Step.id)
+	assert.NotNil(t, builder.Step.logger)
+	assert.NotNil(t, builder.Step.prepare)
+	assert.NotNil(t, builder.Step.execute)
+	assert.NotNil(t, builder.Step.rollback)
+	assert.NotNil(t, builder.Step.onCompletion)
+	assert.NotNil(t, builder.Step.onFailure)
+}
+
+func TestStepBuilder_Validate(t *testing.T) {
+	builder := NewStepBuilder()
+	err := builder.Validate()
+	assert.Error(t, err) // id and execute missing
+
+	builder.WithId("step1")
+	err = builder.Validate()
+	assert.Error(t, err) // execute missing
+
+	builder.WithExecute(dummyExecute)
+	err = builder.Validate()
+	assert.NoError(t, err) // valid
+}
+
+func TestStepBuilder_Build(t *testing.T) {
+	builder := NewStepBuilder().
+		WithId("step1").
+		WithExecute(dummyExecute)
+
+	step, err := builder.Build()
 	assert.NoError(t, err)
-	assert.True(t, called)
+	assert.NotNil(t, step)
+	assert.NotEqual(t, builder.Step, step) // builder resets
+
+	// After build, builder should be reset
+	assert.NotEqual(t, "step1", builder.Step.id)
+	assert.Nil(t, builder.Step.execute)
 }
 
-func TestWithOnValidate(t *testing.T) {
-	sb := &StepBuilder{}
-	called := false
-	WithOnValidate(func() error { called = true; return nil })(sb)
-	assert.NotNil(t, sb.OnValidate)
-	_ = sb.OnValidate()
-	assert.True(t, called)
+func TestStepBuilder_BuildAndCopy(t *testing.T) {
+	builder := NewStepBuilder().
+		WithId("step1").
+		WithExecute(dummyExecute).
+		WithPrepare(dummyPrepare)
+
+	step, err := builder.BuildAndCopy()
+	assert.NoError(t, err)
+	assert.NotNil(t, step)
+	assert.NotEqual(t, builder.Step, step)
+
+	// Builder retains previous values after BuildAndCopy
+	assert.Equal(t, dummyPrepare, builder.Step.prepare)
+	assert.Equal(t, dummyExecute, builder.Step.execute)
 }
 
-func TestWithOnExecute(t *testing.T) {
-	sb := &StepBuilder{}
-	called := false
-	WithOnExecute(func(ctx context.Context) (*Report, error) { called = true; return nil, nil })(sb)
-	assert.NotNil(t, sb.execute)
-	_, _ = sb.execute(context.Background())
-	assert.True(t, called)
-}
-
-func TestWithOnPrepare(t *testing.T) {
-	sb := &StepBuilder{}
-	called := false
-	WithOnPrepare(func(ctx context.Context) (context.Context, error) { called = true; return ctx, nil })(sb)
-	assert.NotNil(t, sb.prepare)
-	_, _ = sb.prepare(context.Background())
-	assert.True(t, called)
-}
-
-func TestWithOnCompletion(t *testing.T) {
-	sb := &StepBuilder{}
-	called := false
-	WithOnCompletion(func(ctx context.Context, report *Report) { called = true })(sb)
-	assert.NotNil(t, sb.completion)
-	sb.completion(context.Background(), nil)
-	assert.True(t, called)
-}
-
-func TestWithOnRollback(t *testing.T) {
-	sb := &StepBuilder{}
-	called := false
-	WithOnRollback(func(ctx context.Context) (*Report, error) { called = true; return nil, nil })(sb)
-	assert.NotNil(t, sb.rollback)
-	_, _ = sb.rollback(context.Background())
-	assert.True(t, called)
-}
-
-func TestWithOnBuild(t *testing.T) {
-	sb := &StepBuilder{}
-	called := false
-	WithOnBuild(func() (Step, error) { called = true; return nil, nil })(sb)
-	assert.NotNil(t, sb.OnBuild)
-	_, _ = sb.OnBuild()
-	assert.True(t, called)
-}
-
-func TestStepBuilder_Id(t *testing.T) {
-	sb := &StepBuilder{id: "id"}
-	assert.Equal(t, "id", sb.Id())
+func TestStepBuilder_Build_Invalid(t *testing.T) {
+	builder := NewStepBuilder()
+	_, err := builder.Build()
+	assert.Error(t, err)
 }

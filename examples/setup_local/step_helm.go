@@ -32,7 +32,7 @@ func NewInstallHelmStep(id string, version string, opts ...automa.StepOption) au
 		if err != nil {
 			return nil, err
 		}
-		return automa.StepSuccessReport(id), nil
+		return automa.SuccessReport(id), nil
 	}))
 
 	return automa_steps.NewBashScriptStep(id, []string{installCmd}, "", newOpts...)
@@ -70,7 +70,7 @@ func NewHelmInstallStep(id, repo, chart, releaseName, namespace string, args []s
 		if err != nil {
 			return nil, err
 		}
-		return automa.StepSuccessReport(id), nil
+		return automa.SuccessReport(id), nil
 	}))
 
 	return automa_steps.NewBashScriptStep(id, []string{cmd}, "", newOpts...)
@@ -89,7 +89,7 @@ func NewHelmUpgradeStep(id, repo, chart, releaseName, namespace string, args []s
 		if err != nil {
 			return nil, err
 		}
-		return automa.StepSuccessReport(id), nil
+		return automa.SuccessReport(id), nil
 	}))
 
 	return automa_steps.NewBashScriptStep(id, []string{cmd}, "", newOpts...)

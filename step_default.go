@@ -51,40 +51,59 @@ func (s *defaultStep) Prepare(ctx context.Context) (context.Context, error) {
 	return s.ctx, nil
 }
 
-func (s *defaultStep) Execute(ctx context.Context) (*Report, error) {
+func (s *defaultStep) Execute(ctx context.Context) *Report {
 	start := time.Now()
 	if s.execute != nil {
-		report, err := s.execute(ctx)
-		if err != nil {
-			failureReport := StepFailureReport(s.id, WithStartTime(start), WithError(err), WithReport(report))
+		report := s.execute(ctx)
+
+		if report.Error != nil {
+			failureReport := FailureReport(s,
+				WithReport(report),
+				WithActionType(ActionExecute),
+				WithStartTime(start))
+
 			s.handleFailure(ctx, failureReport)
-			return failureReport, err
+
+			return failureReport
 		}
 
-		successReport := StepSuccessReport(s.id, WithReport(report), WithStartTime(start))
+		successReport := SuccessReport(s,
+			WithReport(report),
+			WithActionType(ActionExecute),
+			WithStartTime(start))
+
 		s.handleCompletion(ctx, successReport)
-		return successReport, nil
+
+		return successReport
 	}
 
-	return StepSkippedReport(s.id), nil
+	return SkippedReport(s, WithActionType(ActionExecute), WithStartTime(start))
 }
 
-func (s *defaultStep) Rollback(ctx context.Context) (*Report, error) {
+func (s *defaultStep) Rollback(ctx context.Context) *Report {
 	start := time.Now()
 	if s.rollback != nil {
-		report, err := s.rollback(ctx)
-		if err != nil {
-			failureReport := StepFailureReport(s.id, WithStartTime(start), WithError(err), WithReport(report))
+		report := s.rollback(ctx)
+		if report.Error != nil {
+			failureReport := FailureReport(s,
+				WithReport(report),
+				WithActionType(ActionRollback),
+				WithStartTime(start))
 			s.handleFailure(ctx, failureReport)
-			return failureReport, err
+			return failureReport
 		}
 
-		successReport := StepSuccessReport(s.id, WithReport(report), WithStartTime(start))
+		successReport := SuccessReport(s,
+			WithReport(report),
+			WithActionType(ActionRollback),
+			WithStartTime(start))
 		s.handleCompletion(ctx, successReport)
-		return successReport, nil
+		return successReport
 	}
 
-	return StepSkippedReport(s.id), nil
+	return SkippedReport(s,
+		WithActionType(ActionRollback),
+		WithStartTime(start))
 }
 
 func (s *defaultStep) handleCompletion(ctx context.Context, report *Report) {

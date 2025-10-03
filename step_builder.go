@@ -6,8 +6,8 @@ import (
 	"github.com/rs/zerolog"
 )
 
-type ExecuteFunc func(ctx context.Context) (*Report, error)
-type RollbackFunc func(ctx context.Context) (*Report, error)
+type ExecuteFunc func(ctx context.Context) *Report
+type RollbackFunc func(ctx context.Context) *Report
 type PrepareFunc func(ctx context.Context) (context.Context, error)
 type OnCompletionFunc func(ctx context.Context, report *Report)
 type OnFailureFunc func(ctx context.Context, report *Report)
