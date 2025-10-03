@@ -2,6 +2,7 @@ package automa
 
 import (
 	"encoding/json"
+
 	"gopkg.in/yaml.v3"
 )
 

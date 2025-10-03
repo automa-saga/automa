@@ -3,16 +3,25 @@ package automa
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/joomcode/errorx"
 	"github.com/rs/zerolog"
-	"time"
 )
 
 type workflow struct {
-	id           string
-	steps        []Step
-	logger       zerolog.Logger
-	rollbackMode TypeRollbackMode
+	id                   string
+	steps                []Step
+	logger               zerolog.Logger
+	rollbackMode         TypeRollbackMode
+	onCompletion         OnCompletionFunc
+	onFailure            OnFailureFunc
+	enableAsyncCallbacks bool
+}
+
+func IsWorkflow(step Step) bool {
+	_, ok := step.(Workflow)
+	return ok
 }
 
 // rollbackFrom rollbacks the workflow backward from the given index to the start.
@@ -45,6 +54,16 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int) map[string]*Repo
 
 func (w *workflow) Id() string {
 	return w.id
+}
+
+func (w *workflow) Steps() []Step {
+	return w.steps
+}
+
+func (w *workflow) State() StateBag {
+	//TODO implement me
+	panic("implement me")
+
 }
 
 func (w *workflow) Prepare(ctx context.Context) (context.Context, error) {
@@ -87,7 +106,9 @@ func (w *workflow) Execute(ctx context.Context) (*Report, error) {
 			}
 
 			// Return the workflow report with failure status and step reports
-			return NewReport(w.id, WithActionType(ActionExecute), WithStatus(StatusFailed), WithStepReports(stepReports...)), nil
+			rpt := NewReport(w.id, WithActionType(ActionExecute), WithStatus(StatusFailed), WithStepReports(stepReports...))
+			w.handleFailure(ctx, rpt)
+			return rpt, err
 		}
 
 		if report == nil {
@@ -101,19 +122,37 @@ func (w *workflow) Execute(ctx context.Context) (*Report, error) {
 			successReport := StepSuccessReport(step.Id(), WithActionType(ActionExecute), WithStartTime(startTime))
 			stepReports = append(stepReports, successReport)
 		}
-
-		if _, ok := step.(Workflow); ok {
-		}
-
-		step.OnCompletion(stepCtx, report)
 	}
 
-	return NewReport(w.id, WithActionType(ActionExecute), WithStatus(StatusSuccess), WithStepReports(stepReports...)), nil
+	report := NewReport(w.id, WithActionType(ActionExecute), WithStatus(StatusSuccess), WithStepReports(stepReports...))
+	w.handleCompletion(ctx, report)
+	return report, nil
 }
 
-func (w *workflow) OnCompletion(ctx context.Context, report *Report) {
+func (w *workflow) handleCompletion(ctx context.Context, report *Report) {
 	// any post successful execution logic can be added here
 	// no-op for now
+	if w.onCompletion == nil {
+		return
+	}
+
+	if w.enableAsyncCallbacks {
+		go w.onCompletion(ctx, report)
+	} else {
+		w.onCompletion(ctx, report)
+	}
+}
+
+func (w *workflow) handleFailure(ctx context.Context, report *Report) {
+	if w.onFailure == nil {
+		return
+	}
+
+	if w.enableAsyncCallbacks {
+		go w.onFailure(ctx, report)
+	} else {
+		w.onFailure(ctx, report)
+	}
 }
 
 func (w *workflow) Rollback(ctx context.Context) (*Report, error) {

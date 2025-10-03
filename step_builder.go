@@ -2,10 +2,10 @@ package automa
 
 import (
 	"context"
+
 	"github.com/rs/zerolog"
 )
 
-type StepOption func(*StepBuilder)
 type ExecuteFunc func(ctx context.Context) (*Report, error)
 type RollbackFunc func(ctx context.Context) (*Report, error)
 type OnPrepareFunc func(ctx context.Context) (context.Context, error)
@@ -14,63 +14,50 @@ type OnFailureFunc func(ctx context.Context, report *Report)
 
 // StepBuilder is a builder for creating steps with optional prepare, execute, completion, and rollback functions.
 type StepBuilder struct {
-	id         string
-	logger     *zerolog.Logger
-	prepare    OnPrepareFunc
-	execute    ExecuteFunc
-	completion OnCompletionFunc
-	rollback   RollbackFunc
+	Step *defaultStep
 }
 
 func (s *StepBuilder) Validate() error {
 	// Ensure that the step has a valid id and an execute function.
-	if s.id == "" {
+	if s.Step.id == "" {
 		return IllegalArgument.New("step id cannot be empty")
 	}
 
-	if s.execute == nil {
+	if s.Step.execute == nil {
 		return IllegalArgument.New("execute function cannot be nil")
 	}
 
 	return nil
 }
 
-func (s *StepBuilder) Logger() *zerolog.Logger {
-	return s.logger
+func (s *StepBuilder) WithLogger(logger zerolog.Logger) *StepBuilder {
+	s.Step.logger = &logger
+	return s
 }
 
-func WithLogger(logger zerolog.Logger) StepOption {
-	return func(s *StepBuilder) {
-		s.logger = &logger
-	}
+func (s *StepBuilder) WithExecute(f ExecuteFunc) *StepBuilder {
+	s.Step.execute = f
+	return s
 }
 
-func WithOnExecute(f ExecuteFunc) StepOption {
-	return func(s *StepBuilder) {
-		s.execute = f
-	}
+func (s *StepBuilder) WithPrepare(f OnPrepareFunc) *StepBuilder {
+	s.Step.prepare = f
+	return s
 }
 
-func WithOnPrepare(f OnPrepareFunc) StepOption {
-	return func(s *StepBuilder) {
-		s.prepare = f
-	}
+func (s *StepBuilder) WithOnCompletion(f OnCompletionFunc) *StepBuilder {
+	s.Step.onCompletion = f
+	return s
 }
 
-func WithOnCompletion(f OnCompletionFunc) StepOption {
-	return func(s *StepBuilder) {
-		s.completion = f
-	}
+func (s *StepBuilder) WithRollback(f RollbackFunc) *StepBuilder {
+	s.Step.rollback = f
+	return s
 }
 
-func WithOnRollback(f RollbackFunc) StepOption {
-	return func(s *StepBuilder) {
-		s.rollback = f
-	}
-}
-
-func (s *StepBuilder) Id() string {
-	return s.id
+func (s *StepBuilder) WithId(id string) *StepBuilder {
+	s.Step.id = id
+	return s
 }
 
 func (s *StepBuilder) Build() (Step, error) {
@@ -78,22 +65,34 @@ func (s *StepBuilder) Build() (Step, error) {
 		return nil, err
 	}
 
-	return &defaultStep{
-		id:           s.id,
-		logger:       s.logger,
-		onPrepare:    s.prepare,
-		onExecute:    s.execute,
-		onCompletion: s.completion,
-		onRollback:   s.rollback,
-	}, nil
+	finishedStep := s.Step
+	s.Step = &defaultStep{}
 
+	return finishedStep, nil
+}
+
+func (s *StepBuilder) BuildAndCopy() (Step, error) {
+	if err := s.Validate(); err != nil {
+		return nil, err
+	}
+
+	finishedStep := s.Step
+
+	s.Step = &defaultStep{}
+	s.Step.logger = finishedStep.logger
+	s.Step.prepare = finishedStep.prepare
+	s.Step.execute = finishedStep.execute
+	s.Step.onCompletion = finishedStep.onCompletion
+	s.Step.rollback = finishedStep.rollback
+
+	return finishedStep, nil
 }
 
 // NewStepBuilder creates a step builder with options
-func NewStepBuilder(id string, opts ...StepOption) *StepBuilder {
-	s := &StepBuilder{id: id}
-	for _, opt := range opts {
-		opt(s)
+func NewStepBuilder() *StepBuilder {
+	s := &StepBuilder{
+		Step: &defaultStep{},
 	}
+
 	return s
 }

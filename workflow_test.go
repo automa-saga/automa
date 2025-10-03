@@ -22,7 +22,7 @@ func TestNewWorkflow_ExecutesAllSteps(t *testing.T) {
 
 func TestNewWorkflow_StopsOnStepError(t *testing.T) {
 	s1 := &defaultStep{id: "s1"}
-	s2 := &defaultStep{id: "s2", onExecute: func(ctx context.Context) (*Report, error) {
+	s2 := &defaultStep{id: "s2", execute: func(ctx context.Context) (*Report, error) {
 		return nil, errors.New("some error")
 	}}
 	wf := NewWorkflow("wf", []Step{s1, s2})
@@ -34,7 +34,7 @@ func TestNewWorkflow_StopsOnStepError(t *testing.T) {
 }
 
 func TestNewWorkflow_RollbackModeStopOnError(t *testing.T) {
-	s := &defaultStep{id: "s", onExecute: func(ctx context.Context) (*Report, error) {
+	s := &defaultStep{id: "s", execute: func(ctx context.Context) (*Report, error) {
 		return nil, errors.New("some error")
 	}}
 	wf := NewWorkflow("wf", []Step{s}, WithRollbackMode(RollbackModeStopOnError))
@@ -70,14 +70,14 @@ func TestWorkflow_OnRollback(t *testing.T) {
 	// Custom defaultStep with Rollback tracking
 	step1 := &defaultStep{
 		id: "step1",
-		onRollback: func(ctx context.Context) (*Report, error) {
+		rollback: func(ctx context.Context) (*Report, error) {
 			rollbackCalled["step1"] = true
 			return StepSuccessReport("step1"), nil
 		},
 	}
 	step2 := &defaultStep{
 		id: "step2",
-		onRollback: func(ctx context.Context) (*Report, error) {
+		rollback: func(ctx context.Context) (*Report, error) {
 			rollbackCalled["step2"] = true
 			return StepSuccessReport("step2"), nil
 		},
@@ -98,13 +98,13 @@ func TestWorkflow_Execute_StatusSuccess(t *testing.T) {
 	ctx := context.Background()
 	step1 := &defaultStep{
 		id: "step1",
-		onExecute: func(ctx context.Context) (*Report, error) {
+		execute: func(ctx context.Context) (*Report, error) {
 			return StepSuccessReport("step1"), nil
 		},
 	}
 	step2 := &defaultStep{
 		id: "step2",
-		onExecute: func(ctx context.Context) (*Report, error) {
+		execute: func(ctx context.Context) (*Report, error) {
 			return StepSuccessReport("step2"), nil
 		},
 	}
@@ -126,13 +126,13 @@ func TestWorkflow_RollbackFrom_FailedRollback(t *testing.T) {
 	failErr := errors.New("rollback failed")
 	step1 := &defaultStep{
 		id: "step1",
-		onRollback: func(ctx context.Context) (*Report, error) {
+		rollback: func(ctx context.Context) (*Report, error) {
 			return nil, failErr
 		},
 	}
 	step2 := &defaultStep{
 		id: "step2",
-		onRollback: func(ctx context.Context) (*Report, error) {
+		rollback: func(ctx context.Context) (*Report, error) {
 			return StepSuccessReport("step2"), nil
 		},
 	}
@@ -153,13 +153,13 @@ func TestWorkflow_RollbackFrom_ContinueOnError(t *testing.T) {
 	failErr := errors.New("rollback failed")
 	step1 := &defaultStep{
 		id: "step1",
-		onRollback: func(ctx context.Context) (*Report, error) {
+		rollback: func(ctx context.Context) (*Report, error) {
 			return nil, failErr
 		},
 	}
 	step2 := &defaultStep{
 		id: "step2",
-		onRollback: func(ctx context.Context) (*Report, error) {
+		rollback: func(ctx context.Context) (*Report, error) {
 			return StepSuccessReport("step2"), nil
 		},
 	}
@@ -181,13 +181,13 @@ func TestWorkflow_RollbackFrom_StopOnError(t *testing.T) {
 	failErr := errors.New("rollback failed")
 	step1 := &defaultStep{
 		id: "step1",
-		onRollback: func(ctx context.Context) (*Report, error) {
+		rollback: func(ctx context.Context) (*Report, error) {
 			return StepSuccessReport("step2"), nil
 		},
 	}
 	step2 := &defaultStep{
 		id: "step2",
-		onRollback: func(ctx context.Context) (*Report, error) {
+		rollback: func(ctx context.Context) (*Report, error) {
 			return nil, failErr
 		},
 	}
@@ -209,13 +209,13 @@ func TestWorkflow_RollbackFrom_SkippedStatus(t *testing.T) {
 	ctx := context.Background()
 	step1 := &defaultStep{
 		id: "step1",
-		onRollback: func(ctx context.Context) (*Report, error) {
+		rollback: func(ctx context.Context) (*Report, error) {
 			return &Report{Status: StatusSkipped}, nil
 		},
 	}
 	step2 := &defaultStep{
 		id: "step2",
-		onRollback: func(ctx context.Context) (*Report, error) {
+		rollback: func(ctx context.Context) (*Report, error) {
 			return StepSuccessReport("step2"), nil
 		},
 	}

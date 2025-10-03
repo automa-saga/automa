@@ -3,6 +3,7 @@ package automa
 
 import (
 	"context"
+
 	"github.com/rs/zerolog"
 )
 
@@ -11,9 +12,23 @@ type Step interface {
 	Prepare(ctx context.Context) (context.Context, error)
 	Execute(ctx context.Context) (*Report, error)
 	Rollback(ctx context.Context) (*Report, error)
+	State() StateBag
 }
 
-type Workflow Step
+type StateBag interface {
+	Get(key string) (interface{}, bool)
+	Set(key string, value interface{}) interface{}
+	Delete(key string)
+	Clear()
+	Keys() []string
+	Size() int
+}
+
+type Workflow interface {
+	Step
+
+	Steps() []Step
+}
 
 type Builder interface {
 	Id() string
