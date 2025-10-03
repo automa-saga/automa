@@ -11,12 +11,12 @@ import (
 // It can be used to create steps with custom onPrepare, onExecute, onCompletion, and onRollback functions.
 type defaultStep struct {
 	id           string
-	logger       zerolog.Logger
+	logger       *zerolog.Logger
 	ctx          context.Context
 	onPrepare    OnPrepareFunc
-	onExecute    OnExecuteFunc
+	onExecute    ExecuteFunc
 	onCompletion OnCompletionFunc
-	onRollback   OnRollbackFunc
+	onRollback   RollbackFunc
 }
 
 func (s *defaultStep) Id() string {
@@ -44,7 +44,11 @@ func (s *defaultStep) Prepare(ctx context.Context) (context.Context, error) {
 
 func (s *defaultStep) Execute(ctx context.Context) (*Report, error) {
 	if s.onExecute != nil {
-		return s.onExecute(ctx)
+		report, err := s.onExecute(ctx)
+		if err != nil {
+			return report, err
+		}
+
 	}
 
 	return StepSkippedReport(s.id), nil
@@ -56,7 +60,7 @@ func (s *defaultStep) OnCompletion(ctx context.Context, report *Report) {
 	}
 }
 
-func (s *defaultStep) OnRollback(ctx context.Context) (*Report, error) {
+func (s *defaultStep) Rollback(ctx context.Context) (*Report, error) {
 	if s.onRollback != nil {
 		return s.onRollback(ctx)
 	}

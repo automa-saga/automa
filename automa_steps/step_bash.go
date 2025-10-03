@@ -43,16 +43,16 @@ func RunBashScript(scripts []string, workDir string, logger *zerolog.Logger) err
 }
 
 // NewBashScriptStep creates a new step that executes a list of bash scripts in the specified working directory.
-// Caller can optionally provide OnRollback, OnPrepare, OnSuccess functions via opts.
-// Note, any OnExecute function provided in opts will be overridden.
+// Caller can optionally provide Rollback, onPrepare, completion functions via opts.
+// Note, any execute function provided in opts will be overridden.
 // The step returns a success report if all scripts execute successfully, otherwise it returns an error report.
 func NewBashScriptStep(id string, scripts []string, workDir string, opts ...automa.StepOption) automa.Builder {
 	sb := automa.NewStepBuilder(id, opts...)
 
-	// Define the OnExecute function to run the bash scripts.
-	// Note, it overrides any OnExecute function provided in opts.
-	sb.OnExecute = func(ctx context.Context) (*automa.Report, error) {
-		err := RunBashScript(scripts, workDir, &sb.Logger)
+	// Define the execute function to run the bash scripts.
+	// Note, it overrides any execute function provided in opts.
+	sb.execute = func(ctx context.Context) (*automa.Report, error) {
+		err := RunBashScript(scripts, workDir, sb.Logger())
 		if err != nil {
 			return nil, err
 		}

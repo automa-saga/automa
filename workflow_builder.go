@@ -91,7 +91,7 @@ func (wb *workflowBuilder) Validate() error {
 	var errs []error
 	for id, builder := range wb.stepBuilders {
 		if err := builder.Validate(); err != nil {
-			errs = append(errs, fmt.Errorf("step with ID %s failed validation: %w", id, err))
+			errs = append(errs, fmt.Errorf("step with id %s failed validation: %w", id, err))
 		}
 	}
 	if len(errs) > 0 {

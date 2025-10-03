@@ -67,7 +67,7 @@ func TestWorkflow_OnRollback(t *testing.T) {
 	ctx := context.Background()
 	rollbackCalled := make(map[string]bool)
 
-	// Custom defaultStep with OnRollback tracking
+	// Custom defaultStep with Rollback tracking
 	step1 := &defaultStep{
 		id: "step1",
 		onRollback: func(ctx context.Context) (*Report, error) {
@@ -84,7 +84,7 @@ func TestWorkflow_OnRollback(t *testing.T) {
 	}
 
 	wf := NewWorkflow("wf", []Step{step1, step2}).(*workflow)
-	report, err := wf.OnRollback(ctx)
+	report, err := wf.Rollback(ctx)
 	assert.NoError(t, err)
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusSuccess, report.Status)

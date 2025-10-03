@@ -197,7 +197,7 @@ func TestNewRestoreFileStep(t *testing.T) {
 	assert.Equal(t, "restoreme", string(data))
 
 	// Test rollback removes the file
-	report, err = s.OnRollback(context.Background())
+	report, err = s.Rollback(context.Background())
 	assert.NoError(t, err)
 	assert.Equal(t, automa.StatusSuccess, report.Status)
 	_, statErr := os.Stat(destFile)

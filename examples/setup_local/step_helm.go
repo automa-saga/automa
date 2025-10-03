@@ -20,7 +20,7 @@ func NewInstallHelmStep(id string, version string, opts ...automa.StepOption) au
 		rm get_helm.sh
 	fi`, version))
 
-	// add OnRollback to uninstall Helm if installation was performed
+	// add Rollback to uninstall Helm if installation was performed
 	newOpts := append([]automa.StepOption{}, opts...)
 	newOpts = append(opts, automa.WithOnRollback(func(ctx context.Context) (*automa.Report, error) {
 		rollbackCmd := strings.TrimSpace(`

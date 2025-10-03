@@ -10,8 +10,7 @@ type Step interface {
 	Id() string
 	Prepare(ctx context.Context) (context.Context, error)
 	Execute(ctx context.Context) (*Report, error)
-	OnCompletion(ctx context.Context, report *Report)
-	OnRollback(ctx context.Context) (*Report, error)
+	Rollback(ctx context.Context) (*Report, error)
 }
 
 type Workflow Step
@@ -23,7 +22,7 @@ type Builder interface {
 }
 
 type Registry interface {
-	Add(steps ...Builder) error // return error if step with same ID already exists
+	Add(steps ...Builder) error // return error if step with same id already exists
 	Remove(id string) bool
 	Has(id string) bool
 	Of(id string) Builder

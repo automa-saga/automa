@@ -21,7 +21,7 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int) map[string]*Repo
 	for i := index; i >= 0; i-- {
 		startTime := time.Now()
 		step := w.steps[i]
-		if report, rollbackErr := step.OnRollback(ctx); rollbackErr != nil {
+		if report, rollbackErr := step.Rollback(ctx); rollbackErr != nil {
 			failedReport := StepFailureReport(step.Id(), WithActionType(ActionRollback), WithStartTime(startTime), WithError(rollbackErr))
 			stepReports[step.Id()] = failedReport
 
@@ -102,6 +102,9 @@ func (w *workflow) Execute(ctx context.Context) (*Report, error) {
 			stepReports = append(stepReports, successReport)
 		}
 
+		if _, ok := step.(Workflow); ok {
+		}
+
 		step.OnCompletion(stepCtx, report)
 	}
 
@@ -113,7 +116,7 @@ func (w *workflow) OnCompletion(ctx context.Context, report *Report) {
 	// no-op for now
 }
 
-func (w *workflow) OnRollback(ctx context.Context) (*Report, error) {
+func (w *workflow) Rollback(ctx context.Context) (*Report, error) {
 	startTime := time.Now()
 	rollbackReports := w.rollbackFrom(ctx, len(w.steps)-1)
 	var stepReports []*Report

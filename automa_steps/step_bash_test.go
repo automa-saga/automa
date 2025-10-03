@@ -80,7 +80,7 @@ func TestNewBashScriptStep_LoggerOption(t *testing.T) {
 }
 
 func TestNewBashScriptStep_OverridesOnExecute(t *testing.T) {
-	// Provide a custom OnExecute that should be overridden
+	// Provide a custom execute that should be overridden
 	opt := automa.WithOnExecute(func(ctx context.Context) (*automa.Report, error) {
 		return nil, errors.New("should not be called")
 	})
