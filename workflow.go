@@ -9,6 +9,9 @@ import (
 
 type workflow struct {
 	id                   string
+	ctx                  context.Context
+	state                StateBag
+	prepare              PrepareFunc
 	steps                []Step
 	logger               zerolog.Logger
 	rollbackMode         TypeRollbackMode
@@ -48,20 +51,31 @@ func (w *workflow) Id() string {
 	return w.id
 }
 
+func (w *workflow) Prepare(ctx context.Context) (context.Context, error) {
+	w.state = GetStateBagFromContext(ctx)
+
+	if w.prepare != nil {
+		c, err := w.prepare(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		w.ctx = c
+	}
+
+	return w.ctx, nil
+}
+
 func (w *workflow) Steps() []Step {
 	return w.steps
 }
 
 func (w *workflow) State() StateBag {
-	//TODO implement me
-	panic("implement me")
+	if w.state == nil {
+		w.state = &SyncStateBag{} // lazy initialization
+	}
 
-}
-
-func (w *workflow) Prepare(ctx context.Context) (context.Context, error) {
-	// Preparation logic for the workflow can be added here
-	// For now, we just return the context as is
-	return ctx, nil
+	return w.state
 }
 
 func (w *workflow) Execute(ctx context.Context) *Report {
@@ -76,7 +90,11 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 	var stepReports []*Report
 	for index, step := range w.steps {
-		stepCtx, err := step.Prepare(ctx)
+		stepState := w.State().
+			Set(KeyId, step.Id()).
+			Set(KeyIsWorkflow, IsWorkflow(step)).
+			Set(KeyStartTime, startTime)
+		stepCtx, err := step.Prepare(context.WithValue(ctx, KeyState, stepState))
 		if err != nil {
 			return FailureReport(w,
 				WithStartTime(startTime),
@@ -92,7 +110,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 		if report.Error != nil {
 			// Perform rollback for all executed steps up to the current one
-			rollbackReports := w.rollbackFrom(ctx, index)
+			rollbackReports := w.rollbackFrom(stepCtx, index)
 
 			// Attach rollback reports to corresponding step reports
 			for _, stepReport := range stepReports {
@@ -128,7 +146,12 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 func (w *workflow) Rollback(ctx context.Context) *Report {
 	startTime := time.Now()
-	rollbackReports := w.rollbackFrom(ctx, len(w.steps)-1)
+	stepCtx := context.WithValue(ctx, KeyState, w.State().
+		Set(KeyId, w.Id()).
+		Set(KeyIsWorkflow, true).
+		Set(KeyStartTime, startTime),
+	)
+	rollbackReports := w.rollbackFrom(stepCtx, len(w.steps)-1)
 
 	var stepReports []*Report
 	for _, step := range w.steps {

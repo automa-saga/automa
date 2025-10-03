@@ -56,6 +56,11 @@ func (s *StepBuilder) WithOnFailure(f OnFailureFunc) *StepBuilder {
 	return s
 }
 
+func (s *StepBuilder) WithAsyncCallbacks(enable bool) *StepBuilder {
+	s.Step.enableAsyncCallbacks = enable
+	return s
+}
+
 func (s *StepBuilder) Validate() error {
 	// Ensure that the step has a valid id and an execute function.
 	if s.Step.id == "" {

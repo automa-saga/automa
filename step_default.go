@@ -37,7 +37,10 @@ func (s *defaultStep) Context() context.Context {
 }
 
 func (s *defaultStep) Prepare(ctx context.Context) (context.Context, error) {
-	s.ctx = ctx
+	s.state = GetStateBagFromContext(ctx)
+
+	// inject the state bag into the context for use in execute/rollback
+	s.ctx = context.WithValue(ctx, KeyState, s.state)
 
 	if s.prepare != nil {
 		c, err := s.prepare(ctx)

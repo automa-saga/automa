@@ -12,7 +12,7 @@ import (
 
 const SetupDir = "/tmp/test-automa"
 
-func NewSetupSteps(id string) automa.Builder {
+func NewSetupSteps(id string) *automa.StepBuilder {
 	dirs := []string{
 		path.Join(SetupDir, "bin"),
 		path.Join(SetupDir, "config"),
@@ -36,7 +36,7 @@ func NewSetupSteps(id string) automa.Builder {
 		})
 }
 
-func NewInstallTaskStep(id, version string) automa.Builder {
+func NewInstallTaskStep(id, version string) *automa.StepBuilder {
 	installCmd := strings.TrimSpace(fmt.Sprintf(`
 if ! command -v %s/bin/task &> /dev/null; then
 	curl -sL https://taskfile.dev/install.sh | sh -s -- -d -b %s/bin %s
@@ -60,7 +60,7 @@ fi`, SetupDir, SetupDir, version, SetupDir))
 		})
 }
 
-func NewInstallKindStep(id, version string) automa.Builder {
+func NewInstallKindStep(id, version string) *automa.StepBuilder {
 	installCmd := strings.TrimSpace(fmt.Sprintf(`
 if ! command -v %s/bin/kind &> /dev/null; then
  curl -sL https://kind.sigs.k8s.io/dl/%s/kind-linux-amd64 -o %s/bin/kind

@@ -137,6 +137,16 @@ func (wb *WorkflowBuilder) WithOnFailure(f OnFailureFunc) *WorkflowBuilder {
 	return wb
 }
 
+func (wb *WorkflowBuilder) WithAsyncCallbacks(enable bool) *WorkflowBuilder {
+	wb.workflow.enableAsyncCallbacks = enable
+	return wb
+}
+
+func (wb *WorkflowBuilder) WithPrepare(prepareFunc PrepareFunc) *WorkflowBuilder {
+	wb.workflow.prepare = prepareFunc
+	return wb
+}
+
 func NewWorkflowBuilder() *WorkflowBuilder {
 	return &WorkflowBuilder{
 		workflow:     newWorkflow(),

@@ -15,9 +15,9 @@ type Step interface {
 
 type StateBag interface {
 	Get(key string) (interface{}, bool)
-	Set(key string, value interface{}) interface{}
-	Delete(key string)
-	Clear()
+	Set(key string, value interface{}) StateBag
+	Delete(key string) StateBag
+	Clear() StateBag
 	Keys() []string
 	Size() int
 }
