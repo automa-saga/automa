@@ -99,6 +99,8 @@ func (s *StepBuilder) BuildAndCopy() (Step, error) {
 	s.Step.execute = finishedStep.execute
 	s.Step.onCompletion = finishedStep.onCompletion
 	s.Step.rollback = finishedStep.rollback
+	s.Step.onFailure = finishedStep.onFailure
+	s.Step.enableAsyncCallbacks = finishedStep.enableAsyncCallbacks
 
 	return finishedStep, nil
 }
