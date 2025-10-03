@@ -26,7 +26,6 @@ type StateBag interface {
 
 type Workflow interface {
 	Step
-
 	Steps() []Step
 }
 

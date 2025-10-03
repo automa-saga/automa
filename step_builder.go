@@ -8,13 +8,48 @@ import (
 
 type ExecuteFunc func(ctx context.Context) (*Report, error)
 type RollbackFunc func(ctx context.Context) (*Report, error)
-type OnPrepareFunc func(ctx context.Context) (context.Context, error)
+type PrepareFunc func(ctx context.Context) (context.Context, error)
 type OnCompletionFunc func(ctx context.Context, report *Report)
 type OnFailureFunc func(ctx context.Context, report *Report)
 
 // StepBuilder is a builder for creating steps with optional prepare, execute, completion, and rollback functions.
 type StepBuilder struct {
 	Step *defaultStep
+}
+
+func (s *StepBuilder) WithId(id string) *StepBuilder {
+	s.Step.id = id
+	return s
+}
+
+func (s *StepBuilder) WithLogger(logger zerolog.Logger) *StepBuilder {
+	s.Step.logger = &logger
+	return s
+}
+
+func (s *StepBuilder) WithPrepare(f PrepareFunc) *StepBuilder {
+	s.Step.prepare = f
+	return s
+}
+
+func (s *StepBuilder) WithExecute(f ExecuteFunc) *StepBuilder {
+	s.Step.execute = f
+	return s
+}
+
+func (s *StepBuilder) WithRollback(f RollbackFunc) *StepBuilder {
+	s.Step.rollback = f
+	return s
+}
+
+func (s *StepBuilder) WithOnCompletion(f OnCompletionFunc) *StepBuilder {
+	s.Step.onCompletion = f
+	return s
+}
+
+func (s *StepBuilder) WithOnFailure(f OnFailureFunc) *StepBuilder {
+	s.Step.onFailure = f
+	return s
 }
 
 func (s *StepBuilder) Validate() error {
@@ -30,43 +65,13 @@ func (s *StepBuilder) Validate() error {
 	return nil
 }
 
-func (s *StepBuilder) WithLogger(logger zerolog.Logger) *StepBuilder {
-	s.Step.logger = &logger
-	return s
-}
-
-func (s *StepBuilder) WithExecute(f ExecuteFunc) *StepBuilder {
-	s.Step.execute = f
-	return s
-}
-
-func (s *StepBuilder) WithPrepare(f OnPrepareFunc) *StepBuilder {
-	s.Step.prepare = f
-	return s
-}
-
-func (s *StepBuilder) WithOnCompletion(f OnCompletionFunc) *StepBuilder {
-	s.Step.onCompletion = f
-	return s
-}
-
-func (s *StepBuilder) WithRollback(f RollbackFunc) *StepBuilder {
-	s.Step.rollback = f
-	return s
-}
-
-func (s *StepBuilder) WithId(id string) *StepBuilder {
-	s.Step.id = id
-	return s
-}
-
 func (s *StepBuilder) Build() (Step, error) {
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}
 
 	finishedStep := s.Step
-	s.Step = &defaultStep{}
+	s.Step = newDefaultStep()
 
 	return finishedStep, nil
 }
@@ -78,7 +83,8 @@ func (s *StepBuilder) BuildAndCopy() (Step, error) {
 
 	finishedStep := s.Step
 
-	s.Step = &defaultStep{}
+	s.Step = newDefaultStep()
+
 	s.Step.logger = finishedStep.logger
 	s.Step.prepare = finishedStep.prepare
 	s.Step.execute = finishedStep.execute
@@ -91,7 +97,7 @@ func (s *StepBuilder) BuildAndCopy() (Step, error) {
 // NewStepBuilder creates a step builder with options
 func NewStepBuilder() *StepBuilder {
 	s := &StepBuilder{
-		Step: &defaultStep{},
+		Step: newDefaultStep(),
 	}
 
 	return s
