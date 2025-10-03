@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// Key is an unexported type for context keys to avoid collisions.
+// Key is an exported type for context keys to avoid collisions.
 type Key string
 
 const (
@@ -22,6 +22,40 @@ const (
 // SyncStateBag is a thread-safe implementation of StateBag.
 type SyncStateBag struct {
 	m sync.Map
+}
+
+func (s *SyncStateBag) Clone() StateBag {
+	clone := &SyncStateBag{}
+	s.m.Range(func(key, value interface{}) bool {
+		clone.m.Store(key, value)
+		return true
+	})
+
+	return clone
+}
+
+func (s *SyncStateBag) Merge(other StateBag) StateBag {
+	if other == nil {
+		return s
+	}
+
+	for k, v := range other.Items() {
+		s.m.Store(k, v)
+	}
+
+	return s
+}
+
+func (s *SyncStateBag) Items() map[Key]interface{} {
+	items := make(map[Key]interface{})
+	s.m.Range(func(key, value interface{}) bool {
+		if k, ok := key.(Key); ok {
+			items[k] = value
+		}
+		return true
+	})
+
+	return items
 }
 
 func (s *SyncStateBag) Get(key Key) (interface{}, bool) {
@@ -67,13 +101,13 @@ func (s *SyncStateBag) Size() int {
 	return count
 }
 
-// ContextWithStateBag returns a context with the given StateBag.
-func ContextWithStateBag(ctx context.Context, stateBag StateBag) context.Context {
+// ContextWithState returns a context with the given StateBag.
+func ContextWithState(ctx context.Context, stateBag StateBag) context.Context {
 	return context.WithValue(ctx, KeyState, stateBag)
 }
 
-// GetStateBagFromContext retrieves the StateBag from context.
-func GetStateBagFromContext(ctx context.Context) StateBag {
+// StateFromContext retrieves the StateBag from context.
+func StateFromContext(ctx context.Context) StateBag {
 	if ctx != nil {
 		if stateBag, ok := ctx.Value(KeyState).(StateBag); ok {
 			return stateBag
@@ -82,8 +116,7 @@ func GetStateBagFromContext(ctx context.Context) StateBag {
 	return &SyncStateBag{}
 }
 
-// Generic getter for simple types.
-func getFromState[T any](state StateBag, key Key, zero T) T {
+func FromState[T any](state StateBag, key Key, zero T) T {
 	if state != nil {
 		if val, ok := state.Get(key); ok {
 			if typedVal, ok := val.(T); ok {
@@ -94,22 +127,20 @@ func getFromState[T any](state StateBag, key Key, zero T) T {
 	return zero
 }
 
-// Typed getters.
-func GetStringFromState(state StateBag, key Key) string {
-	return getFromState[string](state, key, "")
+func StringFromState(state StateBag, key Key) string {
+	return FromState[string](state, key, "")
 }
-func GetIntFromState(state StateBag, key Key) int {
-	return getFromState[int](state, key, 0)
+func IntFromState(state StateBag, key Key) int {
+	return FromState[int](state, key, 0)
 }
-func GetBoolFromState(state StateBag, key Key) bool {
-	return getFromState[bool](state, key, false)
+func BoolFromState(state StateBag, key Key) bool {
+	return FromState[bool](state, key, false)
 }
-func GetFloatFromState(state StateBag, key Key) float64 {
-	return getFromState[float64](state, key, 0.0)
+func FloatFromState(state StateBag, key Key) float64 {
+	return FromState[float64](state, key, 0.0)
 }
 
-// Generic getter for slices.
-func getSliceFromState[T any](state StateBag, key Key) []T {
+func SliceFromState[T any](state StateBag, key Key) []T {
 	if state != nil {
 		if val, ok := state.Get(key); ok {
 			if sliceVal, ok := val.([]T); ok {
@@ -120,21 +151,20 @@ func getSliceFromState[T any](state StateBag, key Key) []T {
 	return []T{}
 }
 
-func GetStringSliceFromState(state StateBag, key Key) []string {
-	return getSliceFromState[string](state, key)
+func StringSliceFromState(state StateBag, key Key) []string {
+	return SliceFromState[string](state, key)
 }
-func GetIntSliceFromState(state StateBag, key Key) []int {
-	return getSliceFromState[int](state, key)
+func IntSliceFromState(state StateBag, key Key) []int {
+	return SliceFromState[int](state, key)
 }
-func GetBoolSliceFromState(state StateBag, key Key) []bool {
-	return getSliceFromState[bool](state, key)
+func BoolSliceFromState(state StateBag, key Key) []bool {
+	return SliceFromState[bool](state, key)
 }
-func GetFloatSliceFromState(state StateBag, key Key) []float64 {
-	return getSliceFromState[float64](state, key)
+func FloatSliceFromState(state StateBag, key Key) []float64 {
+	return SliceFromState[float64](state, key)
 }
 
-// Generic getter for maps.
-func getMapFromState[K comparable, V any](state StateBag, key Key) map[K]V {
+func MapFromState[K comparable, V any](state StateBag, key Key) map[K]V {
 	if state != nil {
 		if val, ok := state.Get(key); ok {
 			if mapVal, ok := val.(map[K]V); ok {
@@ -145,15 +175,15 @@ func getMapFromState[K comparable, V any](state StateBag, key Key) map[K]V {
 	return map[K]V{}
 }
 
-func GetStringMapFromState(state StateBag, key Key) map[string]string {
-	return getMapFromState[string, string](state, key)
+func StringMapFromState(state StateBag, key Key) map[string]string {
+	return MapFromState[string, string](state, key)
 }
-func GetIntMapFromState(state StateBag, key Key) map[string]int {
-	return getMapFromState[string, int](state, key)
+func IntMapFromState(state StateBag, key Key) map[string]int {
+	return MapFromState[string, int](state, key)
 }
-func GetBoolMapFromState(state StateBag, key Key) map[string]bool {
-	return getMapFromState[string, bool](state, key)
+func BoolMapFromState(state StateBag, key Key) map[string]bool {
+	return MapFromState[string, bool](state, key)
 }
-func GetFloatMapFromState(state StateBag, key Key) map[string]float64 {
-	return getMapFromState[string, float64](state, key)
+func FloatMapFromState(state StateBag, key Key) map[string]float64 {
+	return MapFromState[string, float64](state, key)
 }

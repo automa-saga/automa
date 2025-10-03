@@ -136,6 +136,11 @@ func (wb *WorkflowBuilder) WithPrepare(prepareFunc PrepareFunc) *WorkflowBuilder
 	return wb
 }
 
+func (wb *WorkflowBuilder) WithState(state StateBag) *WorkflowBuilder {
+	wb.workflow.state = state
+	return wb
+}
+
 func NewWorkflowBuilder() *WorkflowBuilder {
 	return &WorkflowBuilder{
 		workflow:     newWorkflow(),

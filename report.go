@@ -38,11 +38,11 @@ func (r *Report) HasError() bool {
 }
 
 func (r *Report) IsSuccess() bool {
-	return r.Status == StatusSuccess
+	return r.Status == StatusSuccess && !r.HasError()
 }
 
 func (r *Report) IsFailed() bool {
-	return r.Status == StatusFailed
+	return r.Status == StatusFailed || r.HasError()
 }
 
 func (r *Report) IsSkipped() bool {
@@ -51,6 +51,42 @@ func (r *Report) IsSkipped() bool {
 
 func (r *Report) Duration() time.Duration {
 	return r.EndTime.Sub(r.StartTime)
+}
+
+func (r *Report) Clone() *Report {
+	if r == nil {
+		return nil
+	}
+	clone := &Report{
+		Id:         r.Id,
+		IsWorkflow: r.IsWorkflow,
+		Action:     r.Action,
+		Status:     r.Status,
+		StartTime:  r.StartTime,
+		EndTime:    r.EndTime,
+		Detail:     r.Detail,
+		Error:      r.Error,
+	}
+
+	if r.Metadata != nil {
+		clone.Metadata = make(map[string]string, len(r.Metadata))
+		for k, v := range r.Metadata {
+			clone.Metadata[k] = v
+		}
+	}
+
+	if r.StepReports != nil {
+		clone.StepReports = make([]*Report, 0, len(r.StepReports))
+		for _, sr := range r.StepReports {
+			clone.StepReports = append(clone.StepReports, sr.Clone())
+		}
+	}
+
+	if r.Rollback != nil {
+		clone.Rollback = r.Rollback.Clone()
+	}
+
+	return clone
 }
 
 type ReportOption func(*Report)
@@ -219,6 +255,7 @@ func SkippedReport(s Step, opts ...ReportOption) *Report {
 
 func (r *Report) MarshalJSON() ([]byte, error) {
 	m := marshalReport{
+		Id:          r.Id,
 		Action:      r.Action,
 		IsWorkflow:  r.IsWorkflow,
 		Status:      r.Status,

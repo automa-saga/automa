@@ -6,6 +6,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"testing"
+	"time"
 )
 
 func TestWorkflow_ExecutesAllSteps(t *testing.T) {
@@ -240,7 +241,7 @@ func TestWorkflow_Prepare_InjectsState(t *testing.T) {
 	ctx := context.Background()
 	newCtx, err := wf.Prepare(ctx)
 	assert.NoError(t, err)
-	state := GetStateBagFromContext(newCtx)
+	state := StateFromContext(newCtx)
 	assert.NotNil(t, state)
 }
 
@@ -293,4 +294,72 @@ func TestRunWorkflow_PrepareError(t *testing.T) {
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusFailed, report.Status)
 	assert.Contains(t, report.Error.Error(), "prepare failed")
+}
+
+func TestWorkflow_HandleCompletion_Async(t *testing.T) {
+	done := make(chan bool, 1)
+	wf := &workflow{
+		onCompletion: func(ctx context.Context, report *Report) {
+			done <- true
+		},
+		enableAsyncCallbacks: true,
+	}
+	wf.handleCompletion(context.Background(), StepSuccessReport("wf"))
+	select {
+	case <-done:
+		// success
+	case <-time.After(100 * time.Millisecond):
+		t.Error("onCompletion async callback not called")
+	}
+}
+
+func TestWorkflow_HandleFailure_Async(t *testing.T) {
+	done := make(chan bool, 1)
+	wf := &workflow{
+		onFailure: func(ctx context.Context, report *Report) {
+			done <- true
+		},
+		enableAsyncCallbacks: true,
+	}
+	wf.handleFailure(context.Background(), StepFailureReport("wf"))
+	select {
+	case <-done:
+		// success
+	case <-time.After(100 * time.Millisecond):
+		t.Error("onFailure async callback not called")
+	}
+}
+
+func TestWorkflow_Prepare_MergesState(t *testing.T) {
+	wf := &workflow{id: "wf"}
+	ctx := context.Background()
+	state := &SyncStateBag{}
+	state.Set("foo", "bar")
+	ctx = context.WithValue(ctx, KeyState, state)
+	newCtx, err := wf.Prepare(ctx)
+	assert.NoError(t, err)
+	merged := StateFromContext(newCtx)
+	assert.Equal(t, "bar", StringFromState(merged, "foo"))
+}
+
+func TestWorkflow_Execute_NilState(t *testing.T) {
+	wf := &workflow{id: "wf", steps: []Step{
+		&defaultStep{id: "step", execute: func(ctx context.Context) *Report {
+			return StepSuccessReport("step")
+		}},
+	}}
+	wf.state = nil
+	report := wf.Execute(context.Background())
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, ActionExecute, report.Action)
+}
+
+func TestWorkflow_Rollback_NilState(t *testing.T) {
+	wf := &workflow{id: "wf", steps: []Step{newDefaultStep()}}
+	wf.state = nil
+	report := wf.Rollback(context.Background())
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, ActionRollback, report.Action)
 }

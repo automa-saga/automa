@@ -61,6 +61,11 @@ func (s *StepBuilder) WithAsyncCallbacks(enable bool) *StepBuilder {
 	return s
 }
 
+func (s *StepBuilder) WithState(state StateBag) *StepBuilder {
+	s.Step.state = state
+	return s
+}
+
 func (s *StepBuilder) Validate() error {
 	// Ensure that the step has a valid id and an execute function.
 	if s.Step.id == "" {
@@ -94,6 +99,7 @@ func (s *StepBuilder) BuildAndCopy() (Step, error) {
 
 	s.Step = newDefaultStep()
 
+	s.Step.id = "" // reset id to force setting a new one
 	s.Step.logger = finishedStep.logger
 	s.Step.prepare = finishedStep.prepare
 	s.Step.execute = finishedStep.execute
@@ -101,6 +107,12 @@ func (s *StepBuilder) BuildAndCopy() (Step, error) {
 	s.Step.rollback = finishedStep.rollback
 	s.Step.onFailure = finishedStep.onFailure
 	s.Step.enableAsyncCallbacks = finishedStep.enableAsyncCallbacks
+
+	if finishedStep.state != nil {
+		s.Step.state = finishedStep.state.Clone()
+	} else {
+		s.Step.state = nil
+	}
 
 	return finishedStep, nil
 }

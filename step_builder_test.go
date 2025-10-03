@@ -84,3 +84,55 @@ func TestStepBuilder_Build_Invalid(t *testing.T) {
 	_, err := builder.Build()
 	assert.Error(t, err)
 }
+
+func TestStepBuilder_WithAsyncCallbacks(t *testing.T) {
+	builder := NewStepBuilder().
+		WithId("step_async").
+		WithExecute(dummyExecute).
+		WithAsyncCallbacks(true)
+
+	assert.True(t, builder.Step.enableAsyncCallbacks)
+}
+
+func TestStepBuilder_WithState(t *testing.T) {
+	state := &SyncStateBag{}
+	builder := NewStepBuilder().
+		WithId("step_state").
+		WithExecute(dummyExecute).
+		WithState(state)
+
+	assert.Equal(t, state, builder.Step.state)
+}
+
+func TestStepBuilder_Build_ResetsAllFields(t *testing.T) {
+	builder := NewStepBuilder().
+		WithId("step1").
+		WithExecute(dummyExecute).
+		WithAsyncCallbacks(true).
+		WithState(&SyncStateBag{})
+
+	step, err := builder.Build()
+	assert.NoError(t, err)
+	assert.NotNil(t, step)
+	// Builder resets all fields
+	assert.NotEqual(t, "step1", builder.Step.id)
+	assert.Nil(t, builder.Step.execute)
+	assert.False(t, builder.Step.enableAsyncCallbacks)
+	assert.Nil(t, builder.Step.state)
+}
+
+func TestStepBuilder_BuildAndCopy_RetainsFields(t *testing.T) {
+	builder := NewStepBuilder().
+		WithId("step1").
+		WithExecute(dummyExecute).
+		WithAsyncCallbacks(true).
+		WithState(&SyncStateBag{})
+
+	step, err := builder.BuildAndCopy()
+	assert.NoError(t, err)
+	assert.NotNil(t, step)
+	// Builder retains previous values
+	assert.NotNil(t, builder.Step.execute)
+	assert.True(t, builder.Step.enableAsyncCallbacks)
+	assert.NotNil(t, builder.Step.state)
+}

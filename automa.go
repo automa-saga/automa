@@ -20,6 +20,9 @@ type StateBag interface {
 	Clear() StateBag
 	Keys() []Key
 	Size() int
+	Items() map[Key]interface{}
+	Merge(other StateBag) StateBag
+	Clone() StateBag
 }
 
 type Workflow interface {

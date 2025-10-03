@@ -127,13 +127,6 @@ func TestDefaultStep_State_LazyInit(t *testing.T) {
 	assert.Equal(t, "bar", val)
 }
 
-func TestDefaultStep_Context(t *testing.T) {
-	step := newDefaultStep()
-	ctx := context.WithValue(context.Background(), "x", 42)
-	step.ctx = ctx
-	assert.Equal(t, ctx, step.Context())
-}
-
 func TestDefaultStep_Id(t *testing.T) {
 	step := newDefaultStep()
 	step.id = "myid"

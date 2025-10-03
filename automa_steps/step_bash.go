@@ -31,7 +31,7 @@ func RunBashScript(scripts []string, workDir string) (string, error) {
 		output := out.Bytes()
 
 		if err != nil {
-			return string(output), automa.StepExecutionError.New("command failed: %s\nerror: %v", script, err)
+			return outputs.String(), automa.StepExecutionError.New("command failed: %s\nerror: %v", script, err)
 		}
 
 		outputs.Write(output)

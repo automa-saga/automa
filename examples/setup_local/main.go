@@ -66,8 +66,8 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 	// We need to start them before the step starts executing,
 	// so that we can see the spinner while the step is running.
 	onPrepare := func(ctx context.Context) (context.Context, error) {
-		state := automa.GetStateBagFromContext(ctx)
-		id := automa.GetStringFromState(state, automa.KeyId)
+		state := automa.StateFromContext(ctx)
+		id := automa.StringFromState(state, automa.KeyId)
 		if id == "" {
 			return nil, fmt.Errorf("step id not found in state bag")
 		}
@@ -217,63 +217,8 @@ func main() {
 	// build workflow
 	workflow := buildWorkflow(&wg)
 
-	// run workflow
-	//
-	// This will block until the workflow completes.
-	// The workflow will run in a separate goroutine,
-	// so we need to wait for it to complete using the wait group.
-	//
-	// The workflow will execute each step in order,
-	// calling the prepare, execute, onCompletion, and onFailure callbacks as appropriate.
-	// If a step fails, the workflow will stop executing further steps
-	// and will call the onFailure callback for the workflow.
-	//
-	// If all steps succeed, the workflow will call the onCompletion callback for the workflow.
-	//
-	// In either case, we will print the final report of the workflow
-	// using the printReport function defined above.
-	// This is important to see the final result of the workflow,
-	// including any errors that may have occurred during execution.
-	// It also helps to debug any issues with the workflow or steps.
-	//
-	// So always remember to check the final report of your workflows!
-	// It can save you a lot of time and headaches debugging issues later on.
-	//
-	// Happy automating!
-	//
-	// Note: We use a separate wait group for the workflow and the steps.
-	// This ensures that we don't exit the program before all steps are done.
-	//
-	// So always remember to wait for both the workflow and the steps to complete!
-	//
-	// You've been warned! ;)
-	//
-	// Happy coding!
-	// And happy automating with Automa!
-	//
-	// You've got this! 🚀
-	//
-	// Cheers! 🍻
-	//
-	// The Automa Team
-	//
-	// P.S. If you have any questions or need help, feel free to reach out to us!
-	// We're here to help you succeed with your automation journey! 😊
-	//
-	// P.P.S. Don't forget to star the Automa repo on GitHub! ⭐️
-	// It helps us a lot and keeps us motivated to keep improving Automa!
-	// Thanks a bunch! 🙏
-	//
-	// P.P.P.S. Happy automating! 🎉
-	//
-	// P.P.P.P.S. Just kidding, this is the last one! 😂
-	// But seriously, happy automating! 🚀
-	//
-	// Alright, I'm done now. Promise. 😅
-	//
-	// For real this time.
-	//
-	// Bye! 👋
+	// Execute the workflow in a separate goroutine and wait for completion.
+	// Use sync.WaitGroup to ensure main waits for workflow to finish.
 	var report *automa.Report
 	wg.Add(1)
 	go func() {

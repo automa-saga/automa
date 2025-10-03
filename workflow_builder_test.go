@@ -97,3 +97,83 @@ func TestWorkflowBuilder_WithOnCompletion_WithOnFailure(t *testing.T) {
 	wb.workflow.onFailure(context.Background(), &Report{})
 	assert.True(t, failCalled)
 }
+
+func TestWorkflowBuilder_WithAsyncCallbacks(t *testing.T) {
+	wb := NewWorkflowBuilder()
+	wb.WithAsyncCallbacks(true)
+	assert.True(t, wb.workflow.enableAsyncCallbacks)
+	wb.WithAsyncCallbacks(false)
+	assert.False(t, wb.workflow.enableAsyncCallbacks)
+}
+
+func TestWorkflowBuilder_WithPrepare_SetsFunc(t *testing.T) {
+	state := &SyncStateBag{}
+	state.Set("test", 123)
+	wb := NewWorkflowBuilder().WithId("wf").
+		WithState(state).
+		Steps(&mockStepBuilder{id: "step", valid: true, buildStep: &defaultStep{id: "step"}})
+	called := false
+	wb.WithPrepare(func(ctx context.Context) (context.Context, error) {
+		// check state in context
+		sb := StateFromContext(ctx)
+		if sb == nil {
+			return ctx, errors.New("state bag missing in context")
+		}
+
+		val, ok := sb.Get("test")
+		if !ok || val != 123 {
+			return ctx, errors.New("state bag value incorrect")
+		}
+
+		sb.Set("test", 456) // modify state
+
+		called = true
+		return ctx, nil
+	})
+
+	wf, err := wb.Build()
+	assert.NoError(t, err)
+	assert.NotNil(t, wf)
+
+	ctx, err := wf.Prepare(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, ctx)
+	sb := StateFromContext(ctx)
+	assert.NotNil(t, sb)
+	val, ok := sb.Get("test")
+	assert.True(t, ok)
+	assert.Equal(t, 456, val)
+	assert.True(t, called)
+}
+
+func TestWorkflowBuilder_NamedSteps_RegistryNilOrMissingId(t *testing.T) {
+	wb := NewWorkflowBuilder()
+	wb.NamedSteps("missing") // registry is nil, should do nothing
+	assert.Empty(t, wb.stepSequence)
+
+	reg := NewRegistry()
+	wb.WithRegistry(reg)
+	wb.NamedSteps("notfound") // id not in registry, should do nothing
+	assert.Empty(t, wb.stepSequence)
+}
+
+func TestWorkflowBuilder_Build_ResetsBuilder(t *testing.T) {
+	wb := NewWorkflowBuilder().WithId("workflow")
+	b := &mockStepBuilder{id: "step", valid: true, buildStep: &defaultStep{id: "step"}}
+	wb.Steps(b)
+	step, err := wb.Build()
+	assert.NoError(t, err)
+	assert.NotNil(t, step)
+	// After Build, workflow is reset
+	assert.NotEqual(t, "workflow", wb.workflow.id)
+	assert.Empty(t, wb.workflow.steps)
+}
+
+func TestWorkflowBuilder_Steps_DuplicateStepId(t *testing.T) {
+	wb := NewWorkflowBuilder().WithId("workflow")
+	b1 := &mockStepBuilder{id: "step", valid: true}
+	b2 := &mockStepBuilder{id: "step", valid: true}
+	wb.Steps(b1, b2)
+	// Only one step with the same id should be added
+	assert.Equal(t, []string{"step"}, wb.stepSequence)
+}

@@ -9,7 +9,6 @@ import (
 
 type workflow struct {
 	id                   string
-	ctx                  context.Context
 	state                StateBag
 	prepare              PrepareFunc
 	steps                []Step
@@ -35,7 +34,7 @@ func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 			WithActionType(ActionExecute),
 			WithStartTime(start),
 			WithError(StepExecutionError.
-				Wrap(err, "workflow %q build failed: %v", wb.Id(), err).
+				Wrap(err, "workflow %q build failed", wb.Id()).
 				WithProperty(StepIdProperty, wb.Id()),
 			))
 	}
@@ -61,6 +60,12 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int) map[string]*Repo
 		step := w.steps[i]
 
 		rollbackReport := step.Rollback(ctx)
+
+		// Ensure rollback report has ActionRollback set for consistency
+		if rollbackReport.Action != ActionRollback {
+			rollbackReport.Action = ActionRollback
+		}
+
 		stepReports[step.Id()] = rollbackReport
 
 		if rollbackReport.Error != nil {
@@ -81,21 +86,26 @@ func (w *workflow) Id() string {
 }
 
 func (w *workflow) Prepare(ctx context.Context) (context.Context, error) {
-	w.state = GetStateBagFromContext(ctx)
+	if w.state == nil {
+		w.state = &SyncStateBag{}
+	}
 
-	// inject the state bag into the context for use in execute/rollback
-	w.ctx = context.WithValue(ctx, KeyState, w.state)
+	// merge state and w.state if w.state is already initialized
+	state := StateFromContext(ctx)
+	if state != nil {
+		w.state.Merge(state)
+	}
 
+	preparedCtx := context.WithValue(ctx, KeyState, w.state)
 	if w.prepare != nil {
-		c, err := w.prepare(w.ctx)
+		c, err := w.prepare(preparedCtx)
 		if err != nil {
 			return nil, err
 		}
-
-		w.ctx = c
+		preparedCtx = c
 	}
 
-	return w.ctx, nil
+	return preparedCtx, nil
 }
 
 func (w *workflow) Steps() []Step {
@@ -123,7 +133,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 	var stepReports []*Report
 	for index, step := range w.steps {
 		stepStart := time.Now()
-		stepState := w.State().
+		stepState := w.State().Clone().
 			Set(KeyId, step.Id()).
 			Set(KeyIsWorkflow, IsWorkflow(step)).
 			Set(KeyStartTime, stepStart)
@@ -141,7 +151,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		report := step.Execute(stepCtx)
 		stepReports = append(stepReports, report)
 
-		if report.Error != nil {
+		if !report.IsSuccess() {
 			// Perform rollback for all executed steps up to the current one
 			rollbackReports := w.rollbackFrom(stepCtx, index)
 
