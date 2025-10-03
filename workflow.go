@@ -26,10 +26,14 @@ func IsWorkflow(step Step) bool {
 }
 
 func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
+	start := time.Now()
 	wf, err := wb.Build()
 	if err != nil {
-		return FailureReport(nil,
+		return NewReport(wb.Id(),
+			WithIsWorkflow(true),
+			WithStatus(StatusFailed),
 			WithActionType(ActionExecute),
+			WithStartTime(start),
 			WithError(StepExecutionError.
 				Wrap(err, "workflow %q build failed: %v", wb.Id(), err).
 				WithProperty(StepIdProperty, wb.Id()),
@@ -40,6 +44,7 @@ func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 	if err != nil {
 		return FailureReport(wf,
 			WithActionType(ActionExecute),
+			WithStartTime(start),
 			WithError(StepExecutionError.
 				Wrap(err, "workflow %q preparation failed: %v", wf.Id(), err).
 				WithProperty(StepIdProperty, wf.Id()),
@@ -111,16 +116,17 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 	if w.steps == nil || len(w.steps) == 0 {
 		return FailureReport(w,
 			WithStartTime(startTime),
-			WithActionType(ActionExecute), WithStartTime(startTime),
+			WithActionType(ActionExecute),
 			WithError(StepExecutionError.New("workflow %s has no steps to execute", w.id)))
 	}
 
 	var stepReports []*Report
 	for index, step := range w.steps {
+		stepStart := time.Now()
 		stepState := w.State().
 			Set(KeyId, step.Id()).
 			Set(KeyIsWorkflow, IsWorkflow(step)).
-			Set(KeyStartTime, startTime)
+			Set(KeyStartTime, stepStart)
 		stepCtx, err := step.Prepare(context.WithValue(ctx, KeyState, stepState))
 		if err != nil {
 			return FailureReport(w,

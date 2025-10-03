@@ -59,25 +59,30 @@ func (s *defaultStep) Execute(ctx context.Context) *Report {
 	if s.execute != nil {
 		report := s.execute(ctx)
 
-		if report.Error != nil {
-			failureReport := FailureReport(s,
+		var execReport *Report
+		if report.Error != nil || report.Status == StatusFailed {
+			execReport = FailureReport(s,
 				WithReport(report),
 				WithActionType(ActionExecute),
 				WithStartTime(start))
-
-			s.handleFailure(ctx, failureReport)
-
-			return failureReport
+			s.handleFailure(ctx, execReport)
+			return execReport
 		}
 
-		successReport := SuccessReport(s,
-			WithReport(report),
-			WithActionType(ActionExecute),
-			WithStartTime(start))
+		if report.Status == StatusSkipped {
+			execReport = SkippedReport(s,
+				WithReport(report),
+				WithActionType(ActionExecute),
+				WithStartTime(start))
+		} else {
+			execReport = SuccessReport(s,
+				WithReport(report),
+				WithActionType(ActionExecute),
+				WithStartTime(start))
+		}
 
-		s.handleCompletion(ctx, successReport)
-
-		return successReport
+		s.handleCompletion(ctx, execReport)
+		return execReport
 	}
 
 	return SkippedReport(s, WithActionType(ActionExecute), WithStartTime(start))

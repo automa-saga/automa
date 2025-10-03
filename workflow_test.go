@@ -3,10 +3,9 @@ package automa
 import (
 	"context"
 	"errors"
-	"testing"
-
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"testing"
 )
 
 func TestWorkflow_ExecutesAllSteps(t *testing.T) {
@@ -226,4 +225,72 @@ func TestWorkflow_RollbackFrom_SkippedStatus(t *testing.T) {
 	assert.Len(t, reports, 2)
 	assert.Equal(t, StatusSkipped, reports["step1"].Status)
 	assert.Equal(t, StatusFailed, reports["step2"].Status)
+}
+
+func TestWorkflow_State_LazyInit(t *testing.T) {
+	wf := &workflow{id: "wf"}
+	assert.Nil(t, wf.state)
+	state := wf.State()
+	assert.NotNil(t, state)
+	assert.Equal(t, 0, state.Size())
+}
+
+func TestWorkflow_Prepare_InjectsState(t *testing.T) {
+	wf := &workflow{id: "wf"}
+	ctx := context.Background()
+	newCtx, err := wf.Prepare(ctx)
+	assert.NoError(t, err)
+	state := GetStateBagFromContext(newCtx)
+	assert.NotNil(t, state)
+}
+
+func TestRunWorkflow_Success(t *testing.T) {
+	wb := &WorkflowBuilder{
+		workflow: &workflow{
+			id: "wf",
+		},
+		stepSequence: []string{"s1"},
+		stepBuilders: map[string]Builder{
+			"s1": NewStepBuilder().WithId("s1").WithExecute(func(ctx context.Context) *Report {
+				return StepSuccessReport("s1")
+			}),
+		},
+	}
+	report := RunWorkflow(context.Background(), wb)
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, "wf", report.Id)
+}
+
+func TestRunWorkflow_BuildError(t *testing.T) {
+	wb := &WorkflowBuilder{
+		workflow: &workflow{
+			id: "",
+		},
+	}
+	report := RunWorkflow(context.Background(), wb)
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusFailed, report.Status)
+	assert.Contains(t, report.Error.Error(), "build failed")
+}
+
+func TestRunWorkflow_PrepareError(t *testing.T) {
+	wb := &WorkflowBuilder{
+		workflow: &workflow{
+			id: "wf",
+			prepare: func(ctx context.Context) (context.Context, error) {
+				return nil, errors.New("prepare failed")
+			},
+		},
+		stepSequence: []string{"s1"},
+		stepBuilders: map[string]Builder{
+			"s1": NewStepBuilder().WithId("s1").WithExecute(func(ctx context.Context) *Report {
+				return StepSuccessReport("s1")
+			}),
+		},
+	}
+	report := RunWorkflow(context.Background(), wb)
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusFailed, report.Status)
+	assert.Contains(t, report.Error.Error(), "prepare failed")
 }
