@@ -38,7 +38,7 @@ func TestSyncStateBag_Keys(t *testing.T) {
 	bag.Set("x", 100)
 	bag.Set("y", 200)
 	keys := bag.Keys()
-	assert.ElementsMatch(t, []string{"x", "y"}, keys)
+	assert.ElementsMatch(t, []Key{"x", "y"}, keys)
 }
 
 func TestSyncStateBag_Size(t *testing.T) {

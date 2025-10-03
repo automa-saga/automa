@@ -14,11 +14,11 @@ type Step interface {
 }
 
 type StateBag interface {
-	Get(key string) (interface{}, bool)
-	Set(key string, value interface{}) StateBag
-	Delete(key string) StateBag
+	Get(key Key) (interface{}, bool)
+	Set(key Key, value interface{}) StateBag
+	Delete(key Key) StateBag
 	Clear() StateBag
-	Keys() []string
+	Keys() []Key
 	Size() int
 }
 
