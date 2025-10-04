@@ -61,7 +61,7 @@ func (s *defaultStep) Execute(ctx context.Context) *Report {
 		if report == nil {
 			return FailureReport(s,
 				WithError(StepExecutionError.New("step %q execution returned nil report", s.id)),
-				WithActionType(ActionRollback),
+				WithActionType(ActionExecute),
 				WithStartTime(start))
 		}
 
@@ -165,7 +165,8 @@ func (s *defaultStep) handleFailure(ctx context.Context, report *Report) {
 	}
 
 	if s.enableAsyncCallbacks {
-		go s.onFailure(ctx, report)
+		clonedReport := report.Clone() // assuming Clone() creates a deep copy
+		go s.onFailure(ctx, clonedReport)
 	} else {
 		s.onFailure(ctx, report)
 	}

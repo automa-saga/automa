@@ -24,6 +24,10 @@ func IsWorkflow(step Step) bool {
 	return ok
 }
 
+// RunWorkflow builds and runs the workflow from the given WorkflowBuilder.
+// It returns a Report summarizing the execution result.
+// If the workflow fails to build or prepare, it returns a failure Report with the corresponding error.
+// Note if the prepare step fails, no rollback is performed or handleFailure isn't invoked as no steps have been executed yet.
 func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 	start := time.Now()
 	wf, err := wb.Build()
@@ -132,6 +136,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 	var stepReports []*Report
 	for index, step := range w.steps {
+		var report *Report
 		stepStart := time.Now()
 		stepState := w.State().Clone().
 			Set(KeyId, step.Id()).
@@ -139,16 +144,21 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			Set(KeyStartTime, stepStart)
 		stepCtx, err := step.Prepare(context.WithValue(ctx, KeyState, stepState))
 		if err != nil {
-			return FailureReport(w,
-				WithStartTime(startTime),
+			report = FailureReport(step,
+				WithStartTime(stepStart),
 				WithActionType(ActionExecute),
 				WithError(StepExecutionError.
-					Wrap(err, "workflow %q step %q preparation failed: %v", w.id, step.Id(), err).
+					Wrap(err, "workflow %q step %q preparation failed", w.id, step.Id()).
 					WithProperty(StepIdProperty, step.Id()),
 				))
+
+			if stepCtx == nil {
+				stepCtx = ctx
+			}
+		} else {
+			report = step.Execute(stepCtx)
 		}
 
-		report := step.Execute(stepCtx)
 		stepReports = append(stepReports, report)
 
 		if !report.IsSuccess() {
@@ -171,7 +181,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 				),
 				WithStepReports(stepReports...))
 
-			w.handleFailure(ctx, workflowReport)
+			w.handleFailure(stepCtx, workflowReport)
 
 			return workflowReport
 		}
@@ -217,7 +227,8 @@ func (w *workflow) handleCompletion(ctx context.Context, report *Report) {
 	}
 
 	if w.enableAsyncCallbacks {
-		go w.onCompletion(ctx, report)
+		clonedReport := report.Clone() // assuming Clone() creates a deep copy
+		go w.onCompletion(ctx, clonedReport)
 	} else {
 		w.onCompletion(ctx, report)
 	}
@@ -229,7 +240,8 @@ func (w *workflow) handleFailure(ctx context.Context, report *Report) {
 	}
 
 	if w.enableAsyncCallbacks {
-		go w.onFailure(ctx, report)
+		clonedReport := report.Clone() // assuming Clone() creates a deep copy
+		go w.onFailure(ctx, clonedReport)
 	} else {
 		w.onFailure(ctx, report)
 	}

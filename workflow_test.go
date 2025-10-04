@@ -363,3 +363,22 @@ func TestWorkflow_Rollback_NilState(t *testing.T) {
 	assert.Equal(t, StatusSuccess, report.Status)
 	assert.Equal(t, ActionRollback, report.Action)
 }
+
+func TestWorkflow_StepStatePropagation(t *testing.T) {
+	stepStateKey := Key("custom")
+	stepStateValue := "value"
+	step := &defaultStep{
+		id: "step",
+		execute: func(ctx context.Context) *Report {
+			state := StateFromContext(ctx)
+			val := StringFromState(state, stepStateKey)
+			assert.Equal(t, stepStateValue, val)
+			return StepSuccessReport("step")
+		},
+	}
+	wf := &workflow{id: "wf", steps: []Step{step}}
+	wf.State().Set(stepStateKey, stepStateValue)
+	report := wf.Execute(context.Background())
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+}

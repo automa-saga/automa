@@ -222,6 +222,7 @@ func main() {
 	var report *automa.Report
 	wg.Add(1)
 	go func() {
+		defer wg.Done() // ensure wg is marked done when goroutine exits even if onCompletion isn't called
 		fmt.Println("Starting workflow...")
 		report = automa.RunWorkflow(context.Background(), workflow)
 		fmt.Println("Finished workflow...")
