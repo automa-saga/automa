@@ -81,7 +81,7 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 		return ctx, nil
 	}
 
-	// handleStepSpinner stops spinner and prints result
+	// markStepAsDone stops spinner and prints result
 	//
 	// This is extracted to a separate function to avoid code duplication
 	// between onCompletion and onFailure callbacks below.
@@ -91,7 +91,7 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 	// It also marks the step as done in the wait group,
 	// so that we can wait for all steps to complete before exiting
 	// the program.
-	handleStepSpinner := func(report *automa.Report, spinners map[string]*spinner.Spinner, wgStep *sync.WaitGroup) {
+	markStepAsDone := func(report *automa.Report, spinners map[string]*spinner.Spinner, wgStep *sync.WaitGroup) {
 		wgStep.Done()
 		if s, exists := spinners[report.Id]; exists {
 			s.Stop()
@@ -128,10 +128,10 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 	// Otherwise, you may end up with a messy CLI output!
 	//
 	onCompletion := func(ctx context.Context, report *automa.Report) {
-		handleStepSpinner(report, spinners, &wgStep)
+		markStepAsDone(report, spinners, &wgStep)
 	}
 	onFailure := func(ctx context.Context, report *automa.Report) {
-		handleStepSpinner(report, spinners, &wgStep)
+		markStepAsDone(report, spinners, &wgStep)
 	}
 
 	// build workflow
