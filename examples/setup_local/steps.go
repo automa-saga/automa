@@ -43,10 +43,15 @@ func setupDirectories() *automa.StepBuilder {
 
 func installTask(version string) *automa.StepBuilder {
 	installCmd := strings.TrimSpace(fmt.Sprintf(`
-if ! command -v %s/bin/task &> /dev/null; then
-	curl -sL https://taskfile.dev/install.sh | sh -s -- -d -b %s/bin %s
-	chmod +x %s/bin/task
-fi`, setupDir, setupDir, version, setupDir))
+if ! command -v %[1]s/bin/task &> /dev/null; then
+  curl -sL https://taskfile.dev/install.sh | sh -s -- -d -b %[1]s/bin %[2]s
+  if [ ! -s %[1]s/bin/task ] || [ $(stat -f%%z %[1]s/bin/task) -lt 1000000 ]; then
+    echo "Download failed or file too small"
+    rm -f %[1]s/bin/task
+    exit 1
+  fi
+  chmod +x %[1]s/bin/task
+fi`, setupDir, version))
 	return automa_steps.BashScriptStep(installTaskStepId, []string{installCmd}, "").
 		WithRollback(func(ctx context.Context) *automa.Report {
 			p := path.Join(setupDir, "bin", "task")
@@ -67,10 +72,15 @@ fi`, setupDir, setupDir, version, setupDir))
 
 func installKind(version string) *automa.StepBuilder {
 	installCmd := strings.TrimSpace(fmt.Sprintf(`
-if ! command -v %s/bin/kind &> /dev/null; then
- curl -sL https://kind.sigs.k8s.io/dl/%s/kind-linux-amd64 -o %s/bin/kind
- chmod +x %s/bin/kind
-fi`, setupDir, version, setupDir, setupDir))
+if ! command -v %[1]s/bin/kind &> /dev/null; then
+  curl -sL https://kind.sigs.k8s.io/dl/%[2]s/kind-linux-amd64 -o %[1]s/bin/kind
+  if [ ! -s %[1]s/bin/kind ] || [ $(stat -f%%z %[1]s/bin/kind) -lt 1000000 ]; then
+    echo "Download failed or file too small"
+    rm -f %[1]s/bin/kind
+    exit 1
+  fi
+  chmod +x %[1]s/bin/kind
+fi`, setupDir, version))
 	return automa_steps.BashScriptStep(installKindStepId, []string{installCmd}, "").
 		WithRollback(func(ctx context.Context) *automa.Report {
 			p := path.Join(setupDir, "bin", "kind")

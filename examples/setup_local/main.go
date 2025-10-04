@@ -77,7 +77,7 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 		ws.Done()
 		if s, exists := spinners[report.Id]; exists {
 			s.Stop()
-			if report.Error != nil {
+			if report.IsFailed() {
 				fmt.Printf("✘ %s\n", report.Id)
 			} else {
 				fmt.Printf("%s %s\n", greenTick, report.Id)
@@ -171,7 +171,7 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 						WithPrepare(onPrepare).
 						WithOnCompletion(onCompletion).
 						WithOnFailure(onFailure),
-					installKind("v0.20.0").
+					installKind("v0.2x.x"). // pass an incorrect version to test failure and rollback
 						WithPrepare(onPrepare).
 						WithOnCompletion(onCompletion).
 						WithOnFailure(onFailure),
@@ -183,10 +183,7 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 			wg.Done() // we mark is done only after all steps are complete
 		}).
 		WithOnFailure(func(ctx context.Context, report *automa.Report) {
-			// we don't wait for steps to complete here,
-			// because if a step fails, the workflow will stop executing further steps
-			// and we want to exit as soon as possible.
-			// This is to avoid waiting unnecessarily for steps that will never run.
+			wgStep.Wait()
 			wg.Done()
 		})
 
@@ -237,7 +234,7 @@ func main() {
 		fmt.Println("Starting workflow...")
 		report = automa.RunWorkflow(context.Background(), workflow)
 		fmt.Println("Finished workflow...")
-		if report.Action == automa.ActionPrepare {
+		if report.IsFailed() && report.Action == automa.ActionPrepare {
 			// No steps were executed. Workflow preparation failed, so we need to mark the wait group as done here.
 			wg.Done()
 		}
