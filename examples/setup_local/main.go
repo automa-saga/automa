@@ -172,9 +172,9 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 						WithOnCompletion(onCompletion).
 						WithOnFailure(onFailure),
 					installKind("v0.2x.x"). // pass an incorrect version to test failure and rollback
-								WithPrepare(onPrepare).
-								WithOnCompletion(onCompletion).
-								WithOnFailure(onFailure),
+						WithPrepare(onPrepare).
+						WithOnCompletion(onCompletion).
+						WithOnFailure(onFailure),
 				),
 		).
 		WithRollbackMode(automa.RollbackModeStopOnError).
@@ -225,17 +225,16 @@ func main() {
 		// we don't do wg.Done() here, because we need to wait for all steps to complete
 		// before exiting the program. This is handled in the OnCompletion callback of the workflow.
 		// See buildWorkflow function above for details.
-		//
+		fmt.Println("Starting workflow...")
+		report = automa.RunWorkflow(context.Background(), workflow)
+		fmt.Println("Finished workflow...")
+
 		// If the workflow preparation fails, no steps will be executed,
 		// so we need to mark the wait group as done here.
 		//
 		// This ensures that we don't leave the wait group hanging
 		// if the workflow fails to start.
-		fmt.Println("Starting workflow...")
-		report = automa.RunWorkflow(context.Background(), workflow)
-		fmt.Println("Finished workflow...")
 		if report.IsFailed() && report.Action == automa.ActionPrepare {
-			// No steps were executed. Workflow preparation failed, so we need to mark the wait group as done here.
 			wg.Done()
 		}
 	}()
