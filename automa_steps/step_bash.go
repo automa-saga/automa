@@ -49,7 +49,9 @@ func BashScriptStep(id string, scripts []string, workDir string) *automa.StepBui
 		WithExecute(func(ctx context.Context) *automa.Report {
 			output, err := RunBashScript(scripts, workDir)
 			if err != nil {
-				return automa.StepFailureReport(id, automa.WithError(err))
+				return automa.StepFailureReport(id, automa.WithError(err), automa.WithMetadata(map[string]string{
+					"output": output,
+				}))
 			}
 
 			return automa.StepSuccessReport(id, automa.WithMetadata(map[string]string{
