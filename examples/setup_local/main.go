@@ -219,14 +219,14 @@ func main() {
 
 	// Execute the workflow in a separate goroutine and wait for completion.
 	// Use sync.WaitGroup to ensure main waits for workflow to finish.
-	var report *automa.Report
+	reportCh := make(chan *automa.Report, 1)
 	wg.Add(1)
 	go func() {
 		// we don't do wg.Done() here, because we need to wait for all steps to complete
 		// before exiting the program. This is handled in the OnCompletion callback of the workflow.
 		// See buildWorkflow function above for details.
 		fmt.Println("Starting workflow...")
-		report = automa.RunWorkflow(context.Background(), workflow)
+		report := automa.RunWorkflow(context.Background(), workflow)
 		fmt.Println("Finished workflow...")
 
 		// If the workflow preparation fails, no steps will be executed,
@@ -237,9 +237,12 @@ func main() {
 		if report.IsFailed() && report.Action == automa.ActionPrepare {
 			wg.Done()
 		}
+
+		reportCh <- report
 	}()
 	wg.Wait()
 
+	report := <-reportCh
 	if report.Error != nil {
 		fmt.Println("\nWorkflow failed:", report.Error)
 	}
