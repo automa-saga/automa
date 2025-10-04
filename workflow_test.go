@@ -272,6 +272,7 @@ func TestRunWorkflow_BuildError(t *testing.T) {
 	report := RunWorkflow(context.Background(), wb)
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusFailed, report.Status)
+	assert.Equal(t, ActionPrepare, report.Action)
 	assert.Contains(t, report.Error.Error(), "build failed")
 }
 

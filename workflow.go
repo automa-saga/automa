@@ -28,6 +28,7 @@ func IsWorkflow(step Step) bool {
 // It returns a Report summarizing the execution result.
 // If the workflow fails to build or prepare, it returns a failure Report with the corresponding error.
 // Note if the prepare step fails, no rollback is performed or handleFailure isn't invoked as no steps have been executed yet.
+// If preparation files, it returns error with ActionType set to ActionPrepare so that caller can distinguish it from execution errors.
 func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 	start := time.Now()
 	wf, err := wb.Build()
@@ -35,7 +36,7 @@ func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 		return NewReport(wb.Id(),
 			WithIsWorkflow(true),
 			WithStatus(StatusFailed),
-			WithActionType(ActionExecute),
+			WithActionType(ActionPrepare),
 			WithStartTime(start),
 			WithError(StepExecutionError.
 				Wrap(err, "workflow %q build failed", wb.Id()).
@@ -46,7 +47,7 @@ func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 	preparedCtx, err := wf.Prepare(ctx)
 	if err != nil {
 		return FailureReport(wf,
-			WithActionType(ActionExecute),
+			WithActionType(ActionPrepare),
 			WithStartTime(start),
 			WithError(StepExecutionError.
 				Wrap(err, "workflow %q preparation failed: %v", wf.Id(), err).
@@ -72,7 +73,7 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int) map[string]*Repo
 
 		stepReports[step.Id()] = rollbackReport
 
-		if rollbackReport.Error != nil {
+		if rollbackReport.IsFailed() {
 			switch w.rollbackMode {
 			case RollbackModeContinueOnError:
 				continue

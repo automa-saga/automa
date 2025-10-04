@@ -47,14 +47,45 @@ const (
 // Otherwise, you may end up with a messy CLI output!
 // Happy automating!
 func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
-	stepIds := []string{setupDirStepId, installTaskStepId, installKindStepId}
-
 	// wait group to wait for all steps to complete
 	var wgStep sync.WaitGroup
-	wgStep.Add(len(stepIds)) // add number of steps to wait for
 
 	// map to hold spinners for each step
 	spinners := map[string]*spinner.Spinner{}
+
+	// startSpinner starts a spinner for the given step id
+	startSpinner := func(id string, ws *sync.WaitGroup) *spinner.Spinner {
+		ws.Add(1)
+		s := spinner.New(spinner.CharSets[spinnerCharset], 100*time.Millisecond, spinner.WithWriter(os.Stderr))
+		s.Suffix = fmt.Sprintf(" %s", id)
+		s.Start()
+		spinners[id] = s
+		return s
+	}
+
+	// stopSpinner stops spinner and prints result
+	//
+	// This is extracted to a separate function to avoid code duplication
+	// between onCompletion and onFailure callbacks below.
+	//
+	// It stops the spinner for the step, if it exists,
+	// and prints the result of the step (success or failure).
+	// It also marks the step as done in the wait group,
+	// so that we can wait for all steps to complete before exiting
+	// the program.
+	stopSpinner := func(report *automa.Report, spinners map[string]*spinner.Spinner, ws *sync.WaitGroup) {
+		ws.Done()
+		if s, exists := spinners[report.Id]; exists {
+			s.Stop()
+			if report.Error != nil {
+				fmt.Printf("✘ %s\n", report.Id)
+			} else {
+				fmt.Printf("%s %s\n", greenTick, report.Id)
+			}
+		} else {
+			fmt.Printf("No spinner found for step: %s\n", report.Id)
+		}
+	}
 
 	// onPrepare callback to start spinner
 	//
@@ -72,37 +103,9 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 			return nil, fmt.Errorf("step id not found in state bag")
 		}
 
-		s := spinner.New(spinner.CharSets[spinnerCharset], 100*time.Millisecond, spinner.WithWriter(os.Stderr))
-		s.Suffix = fmt.Sprintf(" %s", id)
-		s.Start()
-
-		spinners[id] = s
+		startSpinner(id, &wgStep)
 
 		return ctx, nil
-	}
-
-	// markStepAsDone stops spinner and prints result
-	//
-	// This is extracted to a separate function to avoid code duplication
-	// between onCompletion and onFailure callbacks below.
-	//
-	// It stops the spinner for the step, if it exists,
-	// and prints the result of the step (success or failure).
-	// It also marks the step as done in the wait group,
-	// so that we can wait for all steps to complete before exiting
-	// the program.
-	markStepAsDone := func(report *automa.Report, spinners map[string]*spinner.Spinner, wgStep *sync.WaitGroup) {
-		wgStep.Done()
-		if s, exists := spinners[report.Id]; exists {
-			s.Stop()
-			if report.Error != nil {
-				fmt.Printf("✘ %s\n", report.Id)
-			} else {
-				fmt.Printf("%s %s\n", greenTick, report.Id)
-			}
-		} else {
-			fmt.Printf("No spinner found for step: %s\n", report.Id)
-		}
 	}
 
 	// onCompletion and onFailure callbacks stop spinner and print result
@@ -128,10 +131,10 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 	// Otherwise, you may end up with a messy CLI output!
 	//
 	onCompletion := func(ctx context.Context, report *automa.Report) {
-		markStepAsDone(report, spinners, &wgStep)
+		stopSpinner(report, spinners, &wgStep)
 	}
 	onFailure := func(ctx context.Context, report *automa.Report) {
-		markStepAsDone(report, spinners, &wgStep)
+		stopSpinner(report, spinners, &wgStep)
 	}
 
 	// build workflow
@@ -177,7 +180,7 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 		WithRollbackMode(automa.RollbackModeStopOnError).
 		WithOnCompletion(func(ctx context.Context, report *automa.Report) {
 			wgStep.Wait()
-			wg.Done()
+			wg.Done() // we mark is done only after all steps are complete
 		}).
 		WithOnFailure(func(ctx context.Context, report *automa.Report) {
 			// we don't wait for steps to complete here,
@@ -222,10 +225,22 @@ func main() {
 	var report *automa.Report
 	wg.Add(1)
 	go func() {
-		defer wg.Done() // ensure wg is marked done when goroutine exits even if onCompletion isn't called
+		// we don't do wg.Done() here, because we need to wait for all steps to complete
+		// before exiting the program. This is handled in the OnCompletion callback of the workflow.
+		// See buildWorkflow function above for details.
+		//
+		// If the workflow preparation fails, no steps will be executed,
+		// so we need to mark the wait group as done here.
+		//
+		// This ensures that we don't leave the wait group hanging
+		// if the workflow fails to start.
 		fmt.Println("Starting workflow...")
 		report = automa.RunWorkflow(context.Background(), workflow)
 		fmt.Println("Finished workflow...")
+		if report.Action == automa.ActionPrepare {
+			// No steps were executed. Workflow preparation failed, so we need to mark the wait group as done here.
+			wg.Done()
+		}
 	}()
 	wg.Wait()
 

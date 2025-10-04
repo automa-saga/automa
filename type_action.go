@@ -9,12 +9,15 @@ import (
 type TypeAction uint8
 
 const (
+	ActionPrepare  TypeAction = 0
 	ActionExecute  TypeAction = 1
 	ActionRollback TypeAction = 2
 )
 
 func (a TypeAction) String() string {
 	switch a {
+	case ActionPrepare:
+		return "prepare"
 	case ActionExecute:
 		return "execute"
 	case ActionRollback:
@@ -34,6 +37,8 @@ func (a *TypeAction) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	switch s {
+	case "prepare":
+		*a = ActionPrepare
 	case "execute":
 		*a = ActionExecute
 	case "rollback":
@@ -54,6 +59,8 @@ func (a *TypeAction) UnmarshalYAML(value *yaml.Node) error {
 		return err
 	}
 	switch s {
+	case "prepare":
+		*a = ActionPrepare
 	case "execute":
 		*a = ActionExecute
 	case "rollback":
