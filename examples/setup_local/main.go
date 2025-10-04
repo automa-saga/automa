@@ -172,9 +172,9 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 						WithOnCompletion(onCompletion).
 						WithOnFailure(onFailure),
 					installKind("v0.2x.x"). // pass an incorrect version to test failure and rollback
-								WithPrepare(onPrepare).
-								WithOnCompletion(onCompletion).
-								WithOnFailure(onFailure),
+						WithPrepare(onPrepare).
+						WithOnCompletion(onCompletion).
+						WithOnFailure(onFailure),
 				),
 		).
 		WithRollbackMode(automa.RollbackModeStopOnError).
@@ -203,6 +203,18 @@ func printReport(msg string, report *automa.Report) string {
 	fmt.Printf("\n%s\n", msg)
 	fmt.Println("--------------------------------------------------------")
 	fmt.Printf("%s\n", out)
+
+	if report.IsFailed() {
+		fmt.Printf("%s\n", report.Error)
+		fmt.Println("\n--------------------------------------------------------")
+		fmt.Printf("✘ Workflow failed at step: %s", report.Id)
+		fmt.Println("\n--------------------------------------------------------")
+	} else {
+		fmt.Println("\n--------------------------------------------------------")
+		fmt.Printf("%s Workflow completed successfully!\n", greenTick)
+		fmt.Println("\n--------------------------------------------------------")
+	}
+
 	return string(out)
 }
 
@@ -219,14 +231,14 @@ func main() {
 
 	// Execute the workflow in a separate goroutine and wait for completion.
 	// Use sync.WaitGroup to ensure main waits for workflow to finish.
-	var report *automa.Report
+	reportCh := make(chan *automa.Report, 1)
 	wg.Add(1)
 	go func() {
 		// we don't do wg.Done() here, because we need to wait for all steps to complete
 		// before exiting the program. This is handled in the OnCompletion callback of the workflow.
 		// See buildWorkflow function above for details.
 		fmt.Println("Starting workflow...")
-		report = automa.RunWorkflow(context.Background(), workflow)
+		report := automa.RunWorkflow(context.Background(), workflow)
 		fmt.Println("Finished workflow...")
 
 		// If the workflow preparation fails, no steps will be executed,
@@ -237,12 +249,11 @@ func main() {
 		if report.IsFailed() && report.Action == automa.ActionPrepare {
 			wg.Done()
 		}
+
+		reportCh <- report
 	}()
 	wg.Wait()
 
-	if report.Error != nil {
-		fmt.Println("\nWorkflow failed:", report.Error)
-	}
-
+	report := <-reportCh
 	printReport("\nWorkflow Report", report)
 }

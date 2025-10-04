@@ -43,11 +43,16 @@ func setupDirectories() *automa.StepBuilder {
 
 func installTask(version string) *automa.StepBuilder {
 	installCmd := strings.TrimSpace(fmt.Sprintf(`
+set -euo pipefail
+STAT_SIZE_CMD="stat -c%%s "
+if [ "$(uname)" = "Darwin" ]; then
+  STAT_SIZE_CMD="stat -f%%z "
+fi
 if ! command -v %[1]s/bin/task &> /dev/null; then
   curl -sL https://taskfile.dev/install.sh | sh -s -- -d -b %[1]s/bin %[2]s
-  if [ ! -s %[1]s/bin/task ] || [ $(stat -f%%z %[1]s/bin/task) -lt 1000000 ]; then
-    echo "Download failed or file too small"
-    rm -f %[1]s/bin/task
+  FILE_SIZE=$($STAT_SIZE_CMD %[1]s/bin/task || echo 0)
+  if [ ! -s  %[1]s/bin/task ] || ! [[ "$FILE_SIZE" =~ ^[0-9]+$ ]] || [ "$FILE_SIZE" -lt 1000000 ]; then
+    echo "Task download failed or file too small"
     exit 1
   fi
   chmod +x %[1]s/bin/task
@@ -69,14 +74,18 @@ fi`, setupDir, version))
 			return automa.StepSuccessReport(installTaskStepId, automa.WithActionType(automa.ActionRollback))
 		})
 }
-
 func installKind(version string) *automa.StepBuilder {
 	installCmd := strings.TrimSpace(fmt.Sprintf(`
+set -euo pipefail
+STAT_SIZE_CMD="stat -c%%s "
+if [ "$(uname)" = "Darwin" ]; then
+  STAT_SIZE_CMD="stat -f%%z "
+fi
 if ! command -v %[1]s/bin/kind &> /dev/null; then
   curl -sL https://kind.sigs.k8s.io/dl/%[2]s/kind-linux-amd64 -o %[1]s/bin/kind
-  if [ ! -s %[1]s/bin/kind ] || [ $(stat -f%%z %[1]s/bin/kind) -lt 1000000 ]; then
-    echo "Download failed or file too small"
-    rm -f %[1]s/bin/kind
+  FILE_SIZE=$($STAT_SIZE_CMD  %[1]s/bin/kind || echo 0)
+  if [ ! -s  %[1]s/bin/kind ] || ! [[ "$FILE_SIZE" =~ ^[0-9]+$ ]] || [ "$FILE_SIZE" -lt 1000000 ]; then
+    echo "Kind download failed or file too small"
     exit 1
   fi
   chmod +x %[1]s/bin/kind
