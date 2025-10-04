@@ -3,123 +3,177 @@ package automa
 import (
 	"context"
 	"errors"
-	"github.com/stretchr/testify/require"
 	"testing"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 )
 
-// Mock Builder
+// minimal Builder for testing
 type mockStepBuilder struct {
-	id          string
-	buildErr    error
-	validateErr error
-	step        Step
+	id        string
+	valid     bool
+	buildStep Step
 }
 
-func (m *mockStepBuilder) Id() string           { return m.id }
-func (m *mockStepBuilder) Build() (Step, error) { return m.step, m.buildErr }
-func (m *mockStepBuilder) Validate() error      { return m.validateErr }
-
-func TestNewWorkFlowBuilder_PanicsOnEmptyId(t *testing.T) {
-	assert.Panics(t, func() { NewWorkFlowBuilder("") })
+func (b *mockStepBuilder) Id() string { return b.id }
+func (b *mockStepBuilder) Validate() error {
+	if b.valid {
+		return nil
+	} else {
+		return errors.New("invalid")
+	}
 }
+func (b *mockStepBuilder) Build() (Step, error) { return b.buildStep, nil }
 
-func TestWorkFlowBuilder_Steps_AddsStepsAndSkipsDuplicates(t *testing.T) {
-	wb := NewWorkFlowBuilder("wf").(*workflowBuilder)
-	wb.logger = zerolog.Nop()
-	b1 := &mockStepBuilder{id: "a"}
-	b2 := &mockStepBuilder{id: "a"} // duplicate id
+func TestWorkflowBuilder_Steps_AddAndBuild(t *testing.T) {
+	wb := NewWorkflowBuilder().WithId("workflow")
+	b1 := &mockStepBuilder{id: "step1", valid: true, buildStep: &defaultStep{id: "step1"}}
+	b2 := &mockStepBuilder{id: "step2", valid: true, buildStep: &defaultStep{id: "step2"}}
 	wb.Steps(b1, b2)
-	assert.Len(t, wb.stepBuilders, 1)
+	assert.Equal(t, []string{"step1", "step2"}, wb.stepSequence)
+
+	step, err := wb.Build()
+	assert.NoError(t, err)
+	assert.NotNil(t, step)
+	assert.Equal(t, "step1", step.(*workflow).steps[0].Id())
+	assert.Equal(t, "step2", step.(*workflow).steps[1].Id())
 }
 
-func TestWorkFlowBuilder_NamedSteps_AddsFromRegistryAndSkipsUnknownOrDuplicates(t *testing.T) {
-	b1 := &mockStepBuilder{id: "a"}
-	b2 := &mockStepBuilder{id: "b"}
+func TestWorkflowBuilder_NamedSteps_UsesRegistry(t *testing.T) {
 	reg := NewRegistry()
-	err := reg.Add(b1, b2)
-	require.NoError(t, err)
+	b1 := &mockStepBuilder{id: "named1", valid: true}
+	b2 := &mockStepBuilder{id: "named2", valid: true}
+	reg.Add(b1, b2)
 
-	wb := NewWorkFlowBuilder("wf").(*workflowBuilder)
-	wb.logger = zerolog.Nop()
-	wb.WithRegistry(reg)
-	wb.NamedSteps("a", "b", "c") // "c" not in registry
-	assert.Len(t, wb.stepBuilders, 2)
-	wb.NamedSteps("a") // duplicate
-	assert.Len(t, wb.stepBuilders, 2)
+	wb := NewWorkflowBuilder().WithRegistry(reg)
+	wb.NamedSteps("named1", "named2")
+	assert.Equal(t, []string{"named1", "named2"}, wb.stepSequence)
 }
 
-func TestWorkFlowBuilder_Validate_NoSteps(t *testing.T) {
-	wb := NewWorkFlowBuilder("wf").(*workflowBuilder)
-	err := wb.Validate()
-	assert.Error(t, err)
-}
-
-func TestWorkFlowBuilder_Validate_StepValidationError(t *testing.T) {
-	b1 := &mockStepBuilder{id: "a", validateErr: errors.New("fail")}
-	wb := NewWorkFlowBuilder("wf").(*workflowBuilder)
+func TestWorkflowBuilder_Validate_Errors(t *testing.T) {
+	wb := NewWorkflowBuilder().WithId("workflow")
+	b1 := &mockStepBuilder{id: "bad", valid: false}
 	wb.Steps(b1)
 	err := wb.Validate()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "validation errors")
 }
 
-func TestWorkFlowBuilder_Validate_Success(t *testing.T) {
-	b1 := &mockStepBuilder{id: "a"}
-	wb := NewWorkFlowBuilder("wf").(*workflowBuilder)
-	wb.Steps(b1)
-	assert.NoError(t, wb.Validate())
-}
-
-func TestWorkFlowBuilder_Build_StepBuildError(t *testing.T) {
-	b1 := &mockStepBuilder{id: "a", buildErr: errors.New("fail")}
-	wb := NewWorkFlowBuilder("wf").(*workflowBuilder)
-	wb.Steps(b1)
+func TestWorkflowBuilder_Build_MissingStep(t *testing.T) {
+	wb := NewWorkflowBuilder().WithId("workflow")
+	wb.stepSequence = []string{"missing"}
 	_, err := wb.Build()
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to build step")
+	assert.Contains(t, err.Error(), "no steps provided for workflow")
 }
 
-func TestWorkFlowBuilder_Build_Success(t *testing.T) {
-	b1 := &mockStepBuilder{id: "a", step: nil}
-	wb := NewWorkFlowBuilder("wf").(*workflowBuilder)
-	wb.Steps(b1)
-	_, err := wb.Build()
-	assert.NoError(t, err)
-}
+func TestWorkflowBuilder_WithId_WithLogger_WithRollbackMode(t *testing.T) {
+	wb := NewWorkflowBuilder()
+	wb.WithId("wf-id")
+	assert.Equal(t, "wf-id", wb.Id())
 
-func TestWorkFlowBuilder_WithLogger_WithRollbackMode_WithRegistry(t *testing.T) {
-	wb := NewWorkFlowBuilder("wf").(*workflowBuilder)
 	logger := zerolog.Nop()
-	reg := NewRegistry()
 	wb.WithLogger(logger)
-	wb.WithRollbackMode(RollbackModeStopOnError)
-	wb.WithRegistry(reg)
-	assert.Equal(t, logger, wb.logger)
-	assert.Equal(t, RollbackModeStopOnError, wb.rollbackMode)
-	assert.Equal(t, reg, wb.registry)
+	assert.Equal(t, logger, wb.workflow.logger)
+
+	wb.WithRollbackMode(RollbackModeContinueOnError)
+	assert.Equal(t, RollbackModeContinueOnError, wb.workflow.rollbackMode)
 }
 
-func TestWorkFlowBuilder_MaintainsStepSequence(t *testing.T) {
-	b1 := NewStepBuilder("z", WithOnExecute(func(ctx context.Context) (*Report, error) { return &Report{}, nil }))
-	b2 := NewStepBuilder("a", WithOnExecute(func(ctx context.Context) (*Report, error) { return &Report{}, nil }))
-	b3 := NewStepBuilder("y", WithOnExecute(func(ctx context.Context) (*Report, error) { return &Report{}, nil }))
-	b4 := NewStepBuilder("c", WithOnExecute(func(ctx context.Context) (*Report, error) { return &Report{}, nil }))
-	b5 := NewStepBuilder("x", WithOnExecute(func(ctx context.Context) (*Report, error) { return &Report{}, nil }))
+func TestWorkflowBuilder_WithOnCompletion_WithOnFailure(t *testing.T) {
+	wb := NewWorkflowBuilder()
+	called := false
+	wb.WithOnCompletion(func(ctx context.Context, r *Report) {
+		called = true
+	})
+	assert.NotNil(t, wb.workflow.onCompletion)
+	wb.workflow.onCompletion(context.Background(), &Report{})
+	assert.True(t, called)
 
-	wb := NewWorkFlowBuilder("wf").(*workflowBuilder)
-	wb.Steps(b1, b2, b3, b4, b5)
+	failCalled := false
+	wb.WithOnFailure(func(ctx context.Context, r *Report) { failCalled = true })
+	assert.NotNil(t, wb.workflow.onFailure)
+	wb.workflow.onFailure(context.Background(), &Report{})
+	assert.True(t, failCalled)
+}
+
+func TestWorkflowBuilder_WithAsyncCallbacks(t *testing.T) {
+	wb := NewWorkflowBuilder()
+	wb.WithAsyncCallbacks(true)
+	assert.True(t, wb.workflow.enableAsyncCallbacks)
+	wb.WithAsyncCallbacks(false)
+	assert.False(t, wb.workflow.enableAsyncCallbacks)
+}
+
+func TestWorkflowBuilder_WithPrepare_SetsFunc(t *testing.T) {
+	state := &SyncStateBag{}
+	state.Set("test", 123)
+	wb := NewWorkflowBuilder().WithId("wf").
+		WithState(state).
+		Steps(&mockStepBuilder{id: "step", valid: true, buildStep: &defaultStep{id: "step"}})
+	called := false
+	wb.WithPrepare(func(ctx context.Context) (context.Context, error) {
+		// check state in context
+		sb := StateFromContext(ctx)
+		if sb == nil {
+			return ctx, errors.New("state bag missing in context")
+		}
+
+		val, ok := sb.Get("test")
+		if !ok || val != 123 {
+			return ctx, errors.New("state bag value incorrect")
+		}
+
+		sb.Set("test", 456) // modify state
+
+		called = true
+		return ctx, nil
+	})
+
 	wf, err := wb.Build()
-	require.NoError(t, err)
-	require.NotNil(t, wf)
+	assert.NoError(t, err)
+	assert.NotNil(t, wf)
 
-	steps := wf.(*workflow).steps
-	require.Len(t, steps, 5)
-	assert.Equal(t, "z", steps[0].Id())
-	assert.Equal(t, "a", steps[1].Id())
-	assert.Equal(t, "y", steps[2].Id())
-	assert.Equal(t, "c", steps[3].Id())
-	assert.Equal(t, "x", steps[4].Id())
+	ctx, err := wf.Prepare(context.Background())
+	assert.NoError(t, err)
+	assert.NotNil(t, ctx)
+	sb := StateFromContext(ctx)
+	assert.NotNil(t, sb)
+	val, ok := sb.Get("test")
+	assert.True(t, ok)
+	assert.Equal(t, 456, val)
+	assert.True(t, called)
+}
+
+func TestWorkflowBuilder_NamedSteps_RegistryNilOrMissingId(t *testing.T) {
+	wb := NewWorkflowBuilder()
+	wb.NamedSteps("missing") // registry is nil, should do nothing
+	assert.Empty(t, wb.stepSequence)
+
+	reg := NewRegistry()
+	wb.WithRegistry(reg)
+	wb.NamedSteps("notfound") // id not in registry, should do nothing
+	assert.Empty(t, wb.stepSequence)
+}
+
+func TestWorkflowBuilder_Build_ResetsBuilder(t *testing.T) {
+	wb := NewWorkflowBuilder().WithId("workflow")
+	b := &mockStepBuilder{id: "step", valid: true, buildStep: &defaultStep{id: "step"}}
+	wb.Steps(b)
+	step, err := wb.Build()
+	assert.NoError(t, err)
+	assert.NotNil(t, step)
+	// After Build, workflow is reset
+	assert.NotEqual(t, "workflow", wb.workflow.id)
+	assert.Empty(t, wb.workflow.steps)
+}
+
+func TestWorkflowBuilder_Steps_DuplicateStepId(t *testing.T) {
+	wb := NewWorkflowBuilder().WithId("workflow")
+	b1 := &mockStepBuilder{id: "step", valid: true}
+	b2 := &mockStepBuilder{id: "step", valid: true}
+	wb.Steps(b1, b2)
+	// Only one step with the same id should be added
+	assert.Equal(t, []string{"step"}, wb.stepSequence)
 }

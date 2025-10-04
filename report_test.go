@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
@@ -114,4 +115,70 @@ func TestReport_MarshalYAML_Integration(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Contains(t, string(b), "id: id")
 	assert.Contains(t, string(b), "detail: d")
+}
+
+func TestReport_Duration(t *testing.T) {
+	start := time.Now().Add(-2 * time.Second)
+	end := time.Now()
+	r := NewReport("id", WithStartTime(start), WithEndTime(end))
+	assert.Equal(t, end.Sub(start), r.Duration())
+}
+
+func TestReport_StatusMethods(t *testing.T) {
+	r := NewReport("id", WithStatus(StatusSuccess))
+	assert.True(t, r.IsSuccess())
+	assert.False(t, r.IsFailed())
+	assert.False(t, r.IsSkipped())
+
+	r.Status = StatusFailed
+	assert.True(t, r.IsFailed())
+	assert.False(t, r.IsSuccess())
+
+	r.Status = StatusSkipped
+	assert.True(t, r.IsSkipped())
+}
+
+func TestReport_HasError(t *testing.T) {
+	r := NewReport("id")
+	assert.False(t, r.HasError())
+	r.Error = errors.New("err")
+	assert.True(t, r.HasError())
+}
+
+func TestReport_WithIsWorkflowAndActionType(t *testing.T) {
+	r := NewReport("id", WithIsWorkflow(true), WithActionType(ActionExecute))
+	assert.True(t, r.IsWorkflow)
+	assert.Equal(t, ActionExecute, r.Action)
+}
+
+func TestReport_Clone(t *testing.T) {
+	meta := map[string]string{"foo": "bar"}
+	step := NewReport("step1", WithDetail("step detail"))
+	rollback := NewReport("rb", WithDetail("rollback detail"))
+	r := NewReport("id",
+		WithMetadata(meta),
+		WithStatus(StatusFailed),
+		WithDetail("detail"),
+		WithStepReports(step),
+		WithRollbackReport(rollback),
+	)
+
+	clone := r.Clone()
+	assert.Equal(t, r.Id, clone.Id)
+	assert.Equal(t, r.Status, clone.Status)
+	assert.Equal(t, r.Detail, clone.Detail)
+	assert.Equal(t, r.Metadata, clone.Metadata)
+	assert.Len(t, clone.StepReports, 1)
+	assert.NotEqual(t, unsafe.Pointer(&r.Metadata), unsafe.Pointer(&clone.Metadata))
+	assert.Equal(t, "step detail", clone.StepReports[0].Detail)
+	assert.NotSame(t, r.StepReports[0], clone.StepReports[0])
+	assert.NotNil(t, clone.Rollback)
+	assert.Equal(t, "rollback detail", clone.Rollback.Detail)
+	assert.NotSame(t, r.Rollback, clone.Rollback)
+
+	// Mutate clone and check original is unchanged
+	clone.Metadata["foo"] = "baz"
+	assert.Equal(t, "bar", r.Metadata["foo"])
+	clone.StepReports[0].Detail = "changed"
+	assert.Equal(t, "step detail", r.StepReports[0].Detail)
 }

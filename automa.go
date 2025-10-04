@@ -3,18 +3,32 @@ package automa
 
 import (
 	"context"
-	"github.com/rs/zerolog"
 )
 
 type Step interface {
 	Id() string
 	Prepare(ctx context.Context) (context.Context, error)
-	Execute(ctx context.Context) (*Report, error)
-	OnCompletion(ctx context.Context, report *Report)
-	OnRollback(ctx context.Context) (*Report, error)
+	Execute(ctx context.Context) *Report
+	Rollback(ctx context.Context) *Report
+	State() StateBag
 }
 
-type Workflow Step
+type StateBag interface {
+	Get(key Key) (interface{}, bool)
+	Set(key Key, value interface{}) StateBag
+	Delete(key Key) StateBag
+	Clear() StateBag
+	Keys() []Key
+	Size() int
+	Items() map[Key]interface{}
+	Merge(other StateBag) StateBag
+	Clone() StateBag
+}
+
+type Workflow interface {
+	Step
+	Steps() []Step
+}
 
 type Builder interface {
 	Id() string
@@ -23,17 +37,8 @@ type Builder interface {
 }
 
 type Registry interface {
-	Add(steps ...Builder) error // return error if step with same ID already exists
+	Add(steps ...Builder) error // return error if step with same id already exists
 	Remove(id string) bool
 	Has(id string) bool
 	Of(id string) Builder
-}
-
-type WorkFlowBuilder interface {
-	Builder
-	Steps(steps ...Builder) WorkFlowBuilder
-	NamedSteps(stepIds ...string) WorkFlowBuilder
-	WithRegistry(sr Registry) WorkFlowBuilder
-	WithLogger(logger zerolog.Logger) WorkFlowBuilder
-	WithRollbackMode(mode TypeRollbackMode) WorkFlowBuilder
 }
