@@ -158,6 +158,15 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			}
 		} else {
 			report = step.Execute(stepCtx)
+			if report == nil {
+				report = FailureReport(step,
+					WithStartTime(stepStart),
+					WithActionType(ActionExecute),
+					WithError(StepExecutionError.New("workflow %q step %q returned nil report from Execute", w.id, step.Id()).
+						WithProperty(StepIdProperty, step.Id()),
+					),
+				)
+			}
 		}
 
 		stepReports = append(stepReports, report)
@@ -209,9 +218,17 @@ func (w *workflow) Rollback(ctx context.Context) *Report {
 
 	var stepReports []*Report
 	for _, step := range w.steps {
-		if report, ok := rollbackReports[step.Id()]; ok {
-			stepReports = append(stepReports, report)
+		report, ok := rollbackReports[step.Id()]
+		if !ok || report == nil {
+			report = FailureReport(step,
+				WithActionType(ActionRollback),
+				WithStartTime(startTime),
+				WithError(StepExecutionError.New("workflow %q step %q returned nil report from Rollback", w.id, step.Id()).
+					WithProperty(StepIdProperty, step.Id()),
+				),
+			)
 		}
+		stepReports = append(stepReports, report)
 	}
 
 	return SuccessReport(w,

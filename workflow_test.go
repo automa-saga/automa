@@ -383,3 +383,34 @@ func TestWorkflow_StepStatePropagation(t *testing.T) {
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusSuccess, report.Status)
 }
+
+func TestWorkflow_Execute_NilReportFromStep(t *testing.T) {
+	step := &defaultStep{
+		id: "step",
+		execute: func(ctx context.Context) *Report {
+			return nil // Simulate buggy step
+		},
+	}
+	wf := &workflow{id: "wf", steps: []Step{step}}
+	report := wf.Execute(context.Background())
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusFailed, report.Status)
+	assert.Contains(t, report.Error.Error(), `workflow "wf" failed at step "step"`)
+}
+
+func TestWorkflow_Rollback_NilReportFromStep(t *testing.T) {
+	step := &defaultStep{
+		id: "step",
+		rollback: func(ctx context.Context) *Report {
+			return nil // Simulate buggy rollback
+		},
+	}
+	wf := &workflow{id: "wf", steps: []Step{step}}
+	report := wf.Rollback(context.Background())
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, ActionRollback, report.Action)
+	assert.Len(t, report.StepReports, 1)
+	assert.Equal(t, StatusFailed, report.StepReports[0].Status)
+	assert.Contains(t, report.StepReports[0].Error.Error(), "rollback returned nil report")
+}

@@ -14,7 +14,7 @@ This repository implements the `automa` framework for orchestrating and executin
 ## Build & Validation Instructions
 
 **Environment Setup:**  
-- Always ensure Go 1.21 or newer is installed (`go version`).
+- Always ensure Go 1.25.0 or newer is installed (`go version`).
 - Run `go mod tidy` to ensure dependencies are up to date before building or testing.
 
 **Bootstrap:**  
