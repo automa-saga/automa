@@ -76,12 +76,12 @@ func (wb *WorkflowBuilder) NamedSteps(stepIds ...string) *WorkflowBuilder {
 }
 
 func (wb *WorkflowBuilder) Validate() error {
-	if len(wb.stepBuilders) == 0 {
-		return StepNotFound.New("no steps provided for workflow")
-	}
-
 	if wb.workflow.id == "" {
 		return IllegalArgument.New("workflow id cannot be empty")
+	}
+
+	if len(wb.stepBuilders) == 0 {
+		return StepNotFound.New("no steps provided for workflow")
 	}
 
 	var errs []error

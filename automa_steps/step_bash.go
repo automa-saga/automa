@@ -8,7 +8,7 @@ import (
 )
 
 // RunBashScript executes a list of bash scripts in the specified working directory.
-// It captures and logs the output of each command if a logger is provided.
+// It captures the combined output of all commands and returns it as a string.
 // If any command fails, it returns an error immediately.
 func RunBashScript(scripts []string, workDir string) (string, error) {
 	var outputs bytes.Buffer // To capture combined output of all scripts

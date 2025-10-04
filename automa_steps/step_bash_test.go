@@ -21,7 +21,7 @@ func TestRunBashScript_Success(t *testing.T) {
 func TestRunBashScript_CommandError(t *testing.T) {
 	output, err := RunBashScript([]string{"exit 1"}, "")
 	assert.Error(t, err)
-	assert.Contains(t, output, "")
+	assert.Empty(t, output)
 	assert.Contains(t, err.Error(), "command failed")
 }
 

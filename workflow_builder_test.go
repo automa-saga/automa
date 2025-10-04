@@ -61,7 +61,7 @@ func TestWorkflowBuilder_Validate_Errors(t *testing.T) {
 }
 
 func TestWorkflowBuilder_Build_MissingStep(t *testing.T) {
-	wb := NewWorkflowBuilder()
+	wb := NewWorkflowBuilder().WithId("workflow")
 	wb.stepSequence = []string{"missing"}
 	_, err := wb.Build()
 	assert.Error(t, err)

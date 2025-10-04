@@ -172,9 +172,9 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 						WithOnCompletion(onCompletion).
 						WithOnFailure(onFailure),
 					installKind("v0.2x.x"). // pass an incorrect version to test failure and rollback
-						WithPrepare(onPrepare).
-						WithOnCompletion(onCompletion).
-						WithOnFailure(onFailure),
+								WithPrepare(onPrepare).
+								WithOnCompletion(onCompletion).
+								WithOnFailure(onFailure),
 				),
 		).
 		WithRollbackMode(automa.RollbackModeStopOnError).
