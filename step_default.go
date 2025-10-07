@@ -20,47 +20,37 @@ type defaultStep struct {
 	state                StateBag
 }
 
-func (s *defaultStep) State() StateBag {
-	if s.state == nil {
-		s.state = &SyncStateBag{} // lazy initialization
+func (df *defaultStep) State() StateBag {
+	if df.state == nil {
+		df.state = &SyncStateBag{} // lazy initialization
 	}
-	return s.state
+	return df.state
 }
 
-func (s *defaultStep) Id() string {
-	return s.id
+func (df *defaultStep) Id() string {
+	return df.id
 }
 
-func (s *defaultStep) Prepare(ctx context.Context) (context.Context, error) {
-	if s.state == nil {
-		s.state = &SyncStateBag{}
-	}
-
-	// merge state and s.state if s.state is already initialized
-	state := StateFromContext(ctx)
-	if state != nil {
-		s.state.Merge(state)
-	}
-
-	preparedCtx := context.WithValue(ctx, KeyState, s.state)
-	if s.prepare != nil {
-		c, err := s.prepare(preparedCtx)
+func (df *defaultStep) Prepare(ctx context.Context) (context.Context, error) {
+	preparedCtx := ctx
+	if df.prepare != nil {
+		c, err := df.prepare(preparedCtx, df)
 		if err != nil {
 			return nil, err
 		}
-		preparedCtx = c
+		preparedCtx = c // use the context returned by user prepare function
 	}
 
 	return preparedCtx, nil
 }
 
-func (s *defaultStep) Execute(ctx context.Context) *Report {
+func (df *defaultStep) Execute(ctx context.Context) *Report {
 	start := time.Now()
-	if s.execute != nil {
-		report := s.execute(ctx)
+	if df.execute != nil {
+		report := df.execute(ctx, df)
 		if report == nil {
-			return FailureReport(s,
-				WithError(StepExecutionError.New("step %q execution returned nil report", s.id)),
+			return FailureReport(df,
+				WithError(StepExecutionError.New("step %q execution returned nil report", df.id)),
 				WithActionType(ActionExecute),
 				WithStartTime(start))
 		}
@@ -69,45 +59,45 @@ func (s *defaultStep) Execute(ctx context.Context) *Report {
 		if report.IsFailed() {
 			if report.Error == nil {
 				// this should not happen, but just in case
-				report.Error = StepExecutionError.New("step %q failed", s.id)
+				report.Error = StepExecutionError.New("step %q failed", df.id)
 			}
 
-			execReport = FailureReport(s,
+			execReport = FailureReport(df,
 				WithReport(report),
 				WithActionType(ActionExecute),
 				WithStartTime(start))
 
-			s.handleFailure(ctx, execReport)
+			df.handleFailure(ctx, execReport)
 
 			return execReport
 		}
 
 		if report.Status == StatusSkipped {
-			execReport = SkippedReport(s,
+			execReport = SkippedReport(df,
 				WithReport(report),
 				WithActionType(ActionExecute),
 				WithStartTime(start))
 		} else {
-			execReport = SuccessReport(s,
+			execReport = SuccessReport(df,
 				WithReport(report),
 				WithActionType(ActionExecute),
 				WithStartTime(start))
 		}
 
-		s.handleCompletion(ctx, execReport)
+		df.handleCompletion(ctx, execReport)
 		return execReport
 	}
 
-	return SkippedReport(s, WithActionType(ActionExecute), WithStartTime(start))
+	return SkippedReport(df, WithActionType(ActionExecute), WithStartTime(start))
 }
 
-func (s *defaultStep) Rollback(ctx context.Context) *Report {
+func (df *defaultStep) Rollback(ctx context.Context) *Report {
 	start := time.Now()
-	if s.rollback != nil {
-		report := s.rollback(ctx)
+	if df.rollback != nil {
+		report := df.rollback(ctx, df)
 		if report == nil {
-			return FailureReport(s,
-				WithError(StepExecutionError.New("step %q rollback returned nil report", s.id)),
+			return FailureReport(df,
+				WithError(StepExecutionError.New("step %q rollback returned nil report", df.id)),
 				WithActionType(ActionRollback),
 				WithStartTime(start))
 		}
@@ -119,20 +109,20 @@ func (s *defaultStep) Rollback(ctx context.Context) *Report {
 		if report.IsFailed() {
 			if report.Error == nil {
 				// this should not happen, but just in case
-				report.Error = StepExecutionError.New("step %q rollback failed", s.id)
+				report.Error = StepExecutionError.New("step %q rollback failed", df.id)
 			}
 
-			rollbackReport = FailureReport(s,
+			rollbackReport = FailureReport(df,
 				WithReport(report), // include user report details
 				WithActionType(ActionRollback),
 				WithStartTime(start))
 		} else if report.Status == StatusSkipped {
-			rollbackReport = SkippedReport(s,
+			rollbackReport = SkippedReport(df,
 				WithReport(report), // include user report details
 				WithActionType(ActionRollback),
 				WithStartTime(start))
 		} else {
-			rollbackReport = SuccessReport(s,
+			rollbackReport = SuccessReport(df,
 				WithReport(report), // include user report details
 				WithActionType(ActionRollback),
 				WithStartTime(start))
@@ -141,34 +131,34 @@ func (s *defaultStep) Rollback(ctx context.Context) *Report {
 		return rollbackReport
 	}
 
-	return SkippedReport(s,
+	return SkippedReport(df,
 		WithActionType(ActionRollback),
 		WithStartTime(start))
 }
 
-func (s *defaultStep) handleCompletion(ctx context.Context, report *Report) {
-	if s.onCompletion == nil {
+func (df *defaultStep) handleCompletion(ctx context.Context, report *Report) {
+	if df.onCompletion == nil {
 		return
 	}
 
-	if s.enableAsyncCallbacks {
+	if df.enableAsyncCallbacks {
 		clonedReport := report.Clone() // assuming Clone() creates a deep copy
-		go s.onCompletion(ctx, clonedReport)
+		go df.onCompletion(ctx, df, clonedReport)
 	} else {
-		s.onCompletion(ctx, report)
+		df.onCompletion(ctx, df, report)
 	}
 }
 
-func (s *defaultStep) handleFailure(ctx context.Context, report *Report) {
-	if s.onFailure == nil {
+func (df *defaultStep) handleFailure(ctx context.Context, report *Report) {
+	if df.onFailure == nil {
 		return
 	}
 
-	if s.enableAsyncCallbacks {
+	if df.enableAsyncCallbacks {
 		clonedReport := report.Clone() // assuming Clone() creates a deep copy
-		go s.onFailure(ctx, clonedReport)
+		go df.onFailure(ctx, df, clonedReport)
 	} else {
-		s.onFailure(ctx, report)
+		df.onFailure(ctx, df, report)
 	}
 }
 

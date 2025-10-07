@@ -6,11 +6,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
-type ExecuteFunc func(ctx context.Context) *Report
-type RollbackFunc func(ctx context.Context) *Report
-type PrepareFunc func(ctx context.Context) (context.Context, error)
-type OnCompletionFunc func(ctx context.Context, report *Report)
-type OnFailureFunc func(ctx context.Context, report *Report)
+type ExecuteFunc func(ctx context.Context, stp Step) *Report
+type RollbackFunc func(ctx context.Context, stp Step) *Report
+type PrepareFunc func(ctx context.Context, stp Step) (context.Context, error)
+type OnCompletionFunc func(ctx context.Context, stp Step, report *Report)
+type OnFailureFunc func(ctx context.Context, stp Step, report *Report)
 
 // StepBuilder is a builder for creating steps with optional prepare, execute, completion, and rollback functions.
 type StepBuilder struct {

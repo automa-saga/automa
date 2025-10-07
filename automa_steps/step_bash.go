@@ -42,11 +42,13 @@ func RunBashScript(scripts []string, workDir string) (string, error) {
 
 // BashScriptStep creates a new step builder that executes a list of bash scripts in the specified working directory.
 // The returned StepBuilder can be further configured via method chaining (e.g., to add rollback, onPrepare, or completion functions).
-// The step will return a success report if all scripts execute successfully, otherwise it returns an error report.
+// For a stateful step, add a prepare function that initializes state before execution.
+// The step captures the combined output of all scripts and includes it in the step report metadata under the "output" key.
+// If any script fails, the step reports failure with the error and partial output.
 func BashScriptStep(id string, scripts []string, workDir string) *automa.StepBuilder {
 	return automa.NewStepBuilder().
 		WithId(id).
-		WithExecute(func(ctx context.Context) *automa.Report {
+		WithExecute(func(ctx context.Context, stp automa.Step) *automa.Report {
 			output, err := RunBashScript(scripts, workDir)
 			if err != nil {
 				return automa.StepFailureReport(id, automa.WithError(err), automa.WithMetadata(map[string]string{

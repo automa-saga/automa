@@ -19,8 +19,8 @@ type workflow struct {
 	enableAsyncCallbacks bool
 }
 
-func IsWorkflow(step Step) bool {
-	_, ok := step.(Workflow)
+func IsWorkflow(stp Step) bool {
+	_, ok := stp.(Workflow)
 	return ok
 }
 
@@ -91,23 +91,13 @@ func (w *workflow) Id() string {
 }
 
 func (w *workflow) Prepare(ctx context.Context) (context.Context, error) {
-	if w.state == nil {
-		w.state = &SyncStateBag{}
-	}
-
-	// merge state and w.state if w.state is already initialized
-	state := StateFromContext(ctx)
-	if state != nil {
-		w.state.Merge(state)
-	}
-
-	preparedCtx := context.WithValue(ctx, KeyState, w.state)
+	preparedCtx := ctx
 	if w.prepare != nil {
-		c, err := w.prepare(preparedCtx)
+		c, err := w.prepare(preparedCtx, w)
 		if err != nil {
 			return nil, err
 		}
-		preparedCtx = c
+		preparedCtx = c // use the context returned by user prepare function
 	}
 
 	return preparedCtx, nil
@@ -139,11 +129,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 	for index, step := range w.steps {
 		var report *Report
 		stepStart := time.Now()
-		stepState := w.State().Clone().
-			Set(KeyId, step.Id()).
-			Set(KeyIsWorkflow, IsWorkflow(step)).
-			Set(KeyStartTime, stepStart)
-		stepCtx, err := step.Prepare(context.WithValue(ctx, KeyState, stepState))
+		stepCtx, err := step.Prepare(ctx)
 		if err != nil {
 			report = FailureReport(step,
 				WithStartTime(stepStart),
@@ -246,9 +232,9 @@ func (w *workflow) handleCompletion(ctx context.Context, report *Report) {
 
 	if w.enableAsyncCallbacks {
 		clonedReport := report.Clone() // assuming Clone() creates a deep copy
-		go w.onCompletion(ctx, clonedReport)
+		go w.onCompletion(ctx, w, clonedReport)
 	} else {
-		w.onCompletion(ctx, report)
+		w.onCompletion(ctx, w, report)
 	}
 }
 
@@ -259,9 +245,9 @@ func (w *workflow) handleFailure(ctx context.Context, report *Report) {
 
 	if w.enableAsyncCallbacks {
 		clonedReport := report.Clone() // assuming Clone() creates a deep copy
-		go w.onFailure(ctx, clonedReport)
+		go w.onFailure(ctx, w, clonedReport)
 	} else {
-		w.onFailure(ctx, report)
+		w.onFailure(ctx, w, report)
 	}
 }
 
