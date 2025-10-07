@@ -1,6 +1,6 @@
 module github.com/automa-saga/automa
 
-go 1.19
+go 1.25.0
 
 require (
 	github.com/joomcode/errorx v1.2.0

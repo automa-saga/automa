@@ -2,28 +2,26 @@ package automa
 
 import (
 	"fmt"
-	"sync"
-
 	"github.com/rs/zerolog"
 )
 
-type workflowBuilder struct {
-	id           string
+// WorkflowBuilder is a builder for creating workflows with a sequence of steps.
+// This is a mutable builder, and should not be used concurrently.
+type WorkflowBuilder struct {
+	workflow     *workflow
 	registry     Registry
-	rollbackMode TypeRollbackMode
-	logger       zerolog.Logger
 	stepSequence []string
 	stepBuilders map[string]Builder
-	mu           sync.Mutex
 }
 
-func (wb *workflowBuilder) Id() string {
-	return wb.id
+func (wb *WorkflowBuilder) Id() string {
+	return wb.workflow.id
 }
 
-func (wb *workflowBuilder) Build() (Step, error) {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
+func (wb *WorkflowBuilder) Build() (Step, error) {
+	if err := wb.Validate(); err != nil {
+		return nil, err
+	}
 
 	steps := make([]Step, 0, len(wb.stepBuilders))
 	for _, stepId := range wb.stepSequence {
@@ -40,16 +38,17 @@ func (wb *workflowBuilder) Build() (Step, error) {
 			steps = append(steps, step)
 		}
 	}
-	return NewWorkflow(wb.id, steps, WithWorkflowLogger(wb.logger), WithRollbackMode(wb.rollbackMode)), nil
+
+	wb.workflow.steps = steps
+	finished := wb.workflow
+	wb.workflow = newWorkflow()
+
+	return finished, nil
 }
 
-func (wb *workflowBuilder) Steps(steps ...Builder) WorkFlowBuilder {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
-
+func (wb *WorkflowBuilder) Steps(steps ...Builder) *WorkflowBuilder {
 	for _, step := range steps {
 		if _, exists := wb.stepBuilders[step.Id()]; exists {
-			wb.logger.Warn().Str("step_id", step.Id()).Msg("duplicate step, skipping")
 			continue
 		}
 		wb.stepBuilders[step.Id()] = step
@@ -58,21 +57,16 @@ func (wb *workflowBuilder) Steps(steps ...Builder) WorkFlowBuilder {
 	return wb
 }
 
-func (wb *workflowBuilder) NamedSteps(stepIds ...string) WorkFlowBuilder {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
-
+func (wb *WorkflowBuilder) NamedSteps(stepIds ...string) *WorkflowBuilder {
 	if wb.registry == nil || len(stepIds) == 0 {
 		return wb
 	}
 	for _, id := range stepIds {
 		builder := wb.registry.Of(id)
 		if builder == nil {
-			wb.logger.Warn().Str("step_id", id).Msg("step not found in registry")
 			continue
 		}
 		if _, exists := wb.stepBuilders[id]; exists {
-			wb.logger.Warn().Str("step_id", id).Msg("duplicate step, skipping")
 			continue
 		}
 		wb.stepBuilders[id] = builder
@@ -81,17 +75,19 @@ func (wb *workflowBuilder) NamedSteps(stepIds ...string) WorkFlowBuilder {
 	return wb
 }
 
-func (wb *workflowBuilder) Validate() error {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
+func (wb *WorkflowBuilder) Validate() error {
+	if wb.workflow.id == "" {
+		return IllegalArgument.New("workflow id cannot be empty")
+	}
 
 	if len(wb.stepBuilders) == 0 {
 		return StepNotFound.New("no steps provided for workflow")
 	}
+
 	var errs []error
 	for id, builder := range wb.stepBuilders {
 		if err := builder.Validate(); err != nil {
-			errs = append(errs, fmt.Errorf("step with ID %s failed validation: %w", id, err))
+			errs = append(errs, fmt.Errorf("step with id %s failed validation: %w", id, err))
 		}
 	}
 	if len(errs) > 0 {
@@ -100,35 +96,54 @@ func (wb *workflowBuilder) Validate() error {
 	return nil
 }
 
-func (wb *workflowBuilder) WithRegistry(sr Registry) WorkFlowBuilder {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
+func (wb *WorkflowBuilder) WithId(id string) *WorkflowBuilder {
+	wb.workflow.id = id
+	return wb
+}
+
+func (wb *WorkflowBuilder) WithRegistry(sr Registry) *WorkflowBuilder {
 	wb.registry = sr
 	return wb
 }
 
-func (wb *workflowBuilder) WithLogger(logger zerolog.Logger) WorkFlowBuilder {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
-	wb.logger = logger
+func (wb *WorkflowBuilder) WithLogger(logger zerolog.Logger) *WorkflowBuilder {
+	wb.workflow.logger = logger
 	return wb
 }
 
-func (wb *workflowBuilder) WithRollbackMode(mode TypeRollbackMode) WorkFlowBuilder {
-	wb.mu.Lock()
-	defer wb.mu.Unlock()
-	wb.rollbackMode = mode
+func (wb *WorkflowBuilder) WithRollbackMode(mode TypeRollbackMode) *WorkflowBuilder {
+	wb.workflow.rollbackMode = mode
 	return wb
 }
 
-func NewWorkFlowBuilder(id string) WorkFlowBuilder {
-	if id == "" {
-		panic("workflow id must not be empty")
-	}
-	return &workflowBuilder{
-		id:           id,
-		rollbackMode: RollbackModeContinueOnError,
-		logger:       zerolog.Nop(),
+func (wb *WorkflowBuilder) WithOnCompletion(f OnCompletionFunc) *WorkflowBuilder {
+	wb.workflow.onCompletion = f
+	return wb
+}
+
+func (wb *WorkflowBuilder) WithOnFailure(f OnFailureFunc) *WorkflowBuilder {
+	wb.workflow.onFailure = f
+	return wb
+}
+
+func (wb *WorkflowBuilder) WithAsyncCallbacks(enable bool) *WorkflowBuilder {
+	wb.workflow.enableAsyncCallbacks = enable
+	return wb
+}
+
+func (wb *WorkflowBuilder) WithPrepare(prepareFunc PrepareFunc) *WorkflowBuilder {
+	wb.workflow.prepare = prepareFunc
+	return wb
+}
+
+func (wb *WorkflowBuilder) WithState(state StateBag) *WorkflowBuilder {
+	wb.workflow.state = state
+	return wb
+}
+
+func NewWorkflowBuilder() *WorkflowBuilder {
+	return &WorkflowBuilder{
+		workflow:     newWorkflow(),
 		stepBuilders: make(map[string]Builder),
 		stepSequence: []string{},
 	}

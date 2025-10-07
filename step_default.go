@@ -2,64 +2,176 @@ package automa
 
 import (
 	"context"
+	"time"
+
 	"github.com/rs/zerolog"
 )
 
 // defaultStep implements Step interfaces.
-// This is the default Step implementation that is meant to be stateless. For stateful steps, you can implement your
-// custom-step Builder.
-// It can be used to create steps with custom onPrepare, onExecute, onCompletion, and onRollback functions.
 type defaultStep struct {
-	id           string
-	logger       zerolog.Logger
-	ctx          context.Context
-	onPrepare    OnPrepareFunc
-	onExecute    OnExecuteFunc
-	onCompletion OnCompletionFunc
-	onRollback   OnRollbackFunc
+	id                   string
+	logger               *zerolog.Logger
+	prepare              PrepareFunc
+	execute              ExecuteFunc
+	rollback             RollbackFunc
+	onCompletion         OnCompletionFunc
+	onFailure            OnFailureFunc
+	enableAsyncCallbacks bool
+	state                StateBag
+}
+
+func (s *defaultStep) State() StateBag {
+	if s.state == nil {
+		s.state = &SyncStateBag{} // lazy initialization
+	}
+	return s.state
 }
 
 func (s *defaultStep) Id() string {
 	return s.id
 }
 
-func (s *defaultStep) Context() context.Context {
-	return s.ctx
-}
-
 func (s *defaultStep) Prepare(ctx context.Context) (context.Context, error) {
-	s.ctx = ctx
+	if s.state == nil {
+		s.state = &SyncStateBag{}
+	}
 
-	if s.onPrepare != nil {
-		c, err := s.onPrepare(ctx)
+	// merge state and s.state if s.state is already initialized
+	state := StateFromContext(ctx)
+	if state != nil {
+		s.state.Merge(state)
+	}
+
+	preparedCtx := context.WithValue(ctx, KeyState, s.state)
+	if s.prepare != nil {
+		c, err := s.prepare(preparedCtx)
 		if err != nil {
 			return nil, err
 		}
-
-		s.ctx = c
+		preparedCtx = c
 	}
 
-	return s.ctx, nil
+	return preparedCtx, nil
 }
 
-func (s *defaultStep) Execute(ctx context.Context) (*Report, error) {
-	if s.onExecute != nil {
-		return s.onExecute(ctx)
+func (s *defaultStep) Execute(ctx context.Context) *Report {
+	start := time.Now()
+	if s.execute != nil {
+		report := s.execute(ctx)
+		if report == nil {
+			return FailureReport(s,
+				WithError(StepExecutionError.New("step %q execution returned nil report", s.id)),
+				WithActionType(ActionExecute),
+				WithStartTime(start))
+		}
+
+		var execReport *Report
+		if report.IsFailed() {
+			if report.Error == nil {
+				// this should not happen, but just in case
+				report.Error = StepExecutionError.New("step %q failed", s.id)
+			}
+
+			execReport = FailureReport(s,
+				WithReport(report),
+				WithActionType(ActionExecute),
+				WithStartTime(start))
+
+			s.handleFailure(ctx, execReport)
+
+			return execReport
+		}
+
+		if report.Status == StatusSkipped {
+			execReport = SkippedReport(s,
+				WithReport(report),
+				WithActionType(ActionExecute),
+				WithStartTime(start))
+		} else {
+			execReport = SuccessReport(s,
+				WithReport(report),
+				WithActionType(ActionExecute),
+				WithStartTime(start))
+		}
+
+		s.handleCompletion(ctx, execReport)
+		return execReport
 	}
 
-	return StepSkippedReport(s.id), nil
+	return SkippedReport(s, WithActionType(ActionExecute), WithStartTime(start))
 }
 
-func (s *defaultStep) OnCompletion(ctx context.Context, report *Report) {
-	if s.onCompletion != nil {
+func (s *defaultStep) Rollback(ctx context.Context) *Report {
+	start := time.Now()
+	if s.rollback != nil {
+		report := s.rollback(ctx)
+		if report == nil {
+			return FailureReport(s,
+				WithError(StepExecutionError.New("step %q rollback returned nil report", s.id)),
+				WithActionType(ActionRollback),
+				WithStartTime(start))
+		}
+
+		// we regenerate the completion report here to ensure consistency
+		// in case the user-provided rollback function does not
+		// follow the expected conventions
+		var rollbackReport *Report
+		if report.IsFailed() {
+			if report.Error == nil {
+				// this should not happen, but just in case
+				report.Error = StepExecutionError.New("step %q rollback failed", s.id)
+			}
+
+			rollbackReport = FailureReport(s,
+				WithReport(report), // include user report details
+				WithActionType(ActionRollback),
+				WithStartTime(start))
+		} else if report.Status == StatusSkipped {
+			rollbackReport = SkippedReport(s,
+				WithReport(report), // include user report details
+				WithActionType(ActionRollback),
+				WithStartTime(start))
+		} else {
+			rollbackReport = SuccessReport(s,
+				WithReport(report), // include user report details
+				WithActionType(ActionRollback),
+				WithStartTime(start))
+		}
+
+		return rollbackReport
+	}
+
+	return SkippedReport(s,
+		WithActionType(ActionRollback),
+		WithStartTime(start))
+}
+
+func (s *defaultStep) handleCompletion(ctx context.Context, report *Report) {
+	if s.onCompletion == nil {
+		return
+	}
+
+	if s.enableAsyncCallbacks {
+		clonedReport := report.Clone() // assuming Clone() creates a deep copy
+		go s.onCompletion(ctx, clonedReport)
+	} else {
 		s.onCompletion(ctx, report)
 	}
 }
 
-func (s *defaultStep) OnRollback(ctx context.Context) (*Report, error) {
-	if s.onRollback != nil {
-		return s.onRollback(ctx)
+func (s *defaultStep) handleFailure(ctx context.Context, report *Report) {
+	if s.onFailure == nil {
+		return
 	}
 
-	return StepSkippedReport(s.id), nil
+	if s.enableAsyncCallbacks {
+		clonedReport := report.Clone() // assuming Clone() creates a deep copy
+		go s.onFailure(ctx, clonedReport)
+	} else {
+		s.onFailure(ctx, report)
+	}
+}
+
+func newDefaultStep() *defaultStep {
+	return &defaultStep{}
 }

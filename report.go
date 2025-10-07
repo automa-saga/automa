@@ -7,6 +7,7 @@ import (
 
 type Report struct {
 	Id          string
+	IsWorkflow  bool
 	Action      TypeAction
 	Status      TypeStatus
 	StartTime   time.Time
@@ -20,6 +21,7 @@ type Report struct {
 
 type marshalReport struct {
 	Id          string            `yaml:"id,omitempty" json:"id,omitempty"` // rollback report does not need id
+	IsWorkflow  bool              `yaml:"isWorkflow" json:"isWorkflow"`
 	Action      TypeAction        `yaml:"action,omitempty" json:"action,omitempty"`
 	Status      TypeStatus        `yaml:"status,omitempty" json:"status,omitempty"`
 	StartTime   time.Time         `yaml:"startTime,omitempty" json:"startTime,omitempty"`
@@ -29,6 +31,62 @@ type marshalReport struct {
 	Metadata    map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	StepReports []*Report         `yaml:"stepReports,omitempty" json:"steps,omitempty"`
 	Rollback    *Report           `yaml:"rollback,omitempty" json:"rollback,omitempty"`
+}
+
+func (r *Report) HasError() bool {
+	return r.Error != nil
+}
+
+func (r *Report) IsSuccess() bool {
+	return r.Status == StatusSuccess && !r.HasError()
+}
+
+func (r *Report) IsFailed() bool {
+	return r.Status == StatusFailed || r.HasError()
+}
+
+func (r *Report) IsSkipped() bool {
+	return r.Status == StatusSkipped
+}
+
+func (r *Report) Duration() time.Duration {
+	return r.EndTime.Sub(r.StartTime)
+}
+
+func (r *Report) Clone() *Report {
+	if r == nil {
+		return nil
+	}
+	clone := &Report{
+		Id:         r.Id,
+		IsWorkflow: r.IsWorkflow,
+		Action:     r.Action,
+		Status:     r.Status,
+		StartTime:  r.StartTime,
+		EndTime:    r.EndTime,
+		Detail:     r.Detail,
+		Error:      r.Error,
+	}
+
+	if r.Metadata != nil {
+		clone.Metadata = make(map[string]string, len(r.Metadata))
+		for k, v := range r.Metadata {
+			clone.Metadata[k] = v
+		}
+	}
+
+	if r.StepReports != nil {
+		clone.StepReports = make([]*Report, 0, len(r.StepReports))
+		for _, sr := range r.StepReports {
+			clone.StepReports = append(clone.StepReports, sr.Clone())
+		}
+	}
+
+	if r.Rollback != nil {
+		clone.Rollback = r.Rollback.Clone()
+	}
+
+	return clone
 }
 
 type ReportOption func(*Report)
@@ -139,6 +197,12 @@ func WithActionType(actionType TypeAction) ReportOption {
 	}
 }
 
+func WithIsWorkflow(isWorkflow bool) ReportOption {
+	return func(sr *Report) {
+		sr.IsWorkflow = isWorkflow
+	}
+}
+
 func NewReport(id string, opts ...ReportOption) *Report {
 	r := &Report{
 		Id:        id,
@@ -146,6 +210,7 @@ func NewReport(id string, opts ...ReportOption) *Report {
 		EndTime:   time.Now(),
 		Status:    StatusSuccess,
 	}
+
 	for _, opt := range opts {
 		opt(r)
 	}
@@ -154,25 +219,45 @@ func NewReport(id string, opts ...ReportOption) *Report {
 
 // StepSuccessReport constructs a success report with options
 func StepSuccessReport(id string, opts ...ReportOption) *Report {
-	opts = append(opts, WithStatus(StatusSuccess), WithEndTime(time.Now()))
+	opts = append(opts, WithIsWorkflow(false), WithStatus(StatusSuccess), WithEndTime(time.Now()))
 	return NewReport(id, opts...)
 }
 
 // StepFailureReport constructs a failure report with options
 func StepFailureReport(id string, opts ...ReportOption) *Report {
-	opts = append(opts, WithStatus(StatusFailed), WithEndTime(time.Now()))
+	opts = append(opts, WithIsWorkflow(false), WithStatus(StatusFailed), WithEndTime(time.Now()))
 	return NewReport(id, opts...)
 }
 
 // StepSkippedReport constructs a skipped report with options
 func StepSkippedReport(id string, opts ...ReportOption) *Report {
-	opts = append(opts, WithStatus(StatusSkipped), WithEndTime(time.Now()))
+	opts = append(opts, WithIsWorkflow(false), WithStatus(StatusSkipped), WithEndTime(time.Now()))
 	return NewReport(id, opts...)
+}
+
+// SuccessReport constructs a success report with options
+func SuccessReport(s Step, opts ...ReportOption) *Report {
+	opts = append(opts, WithIsWorkflow(IsWorkflow(s)), WithStatus(StatusSuccess), WithEndTime(time.Now()))
+	return NewReport(s.Id(), opts...)
+}
+
+// FailureReport constructs a failure report with options
+func FailureReport(s Step, opts ...ReportOption) *Report {
+	opts = append(opts, WithIsWorkflow(IsWorkflow(s)), WithStatus(StatusFailed), WithEndTime(time.Now()))
+	return NewReport(s.Id(), opts...)
+}
+
+// SkippedReport constructs a skipped report with options
+func SkippedReport(s Step, opts ...ReportOption) *Report {
+	opts = append(opts, WithIsWorkflow(IsWorkflow(s)), WithStatus(StatusSkipped), WithEndTime(time.Now()))
+	return NewReport(s.Id(), opts...)
 }
 
 func (r *Report) MarshalJSON() ([]byte, error) {
 	m := marshalReport{
+		Id:          r.Id,
 		Action:      r.Action,
+		IsWorkflow:  r.IsWorkflow,
 		Status:      r.Status,
 		StartTime:   r.StartTime,
 		EndTime:     r.EndTime,
@@ -195,6 +280,7 @@ func (r *Report) MarshalJSON() ([]byte, error) {
 func (r *Report) MarshalYAML() (interface{}, error) {
 	m := marshalReport{
 		Id:          r.Id,
+		IsWorkflow:  r.IsWorkflow,
 		Action:      r.Action,
 		Status:      r.Status,
 		StartTime:   r.StartTime,
