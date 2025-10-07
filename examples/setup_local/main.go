@@ -145,7 +145,7 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 	// This ensures that we don't exit the program before all steps are done.
 	workflow := automa.NewWorkflowBuilder().
 		WithId("setup_local_dev").
-		WithPrepare(func(ctx context.Context, stp automa.Step) (context.Context, error) {
+		WithPrepare(func(ctx context.Context, w automa.Step) (context.Context, error) {
 			err := os.RemoveAll(setupDir)
 			if err != nil && !os.IsNotExist(err) {
 				return nil, err
@@ -172,11 +172,11 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 				),
 		).
 		WithRollbackMode(automa.RollbackModeStopOnError).
-		WithOnCompletion(func(ctx context.Context, stp automa.Step, report *automa.Report) {
+		WithOnCompletion(func(ctx context.Context, w automa.Step, report *automa.Report) {
 			wgStep.Wait()
 			wg.Done() // we mark is done only after all steps are complete
 		}).
-		WithOnFailure(func(ctx context.Context, stp automa.Step, report *automa.Report) {
+		WithOnFailure(func(ctx context.Context, w automa.Step, report *automa.Report) {
 			go func() {
 				// call wgStep.Wait() for the steps that we started
 				for id, sp := range spinners {
