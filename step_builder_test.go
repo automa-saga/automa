@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func dummyExecute(ctx context.Context) *Report                  { return &Report{} }
-func dummyRollback(ctx context.Context) *Report                 { return &Report{} }
-func dummyPrepare(ctx context.Context) (context.Context, error) { return ctx, nil }
-func dummyOnCompletion(ctx context.Context, report *Report)     {}
-func dummyOnFailure(ctx context.Context, report *Report)        {}
+func dummyExecute(ctx context.Context, stp Step) *Report                  { return &Report{} }
+func dummyRollback(ctx context.Context, stp Step) *Report                 { return &Report{} }
+func dummyPrepare(ctx context.Context, stp Step) (context.Context, error) { return ctx, nil }
+func dummyOnCompletion(ctx context.Context, stp Step, report *Report)     {}
+func dummyOnFailure(ctx context.Context, stp Step, report *Report)        {}
 
 func TestStepBuilder_WithMethods(t *testing.T) {
 	logger := zerolog.Nop()

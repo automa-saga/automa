@@ -84,17 +84,19 @@ func TestWorkflowBuilder_WithId_WithLogger_WithRollbackMode(t *testing.T) {
 func TestWorkflowBuilder_WithOnCompletion_WithOnFailure(t *testing.T) {
 	wb := NewWorkflowBuilder()
 	called := false
-	wb.WithOnCompletion(func(ctx context.Context, r *Report) {
+	wb.WithOnCompletion(func(ctx context.Context, stp Step, r *Report) {
 		called = true
 	})
 	assert.NotNil(t, wb.workflow.onCompletion)
-	wb.workflow.onCompletion(context.Background(), &Report{})
+
+	st := &defaultStep{id: "step1"}
+	wb.workflow.onCompletion(context.Background(), st, &Report{})
 	assert.True(t, called)
 
 	failCalled := false
-	wb.WithOnFailure(func(ctx context.Context, r *Report) { failCalled = true })
+	wb.WithOnFailure(func(ctx context.Context, stp Step, r *Report) { failCalled = true })
 	assert.NotNil(t, wb.workflow.onFailure)
-	wb.workflow.onFailure(context.Background(), &Report{})
+	wb.workflow.onFailure(context.Background(), st, &Report{})
 	assert.True(t, failCalled)
 }
 
@@ -113,19 +115,18 @@ func TestWorkflowBuilder_WithPrepare_SetsFunc(t *testing.T) {
 		WithState(state).
 		Steps(&mockStepBuilder{id: "step", valid: true, buildStep: &defaultStep{id: "step"}})
 	called := false
-	wb.WithPrepare(func(ctx context.Context) (context.Context, error) {
-		// check state in context
-		sb := StateFromContext(ctx)
-		if sb == nil {
-			return ctx, errors.New("state bag missing in context")
+	wb.WithPrepare(func(ctx context.Context, stp Step) (context.Context, error) {
+		// check state
+		if stp.State() == nil {
+			return ctx, errors.New("state bag missing")
 		}
 
-		val, ok := sb.Get("test")
+		val, ok := stp.State().Get("test")
 		if !ok || val != 123 {
 			return ctx, errors.New("state bag value incorrect")
 		}
 
-		sb.Set("test", 456) // modify state
+		stp.State().Set("test", 456) // modify state
 
 		called = true
 		return ctx, nil
@@ -138,9 +139,8 @@ func TestWorkflowBuilder_WithPrepare_SetsFunc(t *testing.T) {
 	ctx, err := wf.Prepare(context.Background())
 	assert.NoError(t, err)
 	assert.NotNil(t, ctx)
-	sb := StateFromContext(ctx)
-	assert.NotNil(t, sb)
-	val, ok := sb.Get("test")
+	assert.NotNil(t, wf.State())
+	val, ok := wf.State().Get("test")
 	assert.True(t, ok)
 	assert.Equal(t, 456, val)
 	assert.True(t, called)

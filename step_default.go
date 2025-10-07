@@ -32,23 +32,13 @@ func (s *defaultStep) Id() string {
 }
 
 func (s *defaultStep) Prepare(ctx context.Context) (context.Context, error) {
-	if s.state == nil {
-		s.state = &SyncStateBag{}
-	}
-
-	// merge state and s.state if s.state is already initialized
-	state := StateFromContext(ctx)
-	if state != nil {
-		s.state.Merge(state)
-	}
-
-	preparedCtx := context.WithValue(ctx, KeyState, s.state)
+	preparedCtx := ctx
 	if s.prepare != nil {
-		c, err := s.prepare(preparedCtx)
+		c, err := s.prepare(preparedCtx, s)
 		if err != nil {
 			return nil, err
 		}
-		preparedCtx = c
+		preparedCtx = c // use the context returned by user prepare function
 	}
 
 	return preparedCtx, nil
@@ -57,7 +47,7 @@ func (s *defaultStep) Prepare(ctx context.Context) (context.Context, error) {
 func (s *defaultStep) Execute(ctx context.Context) *Report {
 	start := time.Now()
 	if s.execute != nil {
-		report := s.execute(ctx)
+		report := s.execute(ctx, s)
 		if report == nil {
 			return FailureReport(s,
 				WithError(StepExecutionError.New("step %q execution returned nil report", s.id)),
@@ -104,7 +94,7 @@ func (s *defaultStep) Execute(ctx context.Context) *Report {
 func (s *defaultStep) Rollback(ctx context.Context) *Report {
 	start := time.Now()
 	if s.rollback != nil {
-		report := s.rollback(ctx)
+		report := s.rollback(ctx, s)
 		if report == nil {
 			return FailureReport(s,
 				WithError(StepExecutionError.New("step %q rollback returned nil report", s.id)),
@@ -153,9 +143,9 @@ func (s *defaultStep) handleCompletion(ctx context.Context, report *Report) {
 
 	if s.enableAsyncCallbacks {
 		clonedReport := report.Clone() // assuming Clone() creates a deep copy
-		go s.onCompletion(ctx, clonedReport)
+		go s.onCompletion(ctx, s, clonedReport)
 	} else {
-		s.onCompletion(ctx, report)
+		s.onCompletion(ctx, s, report)
 	}
 }
 
@@ -166,9 +156,9 @@ func (s *defaultStep) handleFailure(ctx context.Context, report *Report) {
 
 	if s.enableAsyncCallbacks {
 		clonedReport := report.Clone() // assuming Clone() creates a deep copy
-		go s.onFailure(ctx, clonedReport)
+		go s.onFailure(ctx, s, clonedReport)
 	} else {
-		s.onFailure(ctx, report)
+		s.onFailure(ctx, s, report)
 	}
 }
 

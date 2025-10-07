@@ -67,3 +67,33 @@ func TestTypeAction_MarshalYAML_UnmarshalYAML(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, TypeAction(0), a)
 }
+
+func TestTypeAction_String_Prepare(t *testing.T) {
+	assert.Equal(t, "prepare", ActionPrepare.String())
+}
+
+func TestTypeAction_UnmarshalJSON_Invalid(t *testing.T) {
+	var a TypeAction
+	err := json.Unmarshal([]byte(`"invalid"`), &a)
+	assert.NoError(t, err)
+	assert.Equal(t, TypeAction(0), a)
+}
+
+func TestTypeAction_UnmarshalYAML_Invalid(t *testing.T) {
+	var a TypeAction
+	err := yaml.Unmarshal([]byte("invalid\n"), &a)
+	assert.NoError(t, err)
+	assert.Equal(t, TypeAction(0), a)
+}
+
+func TestTypeAction_MarshalYAML_Prepare(t *testing.T) {
+	b, err := yaml.Marshal(ActionPrepare)
+	assert.NoError(t, err)
+	assert.Contains(t, string(b), "prepare")
+}
+
+func TestTypeAction_MarshalJSON_Prepare(t *testing.T) {
+	b, err := json.Marshal(ActionPrepare)
+	assert.NoError(t, err)
+	assert.Equal(t, `"prepare"`, string(b))
+}

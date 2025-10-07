@@ -25,7 +25,7 @@ func setupDirectories() *automa.StepBuilder {
 	}
 	script := fmt.Sprintf("mkdir -p %s", strings.Join(dirs, " "))
 	return automa_steps.BashScriptStep(setupDirStepId, []string{script}, "").
-		WithRollback(func(ctx context.Context) *automa.Report {
+		WithRollback(func(ctx context.Context, stp automa.Step) *automa.Report {
 			_, err := os.Stat(setupDir)
 			if err != nil {
 				if os.IsNotExist(err) {
@@ -58,7 +58,7 @@ if ! command -v %[1]s/bin/task &> /dev/null; then
   chmod +x %[1]s/bin/task
 fi`, setupDir, version))
 	return automa_steps.BashScriptStep(installTaskStepId, []string{installCmd}, "").
-		WithRollback(func(ctx context.Context) *automa.Report {
+		WithRollback(func(ctx context.Context, stp automa.Step) *automa.Report {
 			p := path.Join(setupDir, "bin", "task")
 			_, err := os.Stat(p)
 			if err != nil {
@@ -91,7 +91,7 @@ if ! command -v %[1]s/bin/kind &> /dev/null; then
   chmod +x %[1]s/bin/kind
 fi`, setupDir, version))
 	return automa_steps.BashScriptStep(installKindStepId, []string{installCmd}, "").
-		WithRollback(func(ctx context.Context) *automa.Report {
+		WithRollback(func(ctx context.Context, stp automa.Step) *automa.Report {
 			p := path.Join(setupDir, "bin", "kind")
 			_, err := os.Stat(p)
 			if err != nil {

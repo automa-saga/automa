@@ -82,6 +82,7 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 			} else {
 				fmt.Printf("%s %s\n", greenTick, report.Id)
 			}
+			delete(spinners, report.Id) // remove spinner from map
 		} else {
 			fmt.Printf("No spinner found for step: %s\n", report.Id)
 		}
@@ -96,15 +97,8 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 	// This is important because the spinners run in separate goroutines.
 	// We need to start them before the step starts executing,
 	// so that we can see the spinner while the step is running.
-	onPrepare := func(ctx context.Context) (context.Context, error) {
-		state := automa.StateFromContext(ctx)
-		id := automa.StringFromState(state, automa.KeyId)
-		if id == "" {
-			return nil, fmt.Errorf("step id not found in state bag")
-		}
-
-		startSpinner(id, &wgStep)
-
+	onPrepare := func(ctx context.Context, stp automa.Step) (context.Context, error) {
+		startSpinner(stp.Id(), &wgStep)
 		return ctx, nil
 	}
 
@@ -130,10 +124,10 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 	// So always remember to wait for your spinners to complete! Check the OnCompletion callback for the workflow below.
 	// Otherwise, you may end up with a messy CLI output!
 	//
-	onCompletion := func(ctx context.Context, report *automa.Report) {
+	onCompletion := func(ctx context.Context, stp automa.Step, report *automa.Report) {
 		stopSpinner(report, spinners, &wgStep)
 	}
-	onFailure := func(ctx context.Context, report *automa.Report) {
+	onFailure := func(ctx context.Context, stp automa.Step, report *automa.Report) {
 		stopSpinner(report, spinners, &wgStep)
 	}
 
@@ -151,7 +145,7 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 	// This ensures that we don't exit the program before all steps are done.
 	workflow := automa.NewWorkflowBuilder().
 		WithId("setup_local_dev").
-		WithPrepare(func(ctx context.Context) (context.Context, error) {
+		WithPrepare(func(ctx context.Context, w automa.Step) (context.Context, error) {
 			err := os.RemoveAll(setupDir)
 			if err != nil && !os.IsNotExist(err) {
 				return nil, err
@@ -178,12 +172,21 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 				),
 		).
 		WithRollbackMode(automa.RollbackModeStopOnError).
-		WithOnCompletion(func(ctx context.Context, report *automa.Report) {
+		WithOnCompletion(func(ctx context.Context, w automa.Step, report *automa.Report) {
 			wgStep.Wait()
 			wg.Done() // we mark is done only after all steps are complete
 		}).
-		WithOnFailure(func(ctx context.Context, report *automa.Report) {
+		WithOnFailure(func(ctx context.Context, w automa.Step, report *automa.Report) {
+			go func() {
+				// call wgStep.Wait() for the steps that we started
+				for id, sp := range spinners {
+					sp.Stop()
+					fmt.Printf("✘ %s - stopped because of failure\n", id)
+					wgStep.Done()
+				}
+			}()
 			wgStep.Wait()
+
 			wg.Done()
 		})
 

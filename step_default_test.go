@@ -13,7 +13,7 @@ import (
 func TestDefaultStep_Prepare(t *testing.T) {
 	step := newDefaultStep()
 	called := false
-	step.prepare = func(ctx context.Context) (context.Context, error) {
+	step.prepare = func(ctx context.Context, stp Step) (context.Context, error) {
 		called = true
 		return context.WithValue(ctx, "k", "v"), nil
 	}
@@ -26,7 +26,7 @@ func TestDefaultStep_Prepare(t *testing.T) {
 
 func TestDefaultStep_Prepare_Error(t *testing.T) {
 	step := newDefaultStep()
-	step.prepare = func(ctx context.Context) (context.Context, error) {
+	step.prepare = func(ctx context.Context, stp Step) (context.Context, error) {
 		return nil, errors.New("prep error")
 	}
 	ctx := context.Background()
@@ -38,11 +38,11 @@ func TestDefaultStep_Prepare_Error(t *testing.T) {
 func TestDefaultStep_Execute_Success(t *testing.T) {
 	step := newDefaultStep()
 	step.id = "exec"
-	step.execute = func(ctx context.Context) *Report {
+	step.execute = func(ctx context.Context, stp Step) *Report {
 		return SuccessReport(step, WithActionType(ActionExecute))
 	}
 	called := false
-	step.onCompletion = func(ctx context.Context, report *Report) {
+	step.onCompletion = func(ctx context.Context, stp Step, report *Report) {
 		called = true
 	}
 	report := step.Execute(context.Background())
@@ -54,12 +54,12 @@ func TestDefaultStep_Execute_Success(t *testing.T) {
 func TestDefaultStep_Execute_Failure(t *testing.T) {
 	step := newDefaultStep()
 	step.id = "fail"
-	step.execute = func(ctx context.Context) *Report {
+	step.execute = func(ctx context.Context, stp Step) *Report {
 		return FailureReport(step, WithActionType(ActionExecute),
 			WithError(errors.New("exec error")))
 	}
 	called := false
-	step.onFailure = func(ctx context.Context, report *Report) {
+	step.onFailure = func(ctx context.Context, stp Step, report *Report) {
 		called = true
 	}
 	report := step.Execute(context.Background())
@@ -81,7 +81,7 @@ func TestDefaultStep_Rollback_Success(t *testing.T) {
 	step := newDefaultStep()
 	step.id = "rb"
 	called := false
-	step.rollback = func(ctx context.Context) *Report {
+	step.rollback = func(ctx context.Context, stp Step) *Report {
 		called = true
 		return SuccessReport(step, WithActionType(ActionRollback))
 	}
@@ -96,7 +96,7 @@ func TestDefaultStep_Rollback_Failure(t *testing.T) {
 	step := newDefaultStep()
 	step.id = "rbfail"
 	called := false
-	step.rollback = func(ctx context.Context) *Report {
+	step.rollback = func(ctx context.Context, stp Step) *Report {
 		called = true
 		return FailureReport(step, WithError(errors.New("rollback error")))
 	}
@@ -139,10 +139,10 @@ func TestDefaultStep_AsyncCallbacks(t *testing.T) {
 	step.id = "async"
 	var wg sync.WaitGroup
 	wg.Add(1)
-	step.onCompletion = func(ctx context.Context, report *Report) {
+	step.onCompletion = func(ctx context.Context, stp Step, report *Report) {
 		wg.Done()
 	}
-	step.execute = func(ctx context.Context) *Report {
+	step.execute = func(ctx context.Context, stp Step) *Report {
 		return SuccessReport(step, WithActionType(ActionExecute))
 	}
 	step.Execute(context.Background())
