@@ -10,13 +10,16 @@ import (
 type workflow struct {
 	id                   string
 	state                StateBag
-	prepare              PrepareFunc
-	steps                []Step
 	logger               zerolog.Logger
+	steps                []Step
 	rollbackMode         TypeRollbackMode
-	onCompletion         OnCompletionFunc
-	onFailure            OnFailureFunc
 	enableAsyncCallbacks bool
+
+	// callbacks and hooks
+	prepare      PrepareFunc
+	rollback     RollbackFunc // optional user-defined rollback function for the entire workflow
+	onCompletion OnCompletionFunc
+	onFailure    OnFailureFunc
 }
 
 func IsWorkflow(stp Step) bool {
@@ -193,7 +196,43 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 	return workflowReport
 }
 
+// invokeRollbackFunc invokes the user-defined rollback function for the entire workflow.
+// It ensures the returned report is valid and sets the appropriate action type.
+func (w *workflow) invokeRollbackFunc(ctx context.Context) *Report {
+	workflowReport := w.rollback(ctx, w)
+	if workflowReport == nil {
+		return FailureReport(w,
+			WithActionType(ActionRollback),
+			WithError(StepExecutionError.New("workflow %q returned nil report from Rollback", w.id)),
+		)
+	}
+
+	if workflowReport.IsFailed() {
+		if workflowReport.Error == nil {
+			// this should not happen, but just in case
+			workflowReport.Error = StepExecutionError.New("workflow %q rollback failed", w.id)
+		}
+
+		return FailureReport(w,
+			WithReport(workflowReport),
+			WithActionType(ActionRollback),
+		)
+	}
+
+	if workflowReport.Action != ActionRollback {
+		workflowReport.Action = ActionRollback
+	}
+
+	return SuccessReport(w,
+		WithReport(workflowReport),
+		WithActionType(ActionRollback),
+	)
+}
 func (w *workflow) Rollback(ctx context.Context) *Report {
+	if w.rollback != nil {
+		return w.invokeRollbackFunc(ctx) // use user-defined rollback function if provided
+	}
+
 	startTime := time.Now()
 	stepCtx := context.WithValue(ctx, KeyState, w.State().
 		Set(KeyId, w.Id()).

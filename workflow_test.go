@@ -418,3 +418,71 @@ func TestWorkflow_Rollback_NilReportFromStep(t *testing.T) {
 	assert.Equal(t, StatusFailed, report.StepReports[0].Status)
 	assert.Contains(t, report.StepReports[0].Error.Error(), "rollback returned nil report")
 }
+
+func TestWorkflow_InvokeRollbackFunc_UserDefinedRollback(t *testing.T) {
+	called := false
+	wf := &workflow{
+		id: "wf",
+		rollback: func(ctx context.Context, stp Step) *Report {
+			called = true
+			return StepSuccessReport("wf")
+		},
+	}
+	report := wf.Rollback(context.Background())
+	assert.True(t, called, "user-defined rollback should be called")
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, ActionRollback, report.Action)
+}
+
+func TestWorkflow_InvokeRollbackFunc_UserDefinedRollbackFails(t *testing.T) {
+	wf := &workflow{
+		id: "wf",
+		rollback: func(ctx context.Context, stp Step) *Report {
+			return StepFailureReport("wf", WithError(errors.New("rollback failed")))
+		},
+	}
+	report := wf.Rollback(context.Background())
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusFailed, report.Status)
+	assert.Equal(t, ActionRollback, report.Action)
+	assert.Contains(t, report.Error.Error(), "rollback failed")
+}
+
+func TestWorkflow_InvokeRollbackFunc_NilReport(t *testing.T) {
+	wf := &workflow{
+		id: "wf",
+		rollback: func(ctx context.Context, stp Step) *Report {
+			return nil
+		},
+	}
+	report := wf.Rollback(context.Background())
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusFailed, report.Status)
+	assert.Equal(t, ActionRollback, report.Action)
+	assert.Contains(t, report.Error.Error(), "returned nil report")
+}
+
+func TestWorkflow_HandleCompletion_Sync(t *testing.T) {
+	called := false
+	wf := &workflow{
+		onCompletion: func(ctx context.Context, stp Step, report *Report) {
+			called = true
+		},
+		enableAsyncCallbacks: false,
+	}
+	wf.handleCompletion(context.Background(), StepSuccessReport("wf"))
+	assert.True(t, called, "onCompletion should be called synchronously")
+}
+
+func TestWorkflow_HandleFailure_Sync(t *testing.T) {
+	called := false
+	wf := &workflow{
+		onFailure: func(ctx context.Context, stp Step, report *Report) {
+			called = true
+		},
+		enableAsyncCallbacks: false,
+	}
+	wf.handleFailure(context.Background(), StepFailureReport("wf"))
+	assert.True(t, called, "onFailure should be called synchronously")
+}

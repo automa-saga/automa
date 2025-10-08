@@ -177,3 +177,60 @@ func TestWorkflowBuilder_Steps_DuplicateStepId(t *testing.T) {
 	// Only one step with the same id should be added
 	assert.Equal(t, []string{"step"}, wb.stepSequence)
 }
+
+func TestWorkflowBuilder_Validate_EmptyWorkflowId(t *testing.T) {
+	wb := NewWorkflowBuilder()
+	b := &mockStepBuilder{id: "step", valid: true}
+	wb.Steps(b)
+	err := wb.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "workflow id cannot be empty")
+}
+
+func TestWorkflowBuilder_Validate_NoSteps(t *testing.T) {
+	wb := NewWorkflowBuilder().WithId("wf")
+	err := wb.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no steps provided for workflow")
+}
+
+func TestWorkflowBuilder_MethodChaining(t *testing.T) {
+	wb := NewWorkflowBuilder().
+		WithId("chain").
+		WithRollbackMode(RollbackModeStopOnError).
+		WithAsyncCallbacks(true).
+		WithState(&SyncStateBag{}).
+		WithLogger(zerolog.Nop())
+	assert.Equal(t, "chain", wb.Id())
+	assert.Equal(t, RollbackModeStopOnError, wb.workflow.rollbackMode)
+	assert.True(t, wb.workflow.enableAsyncCallbacks)
+	assert.NotNil(t, wb.workflow.state)
+}
+
+func TestWorkflowBuilder_WithRollback_SetsRollbackFunc(t *testing.T) {
+	wb := NewWorkflowBuilder()
+	called := false
+	wb.WithRollback(func(ctx context.Context, stp Step) *Report {
+		called = true
+		return StepSuccessReport("wf")
+	})
+	assert.NotNil(t, wb.workflow.rollback)
+	wb.workflow.rollback(context.Background(), &defaultStep{id: "step"})
+	assert.True(t, called)
+}
+
+func TestWorkflowBuilder_WithRegistry_NilRegistry(t *testing.T) {
+	wb := NewWorkflowBuilder()
+	wb.WithRegistry(nil)
+	assert.Nil(t, wb.registry)
+}
+
+func TestWorkflowBuilder_NamedSteps_DuplicateIds(t *testing.T) {
+	reg := NewRegistry()
+	b := &mockStepBuilder{id: "dup", valid: true}
+	err := reg.Add(b)
+	assert.NoError(t, err)
+	wb := NewWorkflowBuilder().WithRegistry(reg)
+	wb.NamedSteps("dup", "dup")
+	assert.Equal(t, []string{"dup"}, wb.stepSequence)
+}
