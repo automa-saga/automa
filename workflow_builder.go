@@ -141,6 +141,11 @@ func (wb *WorkflowBuilder) WithState(state StateBag) *WorkflowBuilder {
 	return wb
 }
 
+func (wb *WorkflowBuilder) WithRollback(rollback RollbackFunc) *WorkflowBuilder {
+	wb.workflow.rollback = rollback
+	return wb
+}
+
 func NewWorkflowBuilder() *WorkflowBuilder {
 	return &WorkflowBuilder{
 		workflow:     newWorkflow(),
