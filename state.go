@@ -101,6 +101,47 @@ func (s *SyncStateBag) Size() int {
 	return count
 }
 
+// Helper methods for extracting typed values from StateBag
+func (s *SyncStateBag) String(key Key) string {
+	return FromState[string](s, key, "")
+}
+
+func (s *SyncStateBag) Bool(key Key) bool {
+	return FromState[bool](s, key, false)
+}
+
+func (s *SyncStateBag) Int(key Key) int {
+	return FromState[int](s, key, 0)
+}
+
+func (s *SyncStateBag) Int8(key Key) int8 {
+	return FromState[int8](s, key, 0)
+}
+
+func (s *SyncStateBag) Int16(key Key) int16 {
+	return FromState[int16](s, key, 0)
+}
+
+func (s *SyncStateBag) Int32(key Key) int32 {
+	return FromState[int32](s, key, 0)
+}
+
+func (s *SyncStateBag) Int64(key Key) int64 {
+	return FromState[int64](s, key, 0)
+}
+
+func (s *SyncStateBag) Float(key Key) float64 {
+	return FromState[float64](s, key, 0.0)
+}
+
+func (s *SyncStateBag) Float32(key Key) float32 {
+	return FromState[float32](s, key, 0.0)
+}
+
+func (s *SyncStateBag) Float64(key Key) float64 {
+	return FromState[float64](s, key, 0.0)
+}
+
 // ContextWithState returns a context with the given StateBag.
 func ContextWithState(ctx context.Context, stateBag StateBag) context.Context {
 	return context.WithValue(ctx, KeyState, stateBag)

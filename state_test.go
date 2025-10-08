@@ -171,3 +171,75 @@ func TestSyncStateBag_Clone(t *testing.T) {
 	assert.Equal(t, 42, IntFromState(orig, "foo"))
 	assert.Equal(t, 100, IntFromState(clone, "foo"))
 }
+
+func TestSyncStateBag_HelperMethods(t *testing.T) {
+	bag := &SyncStateBag{}
+	
+	// Test String
+	bag.Set("str", "hello")
+	assert.Equal(t, "hello", bag.String("str"))
+	assert.Equal(t, "", bag.String("missingStr"))
+	
+	// Test Bool
+	bag.Set("bool", true)
+	assert.Equal(t, true, bag.Bool("bool"))
+	assert.Equal(t, false, bag.Bool("missingBool"))
+	
+	// Test Int
+	bag.Set("int", 123)
+	assert.Equal(t, 123, bag.Int("int"))
+	assert.Equal(t, 0, bag.Int("missingInt"))
+	
+	// Test Int8
+	bag.Set("int8", int8(8))
+	assert.Equal(t, int8(8), bag.Int8("int8"))
+	assert.Equal(t, int8(0), bag.Int8("missingInt8"))
+	
+	// Test Int16
+	bag.Set("int16", int16(16))
+	assert.Equal(t, int16(16), bag.Int16("int16"))
+	assert.Equal(t, int16(0), bag.Int16("missingInt16"))
+	
+	// Test Int32
+	bag.Set("int32", int32(32))
+	assert.Equal(t, int32(32), bag.Int32("int32"))
+	assert.Equal(t, int32(0), bag.Int32("missingInt32"))
+	
+	// Test Int64
+	bag.Set("int64", int64(64))
+	assert.Equal(t, int64(64), bag.Int64("int64"))
+	assert.Equal(t, int64(0), bag.Int64("missingInt64"))
+	
+	// Test Float
+	bag.Set("float", 3.14)
+	assert.Equal(t, 3.14, bag.Float("float"))
+	assert.Equal(t, 0.0, bag.Float("missingFloat"))
+	
+	// Test Float32
+	bag.Set("float32", float32(3.14))
+	assert.InDelta(t, float32(3.14), bag.Float32("float32"), 0.001)
+	assert.Equal(t, float32(0.0), bag.Float32("missingFloat32"))
+	
+	// Test Float64
+	bag.Set("float64", float64(3.14159))
+	assert.Equal(t, 3.14159, bag.Float64("float64"))
+	assert.Equal(t, 0.0, bag.Float64("missingFloat64"))
+}
+
+func TestSyncStateBag_HelperMethods_TypeSafety(t *testing.T) {
+	bag := &SyncStateBag{}
+	
+	// Test that wrong types return zero values
+	bag.Set("notAString", 123)
+	assert.Equal(t, "", bag.String("notAString"))
+	
+	bag.Set("notAnInt", "hello")
+	assert.Equal(t, 0, bag.Int("notAnInt"))
+	
+	bag.Set("notABool", "true")
+	assert.Equal(t, false, bag.Bool("notABool"))
+	
+	bag.Set("notAFloat", "3.14")
+	assert.Equal(t, 0.0, bag.Float("notAFloat"))
+}
+

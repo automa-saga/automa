@@ -23,6 +23,17 @@ type StateBag interface {
 	Items() map[Key]interface{}
 	Merge(other StateBag) StateBag
 	Clone() StateBag
+	// Helper methods for extracting typed values
+	String(key Key) string
+	Bool(key Key) bool
+	Int(key Key) int
+	Int8(key Key) int8
+	Int16(key Key) int16
+	Int32(key Key) int32
+	Int64(key Key) int64
+	Float(key Key) float64
+	Float32(key Key) float32
+	Float64(key Key) float64
 }
 
 type Workflow interface {
