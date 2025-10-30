@@ -3,10 +3,11 @@ package automa
 import (
 	"context"
 	"errors"
-	"github.com/rs/zerolog"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestWorkflow_ExecutesAllSteps(t *testing.T) {
@@ -35,6 +36,22 @@ func TestWorkflow_StopsOnStepError(t *testing.T) {
 	report := wf.Execute(context.Background())
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusFailed, report.Status)
+}
+
+func TestWorkflow_ContinueOnSkippedStep(t *testing.T) {
+	s1 := &defaultStep{id: "s1", execute: func(ctx context.Context, stp Step) *Report {
+		return StepSkippedReport("s1")
+	}}
+	s2 := &defaultStep{id: "s2", execute: func(ctx context.Context, stp Step) *Report {
+		return StepSuccessReport("s2")
+	}}
+	wf := &workflow{id: "wf", steps: []Step{s1, s2}}
+
+	report := wf.Execute(context.Background())
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, StatusSkipped, report.StepReports[0].Status)
+	assert.Equal(t, StatusSuccess, report.StepReports[1].Status)
 }
 
 func TestWorkflow_RollbackModeStopOnError(t *testing.T) {

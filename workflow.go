@@ -160,7 +160,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 		stepReports = append(stepReports, report)
 
-		if !report.IsSuccess() {
+		if report.IsFailed() {
 			// Perform rollback for all executed steps up to the current one
 			rollbackReports := w.rollbackFrom(stepCtx, index)
 
