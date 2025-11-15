@@ -2,6 +2,7 @@ package automa
 
 import (
 	"fmt"
+
 	"github.com/rs/zerolog"
 )
 
@@ -41,7 +42,7 @@ func (wb *WorkflowBuilder) Build() (Step, error) {
 
 	wb.workflow.steps = steps
 	finished := wb.workflow
-	wb.workflow = newWorkflow()
+	wb.workflow = newDefaultWorkflow()
 
 	return finished, nil
 }
@@ -111,7 +112,12 @@ func (wb *WorkflowBuilder) WithLogger(logger zerolog.Logger) *WorkflowBuilder {
 	return wb
 }
 
-func (wb *WorkflowBuilder) WithRollbackMode(mode TypeRollbackMode) *WorkflowBuilder {
+func (wb *WorkflowBuilder) WithExecutionMode(mode TypeMode) *WorkflowBuilder {
+	wb.workflow.executionMode = mode
+	return wb
+}
+
+func (wb *WorkflowBuilder) WithRollbackMode(mode TypeMode) *WorkflowBuilder {
 	wb.workflow.rollbackMode = mode
 	return wb
 }
@@ -148,7 +154,7 @@ func (wb *WorkflowBuilder) WithRollback(rollback RollbackFunc) *WorkflowBuilder 
 
 func NewWorkflowBuilder() *WorkflowBuilder {
 	return &WorkflowBuilder{
-		workflow:     newWorkflow(),
+		workflow:     newDefaultWorkflow(),
 		stepBuilders: make(map[string]Builder),
 		stepSequence: []string{},
 	}

@@ -10,6 +10,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func newTestWorkflow(id string, steps []Step) *workflow {
+	return &workflow{
+		id:            id,
+		steps:         steps,
+		executionMode: StopOnError,
+		rollbackMode:  ContinueOnError,
+	}
+}
+
 func TestWorkflow_ExecutesAllSteps(t *testing.T) {
 	s1 := &defaultStep{id: "s1", execute: func(ctx context.Context, stp Step) *Report {
 		return StepSuccessReport("s1")
@@ -17,11 +26,14 @@ func TestWorkflow_ExecutesAllSteps(t *testing.T) {
 	s2 := &defaultStep{id: "s2", execute: func(ctx context.Context, stp Step) *Report {
 		return StepSuccessReport("s2")
 	}}
-	wf := &workflow{id: "wf", steps: []Step{s1, s2}}
+	wf := newTestWorkflow("wf", []Step{s1, s2})
 
 	report := wf.Execute(context.Background())
 	assert.NotNil(t, report)
+	assert.Len(t, report.StepReports, 2)
 	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, StopOnError, report.ExecutionMode)
+	assert.Equal(t, ContinueOnError, report.RollbackMode)
 }
 
 func TestWorkflow_StopsOnStepError(t *testing.T) {
@@ -31,7 +43,8 @@ func TestWorkflow_StopsOnStepError(t *testing.T) {
 	s2 := &defaultStep{id: "s2", execute: func(ctx context.Context, stp Step) *Report {
 		return StepFailureReport("s2", WithError(StepExecutionError.New("some error")))
 	}}
-	wf := &workflow{id: "wf", steps: []Step{s1, s2}}
+
+	wf := newTestWorkflow("wf", []Step{s1, s2})
 
 	report := wf.Execute(context.Background())
 	assert.NotNil(t, report)
@@ -58,7 +71,9 @@ func TestWorkflow_RollbackModeStopOnError(t *testing.T) {
 	s := &defaultStep{id: "s", execute: func(ctx context.Context, stp Step) *Report {
 		return StepFailureReport("s", WithError(StepExecutionError.New("some error")))
 	}}
-	wf := &workflow{id: "wf", steps: []Step{s}, rollbackMode: RollbackModeStopOnError}
+
+	wf := newTestWorkflow("wf", []Step{s})
+	wf.rollbackMode = StopOnError
 
 	report := wf.Execute(context.Background())
 	assert.NotNil(t, report)
@@ -102,7 +117,7 @@ func TestWorkflow_OnRollback(t *testing.T) {
 		},
 	}
 
-	wf := &workflow{id: "wf", steps: []Step{step1, step2}}
+	wf := newTestWorkflow("wf", []Step{step1, step2})
 	report := wf.Rollback(ctx)
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusSuccess, report.Status)
@@ -126,7 +141,8 @@ func TestWorkflow_Execute_StatusSuccess(t *testing.T) {
 			return StepSuccessReport("step2")
 		},
 	}
-	wf := &workflow{id: "wf-success", steps: []Step{step1, step2}}
+
+	wf := newTestWorkflow("wf-success", []Step{step1, step2})
 
 	report := wf.Execute(ctx)
 	assert.NotNil(t, report)
@@ -153,7 +169,8 @@ func TestWorkflow_RollbackFrom_FailedRollback(t *testing.T) {
 			return StepSuccessReport("step2")
 		},
 	}
-	wf := &workflow{id: "wf", steps: []Step{step1, step2}}
+
+	wf := newTestWorkflow("wf", []Step{step1, step2})
 
 	reports := wf.rollbackFrom(ctx, 1)
 	assert.Len(t, reports, 2)
@@ -177,11 +194,9 @@ func TestWorkflow_RollbackFrom_ContinueOnError(t *testing.T) {
 			return StepSuccessReport("step2")
 		},
 	}
-	wf := &workflow{
-		id:           "wf",
-		steps:        []Step{step1, step2},
-		rollbackMode: RollbackModeContinueOnError,
-	}
+
+	wf := newTestWorkflow("wf", []Step{step1, step2})
+	wf.rollbackMode = ContinueOnError
 
 	reports := wf.rollbackFrom(ctx, 1)
 	assert.Len(t, reports, 2)
@@ -205,11 +220,9 @@ func TestWorkflow_RollbackFrom_StopOnError(t *testing.T) {
 			return StepFailureReport("step2", WithError(failErr))
 		},
 	}
-	wf := &workflow{
-		id:           "wf",
-		steps:        []Step{step1, step2},
-		rollbackMode: RollbackModeStopOnError,
-	}
+
+	wf := newTestWorkflow("wf", []Step{step1, step2})
+	wf.rollbackMode = StopOnError
 
 	reports := wf.rollbackFrom(ctx, 1)
 	assert.Len(t, reports, 1)
@@ -233,11 +246,9 @@ func TestWorkflow_RollbackFrom_SkippedStatus(t *testing.T) {
 			return StepFailureReport("step2", WithError(errors.New("rollback failed")))
 		},
 	}
-	wf := &workflow{
-		id:           "wf",
-		steps:        []Step{step1, step2},
-		rollbackMode: RollbackModeContinueOnError,
-	}
+
+	wf := newTestWorkflow("wf", []Step{step1, step2})
+	wf.rollbackMode = ContinueOnError
 
 	reports := wf.rollbackFrom(ctx, 1)
 	assert.Len(t, reports, 2)
@@ -338,6 +349,7 @@ func TestWorkflow_HandleFailure_Async(t *testing.T) {
 			done <- true
 		},
 		enableAsyncCallbacks: true,
+		executionMode:        StopOnError,
 	}
 	wf.handleFailure(context.Background(), StepFailureReport("wf"))
 	select {
@@ -349,11 +361,11 @@ func TestWorkflow_HandleFailure_Async(t *testing.T) {
 }
 
 func TestWorkflow_Execute_NilState(t *testing.T) {
-	wf := &workflow{id: "wf", steps: []Step{
+	wf := newTestWorkflow("wf", []Step{
 		&defaultStep{id: "step", execute: func(ctx context.Context, stp Step) *Report {
 			return StepSuccessReport("step")
 		}},
-	}}
+	})
 	wf.state = nil
 	report := wf.Execute(context.Background())
 	assert.NotNil(t, report)
@@ -362,7 +374,7 @@ func TestWorkflow_Execute_NilState(t *testing.T) {
 }
 
 func TestWorkflow_Rollback_NilState(t *testing.T) {
-	wf := &workflow{id: "wf", steps: []Step{newDefaultStep()}}
+	wf := newTestWorkflow("wf", []Step{newDefaultStep()})
 	wf.state = nil
 	report := wf.Rollback(context.Background())
 	assert.NotNil(t, report)
@@ -398,7 +410,7 @@ func TestWorkflow_StepStatePropagation(t *testing.T) {
 		},
 	}
 
-	wf := &workflow{id: "wf", steps: []Step{step}}
+	wf := newTestWorkflow("wf", []Step{step})
 	wf.State().Set(workflowStateKey, workflowStateValue)
 	report := wf.Execute(context.Background())
 	assert.NotNil(t, report)
@@ -407,16 +419,16 @@ func TestWorkflow_StepStatePropagation(t *testing.T) {
 
 func TestWorkflow_Execute_NilReportFromStep(t *testing.T) {
 	step := &defaultStep{
-		id: "step",
+		id: "step-id1",
 		execute: func(ctx context.Context, stp Step) *Report {
 			return nil // Simulate buggy step
 		},
 	}
-	wf := &workflow{id: "wf", steps: []Step{step}}
+	wf := newTestWorkflow("wf", []Step{step})
 	report := wf.Execute(context.Background())
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusFailed, report.Status)
-	assert.Contains(t, report.Error.Error(), `workflow "wf" failed at step "step"`)
+	assert.Contains(t, report.Error.Error(), `workflow "wf" completed with 1 step failures: [step-id1]`)
 }
 
 func TestWorkflow_Rollback_NilReportFromStep(t *testing.T) {
@@ -426,7 +438,7 @@ func TestWorkflow_Rollback_NilReportFromStep(t *testing.T) {
 			return nil // Simulate buggy rollback
 		},
 	}
-	wf := &workflow{id: "wf", steps: []Step{step}}
+	wf := newTestWorkflow("wf", []Step{step})
 	report := wf.Rollback(context.Background())
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusSuccess, report.Status)
@@ -438,12 +450,10 @@ func TestWorkflow_Rollback_NilReportFromStep(t *testing.T) {
 
 func TestWorkflow_InvokeRollbackFunc_UserDefinedRollback(t *testing.T) {
 	called := false
-	wf := &workflow{
-		id: "wf",
-		rollback: func(ctx context.Context, stp Step) *Report {
-			called = true
-			return StepSuccessReport("wf")
-		},
+	wf := newTestWorkflow("wf", []Step{})
+	wf.rollback = func(ctx context.Context, stp Step) *Report {
+		called = true
+		return StepSuccessReport("wf")
 	}
 	report := wf.Rollback(context.Background())
 	assert.True(t, called, "user-defined rollback should be called")
@@ -453,11 +463,9 @@ func TestWorkflow_InvokeRollbackFunc_UserDefinedRollback(t *testing.T) {
 }
 
 func TestWorkflow_InvokeRollbackFunc_UserDefinedRollbackFails(t *testing.T) {
-	wf := &workflow{
-		id: "wf",
-		rollback: func(ctx context.Context, stp Step) *Report {
-			return StepFailureReport("wf", WithError(errors.New("rollback failed")))
-		},
+	wf := newTestWorkflow("wf", []Step{})
+	wf.rollback = func(ctx context.Context, stp Step) *Report {
+		return StepFailureReport("wf", WithError(errors.New("rollback failed")))
 	}
 	report := wf.Rollback(context.Background())
 	assert.NotNil(t, report)
@@ -467,11 +475,9 @@ func TestWorkflow_InvokeRollbackFunc_UserDefinedRollbackFails(t *testing.T) {
 }
 
 func TestWorkflow_InvokeRollbackFunc_NilReport(t *testing.T) {
-	wf := &workflow{
-		id: "wf",
-		rollback: func(ctx context.Context, stp Step) *Report {
-			return nil
-		},
+	wf := newTestWorkflow("wf", []Step{})
+	wf.rollback = func(ctx context.Context, stp Step) *Report {
+		return nil
 	}
 	report := wf.Rollback(context.Background())
 	assert.NotNil(t, report)
@@ -482,24 +488,56 @@ func TestWorkflow_InvokeRollbackFunc_NilReport(t *testing.T) {
 
 func TestWorkflow_HandleCompletion_Sync(t *testing.T) {
 	called := false
-	wf := &workflow{
-		onCompletion: func(ctx context.Context, stp Step, report *Report) {
-			called = true
-		},
-		enableAsyncCallbacks: false,
+	wf := newTestWorkflow("wf", []Step{})
+	wf.onCompletion = func(ctx context.Context, stp Step, report *Report) {
+		called = true
 	}
+	wf.enableAsyncCallbacks = false
 	wf.handleCompletion(context.Background(), StepSuccessReport("wf"))
 	assert.True(t, called, "onCompletion should be called synchronously")
 }
 
 func TestWorkflow_HandleFailure_Sync(t *testing.T) {
 	called := false
-	wf := &workflow{
-		onFailure: func(ctx context.Context, stp Step, report *Report) {
-			called = true
-		},
-		enableAsyncCallbacks: false,
+	wf := newTestWorkflow("wf", []Step{})
+	wf.onFailure = func(ctx context.Context, stp Step, report *Report) {
+		called = true
 	}
+	wf.enableAsyncCallbacks = false
+
 	wf.handleFailure(context.Background(), StepFailureReport("wf"))
 	assert.True(t, called, "onFailure should be called synchronously")
+}
+
+func TestWorkflow_Execute_ContinueOnError(t *testing.T) {
+	ctx := context.Background()
+
+	s1 := &defaultStep{id: "s1", execute: func(ctx context.Context, stp Step) *Report {
+		return StepSuccessReport("s1")
+	}}
+	s2 := &defaultStep{id: "s2", execute: func(ctx context.Context, stp Step) *Report {
+		return StepFailureReport("s2", WithError(StepExecutionError.New("failure in s2")))
+	}}
+	s3 := &defaultStep{id: "s3", execute: func(ctx context.Context, stp Step) *Report {
+		return StepSuccessReport("s3")
+	}}
+
+	wf := newTestWorkflow("wf", []Step{s1, s2, s3})
+	wf.executionMode = ContinueOnError
+
+	report := wf.Execute(ctx)
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusFailed, report.Status)
+	assert.Equal(t, ActionExecute, report.Action)
+	assert.Len(t, report.StepReports, 3)
+
+	// verify individual step statuses and ids
+	assert.Equal(t, StatusSuccess, report.StepReports[0].Status)
+	assert.Equal(t, "s1", report.StepReports[0].Id)
+
+	assert.Equal(t, StatusFailed, report.StepReports[1].Status)
+	assert.Equal(t, "s2", report.StepReports[1].Id)
+
+	assert.Equal(t, StatusSuccess, report.StepReports[2].Status)
+	assert.Equal(t, "s3", report.StepReports[2].Id)
 }

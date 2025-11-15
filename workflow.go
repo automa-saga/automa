@@ -12,7 +12,8 @@ type workflow struct {
 	state                StateBag
 	logger               zerolog.Logger
 	steps                []Step
-	rollbackMode         TypeRollbackMode
+	executionMode        TypeMode
+	rollbackMode         TypeMode
 	enableAsyncCallbacks bool
 
 	// callbacks and hooks
@@ -37,7 +38,7 @@ func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 	wf, err := wb.Build()
 	if err != nil {
 		return NewReport(wb.Id(),
-			WithIsWorkflow(true),
+			WithWorkflow(wb.workflow),
 			WithStatus(StatusFailed),
 			WithActionType(ActionPrepare),
 			WithStartTime(start),
@@ -50,6 +51,7 @@ func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 	preparedCtx, err := wf.Prepare(ctx)
 	if err != nil {
 		return FailureReport(wf,
+			WithWorkflow(wb.workflow),
 			WithActionType(ActionPrepare),
 			WithStartTime(start),
 			WithError(StepExecutionError.
@@ -78,9 +80,9 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int) map[string]*Repo
 
 		if rollbackReport.IsFailed() {
 			switch w.rollbackMode {
-			case RollbackModeContinueOnError:
+			case ContinueOnError:
 				continue
-			case RollbackModeStopOnError:
+			case StopOnError:
 				return stepReports
 			}
 		}
@@ -118,23 +120,30 @@ func (w *workflow) State() StateBag {
 	return w.state
 }
 
+// Execute runs the workflow by executing each step in sequence.
+// It returns a Report summarizing the execution result.
+// When execution mode is StopOnError, a step failure triggers rollback all previously executed steps
+// When execution mode is ContinueOnError, step failures don't need to be rolled back.
 func (w *workflow) Execute(ctx context.Context) *Report {
 	startTime := time.Now()
 
 	if w.steps == nil || len(w.steps) == 0 {
 		return FailureReport(w,
+			WithWorkflow(w),
 			WithStartTime(startTime),
 			WithActionType(ActionExecute),
 			WithError(StepExecutionError.New("workflow %s has no steps to execute", w.id)))
 	}
 
 	var stepReports []*Report
+	var hasFailed bool
 	for index, step := range w.steps {
 		var report *Report
 		stepStart := time.Now()
 		stepCtx, err := step.Prepare(ctx)
 		if err != nil {
 			report = FailureReport(step,
+				WithWorkflow(w),
 				WithStartTime(stepStart),
 				WithActionType(ActionExecute),
 				WithError(StepExecutionError.
@@ -149,6 +158,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			report = step.Execute(stepCtx)
 			if report == nil {
 				report = FailureReport(step,
+					WithWorkflow(w),
 					WithStartTime(stepStart),
 					WithActionType(ActionExecute),
 					WithError(StepExecutionError.New("workflow %q step %q returned nil report from Execute", w.id, step.Id()).
@@ -161,32 +171,53 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		stepReports = append(stepReports, report)
 
 		if report.IsFailed() {
-			// Perform rollback for all executed steps up to the current one
-			rollbackReports := w.rollbackFrom(stepCtx, index)
+			hasFailed = true
 
-			// Attach rollback reports to corresponding step reports
-			for _, stepReport := range stepReports {
-				if rollback, ok := rollbackReports[stepReport.Id]; ok {
-					stepReport.Rollback = rollback
+			// if execution mode is StopOnError, we perform rollback here and break
+			// if it's ContinueOnError, we continue to next step without rolling back
+			if w.executionMode == StopOnError { // stop execution on first failure
+				// Perform rollback for all executed steps up to the current one
+				rollbackReports := w.rollbackFrom(stepCtx, index)
+
+				// Attach rollback reports to corresponding step reports
+				for _, stepReport := range stepReports {
+					if rollback, ok := rollbackReports[stepReport.Id]; ok {
+						stepReport.Rollback = rollback
+					}
 				}
+
+				break
 			}
-
-			workflowReport := FailureReport(w,
-				WithStartTime(startTime),
-				WithActionType(ActionExecute),
-				WithError(StepExecutionError.
-					Wrap(report.Error, "workflow %q failed at step %q", w.id, step.Id()).
-					WithProperty(StepIdProperty, step.Id()),
-				),
-				WithStepReports(stepReports...))
-
-			w.handleFailure(stepCtx, workflowReport)
-
-			return workflowReport
 		}
 	}
 
+	if hasFailed { // workflow failed, but we don't need to rollback here as it's already done above if needed
+		// collect failed step IDs for reporting
+		var failedStepIDs []string
+		for _, sr := range stepReports {
+			if sr.IsFailed() {
+				failedStepIDs = append(failedStepIDs, sr.Id)
+			}
+		}
+
+		workflowReport := FailureReport(w,
+			WithWorkflow(w),
+			WithStartTime(startTime),
+			WithActionType(ActionExecute),
+			WithError(StepExecutionError.New(
+				"workflow %q completed with %d step failures: %v",
+				w.id, len(failedStepIDs), failedStepIDs,
+			)),
+			WithStepReports(stepReports...))
+
+		w.handleFailure(ctx, workflowReport)
+
+		return workflowReport // return failure report
+	}
+
+	// all steps succeeded, return success report
 	workflowReport := SuccessReport(w,
+		WithWorkflow(w),
 		WithStartTime(startTime),
 		WithActionType(ActionExecute),
 		WithStepReports(stepReports...))
@@ -202,6 +233,7 @@ func (w *workflow) invokeRollbackFunc(ctx context.Context) *Report {
 	workflowReport := w.rollback(ctx, w)
 	if workflowReport == nil {
 		return FailureReport(w,
+			WithWorkflow(w),
 			WithActionType(ActionRollback),
 			WithError(StepExecutionError.New("workflow %q returned nil report from Rollback", w.id)),
 		)
@@ -214,6 +246,7 @@ func (w *workflow) invokeRollbackFunc(ctx context.Context) *Report {
 		}
 
 		return FailureReport(w,
+			WithWorkflow(w),
 			WithReport(workflowReport),
 			WithActionType(ActionRollback),
 		)
@@ -224,6 +257,7 @@ func (w *workflow) invokeRollbackFunc(ctx context.Context) *Report {
 	}
 
 	return SuccessReport(w,
+		WithWorkflow(w),
 		WithReport(workflowReport),
 		WithActionType(ActionRollback),
 	)
@@ -246,6 +280,7 @@ func (w *workflow) Rollback(ctx context.Context) *Report {
 		report, ok := rollbackReports[step.Id()]
 		if !ok || report == nil {
 			report = FailureReport(step,
+				WithWorkflow(w),
 				WithActionType(ActionRollback),
 				WithStartTime(startTime),
 				WithError(StepExecutionError.New("workflow %q step %q returned nil report from Rollback", w.id, step.Id()).
@@ -257,6 +292,7 @@ func (w *workflow) Rollback(ctx context.Context) *Report {
 	}
 
 	return SuccessReport(w,
+		WithWorkflow(w),
 		WithActionType(ActionRollback),
 		WithStartTime(startTime),
 		WithStepReports(stepReports...))
@@ -290,9 +326,10 @@ func (w *workflow) handleFailure(ctx context.Context, report *Report) {
 	}
 }
 
-func newWorkflow() *workflow {
+func newDefaultWorkflow() *workflow {
 	return &workflow{
-		rollbackMode: RollbackModeContinueOnError,
-		logger:       zerolog.Nop(),
+		executionMode: StopOnError,
+		rollbackMode:  ContinueOnError,
+		logger:        zerolog.Nop(),
 	}
 }

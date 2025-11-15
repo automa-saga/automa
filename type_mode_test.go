@@ -8,19 +8,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestTypeRollbackMode_String(t *testing.T) {
-	assert.Equal(t, "continue", RollbackModeContinueOnError.String())
-	assert.Equal(t, "stop", RollbackModeStopOnError.String())
-	assert.Equal(t, "unknown", TypeRollbackMode(99).String())
+func TestTypeMode_String(t *testing.T) {
+	assert.Equal(t, "continue", ContinueOnError.String())
+	assert.Equal(t, "stop", StopOnError.String())
+	assert.Equal(t, "unknown", TypeMode(99).String())
 }
 
-func TestTypeRollbackMode_MarshalJSON_UnmarshalJSON(t *testing.T) {
+func TestTypeMode_MarshalJSON_UnmarshalJSON(t *testing.T) {
 	tests := []struct {
-		mode     TypeRollbackMode
+		mode     TypeMode
 		expected string
 	}{
-		{RollbackModeContinueOnError, `"continue"`},
-		{RollbackModeStopOnError, `"stop"`},
+		{ContinueOnError, `"continue"`},
+		{StopOnError, `"stop"`},
 	}
 
 	for _, tt := range tests {
@@ -28,25 +28,25 @@ func TestTypeRollbackMode_MarshalJSON_UnmarshalJSON(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, tt.expected, string(b))
 
-		var m TypeRollbackMode
+		var m TypeMode
 		err = json.Unmarshal(b, &m)
 		assert.NoError(t, err)
 		assert.Equal(t, tt.mode, m)
 	}
 
 	// Unknown value
-	var m TypeRollbackMode
+	var m TypeMode
 	err := json.Unmarshal([]byte(`"unknown"`), &m)
 	assert.Error(t, err)
 }
 
-func TestTypeRollbackMode_MarshalYAML_UnmarshalYAML(t *testing.T) {
+func TestTypeMode_MarshalYAML_UnmarshalYAML(t *testing.T) {
 	tests := []struct {
-		mode     TypeRollbackMode
+		mode     TypeMode
 		expected string
 	}{
-		{RollbackModeContinueOnError, "continue"},
-		{RollbackModeStopOnError, "stop"},
+		{ContinueOnError, "continue"},
+		{StopOnError, "stop"},
 	}
 
 	for _, tt := range tests {
@@ -54,14 +54,14 @@ func TestTypeRollbackMode_MarshalYAML_UnmarshalYAML(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Contains(t, string(b), tt.expected)
 
-		var m TypeRollbackMode
+		var m TypeMode
 		err = yaml.Unmarshal(b, &m)
 		assert.NoError(t, err)
 		assert.Equal(t, tt.mode, m)
 	}
 
 	// Unknown value
-	var m TypeRollbackMode
+	var m TypeMode
 	err := yaml.Unmarshal([]byte("unknown\n"), &m)
 	assert.Error(t, err)
 }
