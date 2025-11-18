@@ -6,31 +6,35 @@ import (
 )
 
 type Report struct {
-	Id          string
-	IsWorkflow  bool
-	Action      TypeAction
-	Status      TypeStatus
-	StartTime   time.Time
-	EndTime     time.Time
-	Detail      string
-	Error       error
-	Metadata    map[string]string
-	StepReports []*Report
-	Rollback    *Report
+	Id            string
+	IsWorkflow    bool
+	Action        TypeAction
+	Status        TypeStatus
+	StartTime     time.Time
+	EndTime       time.Time
+	Detail        string
+	Error         error
+	Metadata      map[string]string
+	StepReports   []*Report
+	Rollback      *Report
+	ExecutionMode TypeMode
+	RollbackMode  TypeMode
 }
 
 type marshalReport struct {
-	Id          string            `yaml:"id,omitempty" json:"id,omitempty"` // rollback report does not need id
-	IsWorkflow  bool              `yaml:"isWorkflow" json:"isWorkflow"`
-	Action      TypeAction        `yaml:"action,omitempty" json:"action,omitempty"`
-	Status      TypeStatus        `yaml:"status,omitempty" json:"status,omitempty"`
-	StartTime   time.Time         `yaml:"startTime,omitempty" json:"startTime,omitempty"`
-	EndTime     time.Time         `yaml:"endTime,omitempty" json:"endTime,omitempty"`
-	Detail      string            `yaml:"detail,omitempty" json:"detail,omitempty"`
-	Error       string            `yaml:"error,omitempty" json:"error,omitempty"`
-	Metadata    map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
-	StepReports []*Report         `yaml:"stepReports,omitempty" json:"steps,omitempty"`
-	Rollback    *Report           `yaml:"rollback,omitempty" json:"rollback,omitempty"`
+	Id            string            `yaml:"id,omitempty" json:"id,omitempty"` // rollback report does not need id
+	IsWorkflow    bool              `yaml:"isWorkflow" json:"isWorkflow"`
+	Action        TypeAction        `yaml:"action,omitempty" json:"action,omitempty"`
+	Status        TypeStatus        `yaml:"status,omitempty" json:"status,omitempty"`
+	StartTime     time.Time         `yaml:"startTime,omitempty" json:"startTime,omitempty"`
+	EndTime       time.Time         `yaml:"endTime,omitempty" json:"endTime,omitempty"`
+	Detail        string            `yaml:"detail,omitempty" json:"detail,omitempty"`
+	Error         string            `yaml:"error,omitempty" json:"error,omitempty"`
+	Metadata      map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	StepReports   []*Report         `yaml:"stepReports,omitempty" json:"steps,omitempty"`
+	Rollback      *Report           `yaml:"rollback,omitempty" json:"rollback,omitempty"`
+	ExecutionMode TypeMode          `yaml:"executionMode,omitempty" json:"executionMode,omitempty"`
+	RollbackMode  TypeMode          `yaml:"rollbackMode,omitempty" json:"rollbackMode,omitempty"`
 }
 
 func (r *Report) HasError() bool {
@@ -58,14 +62,16 @@ func (r *Report) Clone() *Report {
 		return nil
 	}
 	clone := &Report{
-		Id:         r.Id,
-		IsWorkflow: r.IsWorkflow,
-		Action:     r.Action,
-		Status:     r.Status,
-		StartTime:  r.StartTime,
-		EndTime:    r.EndTime,
-		Detail:     r.Detail,
-		Error:      r.Error,
+		Id:            r.Id,
+		IsWorkflow:    r.IsWorkflow,
+		Action:        r.Action,
+		Status:        r.Status,
+		StartTime:     r.StartTime,
+		EndTime:       r.EndTime,
+		Detail:        r.Detail,
+		Error:         r.Error,
+		RollbackMode:  r.RollbackMode,
+		ExecutionMode: r.ExecutionMode,
 	}
 
 	if r.Metadata != nil {
@@ -188,12 +194,36 @@ func WithReport(report *Report) ReportOption {
 		if report.Rollback != nil {
 			sr.Rollback = report.Rollback
 		}
+		sr.ExecutionMode = report.ExecutionMode
+		sr.RollbackMode = report.RollbackMode
 	}
 }
 
 func WithActionType(actionType TypeAction) ReportOption {
 	return func(sr *Report) {
 		sr.Action = actionType
+	}
+}
+
+func WithExecutionMode(mode TypeMode) ReportOption {
+	return func(sr *Report) {
+		sr.ExecutionMode = mode
+	}
+}
+
+func WithRollbackMode(mode TypeMode) ReportOption {
+	return func(sr *Report) {
+		sr.RollbackMode = mode
+	}
+}
+
+func WithWorkflow(w *workflow) ReportOption {
+	return func(sr *Report) {
+		if w != nil {
+			sr.IsWorkflow = IsWorkflow(w)
+			sr.ExecutionMode = w.executionMode
+			sr.RollbackMode = w.rollbackMode
+		}
 	}
 }
 
@@ -205,10 +235,12 @@ func WithIsWorkflow(isWorkflow bool) ReportOption {
 
 func NewReport(id string, opts ...ReportOption) *Report {
 	r := &Report{
-		Id:        id,
-		StartTime: time.Now(),
-		EndTime:   time.Now(),
-		Status:    StatusSuccess,
+		Id:            id,
+		StartTime:     time.Now(),
+		EndTime:       time.Now(),
+		Status:        StatusSuccess,
+		ExecutionMode: StopOnError,
+		RollbackMode:  ContinueOnError,
 	}
 
 	for _, opt := range opts {
@@ -255,16 +287,18 @@ func SkippedReport(s Step, opts ...ReportOption) *Report {
 
 func (r *Report) MarshalJSON() ([]byte, error) {
 	m := marshalReport{
-		Id:          r.Id,
-		Action:      r.Action,
-		IsWorkflow:  r.IsWorkflow,
-		Status:      r.Status,
-		StartTime:   r.StartTime,
-		EndTime:     r.EndTime,
-		Detail:      r.Detail,
-		Metadata:    r.Metadata,
-		StepReports: r.StepReports,
-		Rollback:    r.Rollback,
+		Id:            r.Id,
+		Action:        r.Action,
+		IsWorkflow:    r.IsWorkflow,
+		Status:        r.Status,
+		StartTime:     r.StartTime,
+		EndTime:       r.EndTime,
+		Detail:        r.Detail,
+		Metadata:      r.Metadata,
+		StepReports:   r.StepReports,
+		Rollback:      r.Rollback,
+		ExecutionMode: r.ExecutionMode,
+		RollbackMode:  r.RollbackMode,
 	}
 
 	if r.Id != "" {
@@ -279,16 +313,18 @@ func (r *Report) MarshalJSON() ([]byte, error) {
 
 func (r *Report) MarshalYAML() (interface{}, error) {
 	m := marshalReport{
-		Id:          r.Id,
-		IsWorkflow:  r.IsWorkflow,
-		Action:      r.Action,
-		Status:      r.Status,
-		StartTime:   r.StartTime,
-		EndTime:     r.EndTime,
-		Detail:      r.Detail,
-		Metadata:    r.Metadata,
-		StepReports: r.StepReports,
-		Rollback:    r.Rollback,
+		Id:            r.Id,
+		IsWorkflow:    r.IsWorkflow,
+		Action:        r.Action,
+		Status:        r.Status,
+		StartTime:     r.StartTime,
+		EndTime:       r.EndTime,
+		Detail:        r.Detail,
+		Metadata:      r.Metadata,
+		StepReports:   r.StepReports,
+		Rollback:      r.Rollback,
+		ExecutionMode: r.ExecutionMode,
+		RollbackMode:  r.RollbackMode,
 	}
 	if r.Error != nil {
 		m.Error = r.Error.Error()

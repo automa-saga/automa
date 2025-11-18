@@ -77,8 +77,8 @@ func TestWorkflowBuilder_WithId_WithLogger_WithRollbackMode(t *testing.T) {
 	wb.WithLogger(logger)
 	assert.Equal(t, logger, wb.workflow.logger)
 
-	wb.WithRollbackMode(RollbackModeContinueOnError)
-	assert.Equal(t, RollbackModeContinueOnError, wb.workflow.rollbackMode)
+	wb.WithRollbackMode(ContinueOnError)
+	assert.Equal(t, ContinueOnError, wb.workflow.rollbackMode)
 }
 
 func TestWorkflowBuilder_WithOnCompletion_WithOnFailure(t *testing.T) {
@@ -197,12 +197,12 @@ func TestWorkflowBuilder_Validate_NoSteps(t *testing.T) {
 func TestWorkflowBuilder_MethodChaining(t *testing.T) {
 	wb := NewWorkflowBuilder().
 		WithId("chain").
-		WithRollbackMode(RollbackModeStopOnError).
+		WithRollbackMode(StopOnError).
 		WithAsyncCallbacks(true).
 		WithState(&SyncStateBag{}).
 		WithLogger(zerolog.Nop())
 	assert.Equal(t, "chain", wb.Id())
-	assert.Equal(t, RollbackModeStopOnError, wb.workflow.rollbackMode)
+	assert.Equal(t, StopOnError, wb.workflow.rollbackMode)
 	assert.True(t, wb.workflow.enableAsyncCallbacks)
 	assert.NotNil(t, wb.workflow.state)
 }

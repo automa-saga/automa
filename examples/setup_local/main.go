@@ -3,14 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/automa-saga/automa"
-	"github.com/briandowns/spinner"
-	"gopkg.in/yaml.v3"
 	"log"
 	"os"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/automa-saga/automa"
+	"github.com/briandowns/spinner"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -166,12 +167,12 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 						WithOnCompletion(onCompletion).
 						WithOnFailure(onFailure),
 					installKind("v0.2x.x"). // pass an incorrect version to test failure and rollback
-						WithPrepare(onPrepare).
-						WithOnCompletion(onCompletion).
-						WithOnFailure(onFailure),
+								WithPrepare(onPrepare).
+								WithOnCompletion(onCompletion).
+								WithOnFailure(onFailure),
 				),
 		).
-		WithRollbackMode(automa.RollbackModeStopOnError).
+		WithRollbackMode(automa.StopOnError).
 		WithOnCompletion(func(ctx context.Context, w automa.Step, report *automa.Report) {
 			wgStep.Wait()
 			wg.Done() // we mark is done only after all steps are complete

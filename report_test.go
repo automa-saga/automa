@@ -182,3 +182,38 @@ func TestReport_Clone(t *testing.T) {
 	clone.StepReports[0].Detail = "changed"
 	assert.Equal(t, "step detail", r.StepReports[0].Detail)
 }
+
+func TestNewReport_DefaultModes(t *testing.T) {
+	r := NewReport("id")
+	assert.Equal(t, StopOnError, r.ExecutionMode)
+	assert.Equal(t, ContinueOnError, r.RollbackMode)
+}
+
+func TestWithExecuteAndRollbackModeOptions(t *testing.T) {
+	r := NewReport("id", WithExecutionMode(ContinueOnError), WithRollbackMode(StopOnError))
+	assert.Equal(t, ContinueOnError, r.ExecutionMode)
+	assert.Equal(t, StopOnError, r.RollbackMode)
+}
+
+func TestWithWorkflow_SetsModes(t *testing.T) {
+	wf := &workflow{executionMode: ContinueOnError, rollbackMode: StopOnError}
+	r := NewReport("id", WithWorkflow(wf))
+	assert.Equal(t, ContinueOnError, r.ExecutionMode)
+	assert.Equal(t, StopOnError, r.RollbackMode)
+}
+
+func TestReport_MarshalJSON_IncludesModes(t *testing.T) {
+	r := NewReport("id", WithExecutionMode(ContinueOnError), WithRollbackMode(StopOnError))
+	b, err := json.Marshal(r)
+	assert.NoError(t, err)
+	s := string(b)
+	assert.Contains(t, s, "executionMode")
+	assert.Contains(t, s, "rollbackMode")
+}
+
+func TestReport_Clone_PreservesModes(t *testing.T) {
+	r := NewReport("id", WithExecutionMode(ContinueOnError), WithRollbackMode(StopOnError))
+	clone := r.Clone()
+	assert.Equal(t, r.ExecutionMode, clone.ExecutionMode)
+	assert.Equal(t, r.RollbackMode, clone.RollbackMode)
+}
