@@ -14,12 +14,15 @@ type TypeMode uint8
 const (
 	ContinueOnError TypeMode = 1
 	StopOnError     TypeMode = 2
+	RollbackOnError TypeMode = 3
 )
 
 func (rm TypeMode) String() string {
 	switch rm {
 	case ContinueOnError:
 		return "continue"
+	case RollbackOnError:
+		return "rollback"
 	case StopOnError:
 		return "stop"
 	default:
@@ -39,6 +42,8 @@ func (rm *TypeMode) UnmarshalJSON(data []byte) error {
 	switch s {
 	case "continue":
 		*rm = ContinueOnError
+	case "rollback":
+		*rm = RollbackOnError
 	case "stop":
 		*rm = StopOnError
 	default:
@@ -59,6 +64,8 @@ func (rm *TypeMode) UnmarshalYAML(value *yaml.Node) error {
 	switch s {
 	case "continue":
 		*rm = ContinueOnError
+	case "rollback":
+		*rm = RollbackOnError
 	case "stop":
 		*rm = StopOnError
 	default:

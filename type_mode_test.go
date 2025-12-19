@@ -11,6 +11,7 @@ import (
 func TestTypeMode_String(t *testing.T) {
 	assert.Equal(t, "continue", ContinueOnError.String())
 	assert.Equal(t, "stop", StopOnError.String())
+	assert.Equal(t, "rollback", RollbackOnError.String())
 	assert.Equal(t, "unknown", TypeMode(99).String())
 }
 
@@ -21,6 +22,7 @@ func TestTypeMode_MarshalJSON_UnmarshalJSON(t *testing.T) {
 	}{
 		{ContinueOnError, `"continue"`},
 		{StopOnError, `"stop"`},
+		{RollbackOnError, `"rollback"`},
 	}
 
 	for _, tt := range tests {
@@ -35,8 +37,8 @@ func TestTypeMode_MarshalJSON_UnmarshalJSON(t *testing.T) {
 	}
 
 	// Unknown value
-	var m TypeMode
-	err := json.Unmarshal([]byte(`"unknown"`), &m)
+	var mu TypeMode
+	err := json.Unmarshal([]byte(`"unknown"`), &mu)
 	assert.Error(t, err)
 }
 
@@ -47,6 +49,7 @@ func TestTypeMode_MarshalYAML_UnmarshalYAML(t *testing.T) {
 	}{
 		{ContinueOnError, "continue"},
 		{StopOnError, "stop"},
+		{RollbackOnError, "rollback"},
 	}
 
 	for _, tt := range tests {
@@ -61,7 +64,7 @@ func TestTypeMode_MarshalYAML_UnmarshalYAML(t *testing.T) {
 	}
 
 	// Unknown value
-	var m TypeMode
-	err := yaml.Unmarshal([]byte("unknown\n"), &m)
+	var mu TypeMode
+	err := yaml.Unmarshal([]byte("unknown\n"), &mu)
 	assert.Error(t, err)
 }
