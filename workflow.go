@@ -173,10 +173,13 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		if report.IsFailed() {
 			hasFailed = true
 
-			// if execution mode is StopOnError, we perform rollback here and break
+			// if execution mode is StopOnError, we stop execution
+			// if execution mode is RollbackOnError, we perform rollback from this step to the start and break
 			// if it's ContinueOnError, we continue to next step without rolling back
-			if w.executionMode == StopOnError { // stop execution on first failure
-				// Perform rollback for all executed steps up to the current one
+			if w.executionMode == StopOnError {
+				break // stop execution on first failure
+			} else if w.executionMode == RollbackOnError {
+				// Perform rollback for all executed steps from the current one to the start
 				rollbackReports := w.rollbackFrom(stepCtx, index)
 
 				// Attach rollback reports to corresponding step reports
@@ -262,6 +265,7 @@ func (w *workflow) invokeRollbackFunc(ctx context.Context) *Report {
 		WithActionType(ActionRollback),
 	)
 }
+
 func (w *workflow) Rollback(ctx context.Context) *Report {
 	if w.rollback != nil {
 		return w.invokeRollbackFunc(ctx) // use user-defined rollback function if provided

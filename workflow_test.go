@@ -541,3 +541,130 @@ func TestWorkflow_Execute_ContinueOnError(t *testing.T) {
 	assert.Equal(t, StatusSuccess, report.StepReports[2].Status)
 	assert.Equal(t, "s3", report.StepReports[2].Id)
 }
+
+func TestWorkflow_Execute_RollbackOnError(t *testing.T) {
+	ctx := context.Background()
+
+	s1RollbackCalled := false
+	s2RollbackCalled := false
+
+	s1 := &defaultStep{
+		id: "s1",
+		execute: func(ctx context.Context, stp Step) *Report {
+			return StepSuccessReport("s1")
+		},
+		rollback: func(ctx context.Context, stp Step) *Report {
+			s1RollbackCalled = true
+			return StepSuccessReport("s1")
+		},
+	}
+
+	s2 := &defaultStep{
+		id: "s2",
+		execute: func(ctx context.Context, stp Step) *Report {
+			return StepFailureReport("s2", WithError(StepExecutionError.New("s2 failed")))
+		},
+		rollback: func(ctx context.Context, stp Step) *Report {
+			s2RollbackCalled = true
+			return StepFailureReport("s2", WithError(errors.New("rollback failed")))
+		},
+	}
+
+	// this step should not be executed when RollbackOnError is used
+	s3 := &defaultStep{
+		id: "s3",
+		execute: func(ctx context.Context, stp Step) *Report {
+			t.Fatalf("s3 should not be executed in RollbackOnError mode")
+			return nil
+		},
+	}
+
+	wf := newTestWorkflow("wf", []Step{s1, s2, s3})
+	wf.executionMode = RollbackOnError
+
+	report := wf.Execute(ctx)
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusFailed, report.Status)
+	assert.Equal(t, ActionExecute, report.Action)
+
+	// only s1 and s2 should have been executed
+	assert.Len(t, report.StepReports, 2)
+	assert.Equal(t, "s1", report.StepReports[0].Id)
+	assert.Equal(t, "s2", report.StepReports[1].Id)
+
+	// rollback reports should be attached to executed step reports
+	assert.NotNil(t, report.StepReports[0].Rollback)
+	assert.NotNil(t, report.StepReports[1].Rollback)
+
+	// verify rollback callbacks were invoked
+	assert.True(t, s1RollbackCalled)
+	assert.True(t, s2RollbackCalled)
+
+	// verify rollback statuses match the step rollback implementations
+	assert.Equal(t, StatusSuccess, report.StepReports[0].Rollback.Status)
+	assert.Equal(t, StatusFailed, report.StepReports[1].Rollback.Status)
+}
+
+func TestWorkflow_Execute_StopOnError(t *testing.T) {
+	ctx := context.Background()
+
+	s1RollbackCalled := false
+	s2RollbackCalled := false
+
+	s1 := &defaultStep{
+		id: "s1",
+		execute: func(ctx context.Context, stp Step) *Report {
+			return StepSuccessReport("s1")
+		},
+		rollback: func(ctx context.Context, stp Step) *Report {
+			s1RollbackCalled = true
+			return StepSuccessReport("s1")
+		},
+	}
+
+	s2 := &defaultStep{
+		id: "s2",
+		execute: func(ctx context.Context, stp Step) *Report {
+			return StepFailureReport("s2", WithError(StepExecutionError.New("s2 failed")))
+		},
+		rollback: func(ctx context.Context, stp Step) *Report {
+			s2RollbackCalled = true
+			return StepSuccessReport("s2")
+		},
+	}
+
+	// this step should not be executed when StopOnError is used
+	s3 := &defaultStep{
+		id: "s3",
+		execute: func(ctx context.Context, stp Step) *Report {
+			t.Fatalf("s3 should not be executed in StopOnError mode")
+			return nil
+		},
+	}
+
+	wf := newTestWorkflow("wf", []Step{s1, s2, s3})
+	// newTestWorkflow defaults to StopOnError, but set explicitly to be clear
+	wf.executionMode = StopOnError
+
+	report := wf.Execute(ctx)
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusFailed, report.Status)
+	assert.Equal(t, ActionExecute, report.Action)
+
+	// only s1 and s2 should have been executed
+	assert.Len(t, report.StepReports, 2)
+	assert.Equal(t, "s1", report.StepReports[0].Id)
+	assert.Equal(t, "s2", report.StepReports[1].Id)
+
+	// in StopOnError mode no rollback should be attached to step reports
+	assert.Nil(t, report.StepReports[0].Rollback)
+	assert.Nil(t, report.StepReports[1].Rollback)
+
+	// verify rollback callbacks were NOT invoked
+	assert.False(t, s1RollbackCalled)
+	assert.False(t, s2RollbackCalled)
+
+	// verify individual statuses
+	assert.Equal(t, StatusSuccess, report.StepReports[0].Status)
+	assert.Equal(t, StatusFailed, report.StepReports[1].Status)
+}
