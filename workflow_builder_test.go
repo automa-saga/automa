@@ -3,6 +3,7 @@ package automa
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -233,4 +234,40 @@ func TestWorkflowBuilder_NamedSteps_DuplicateIds(t *testing.T) {
 	wb := NewWorkflowBuilder().WithRegistry(reg)
 	wb.NamedSteps("dup", "dup")
 	assert.Equal(t, []string{"dup"}, wb.stepSequence)
+}
+
+func TestWorkflowBuilder_InheritModesForNestedWorkflow_OtherModes(t *testing.T) {
+	modes := []TypeMode{StopOnError, ContinueOnError, RollbackOnError}
+
+	for _, mode := range modes {
+		t.Run(fmt.Sprintf("mode-%d", mode), func(t *testing.T) {
+			// parent workflow with explicit modes
+			wb := NewWorkflowBuilder().WithId("parent").
+				WithExecutionMode(mode).
+				WithRollbackMode(mode)
+
+			// child workflow with defaults that should be overridden
+			child := newDefaultWorkflow()
+			child.id = "child"
+			child.executionMode = TypeMode(99) // sentinel to ensure override
+			child.rollbackMode = TypeMode(99)  // sentinel to ensure override
+
+			b := &mockStepBuilder{id: "child", valid: true, buildStep: child}
+			wb.Steps(b)
+
+			wf, err := wb.Build()
+			assert.NoError(t, err)
+			assert.NotNil(t, wf)
+
+			parent := wf.(*workflow)
+			assert.Len(t, parent.steps, 1)
+
+			nested, ok := parent.steps[0].(*workflow)
+			assert.True(t, ok)
+
+			// child should inherit parent's modes
+			assert.Equal(t, mode, nested.executionMode)
+			assert.Equal(t, mode, nested.rollbackMode)
+		})
+	}
 }
