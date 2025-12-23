@@ -35,7 +35,17 @@ func (wb *WorkflowBuilder) Build() (Step, error) {
 		if err != nil {
 			return nil, IllegalArgument.New("failed to build step '%s': %v", builder.Id(), err)
 		}
+
 		if step != nil {
+			// If the step itself is a workflow, propagate the parent workflow's
+			// execution and rollback modes so that nested workflows behave
+			// consistently and follow the same error handling and rollback
+			// strategy as the enclosing workflow.
+			if wfStep, ok := step.(*workflow); ok {
+				wfStep.executionMode = wb.workflow.executionMode
+				wfStep.rollbackMode = wb.workflow.rollbackMode
+			}
+
 			steps = append(steps, step)
 		}
 	}
