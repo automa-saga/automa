@@ -172,7 +172,7 @@ func TestWorkflow_RollbackFrom_FailedRollback(t *testing.T) {
 
 	wf := newTestWorkflow("wf", []Step{step1, step2})
 
-	reports := wf.rollbackFrom(ctx, 1)
+	reports := wf.rollbackFrom(ctx, 1, nil)
 	assert.Len(t, reports, 2)
 	assert.Equal(t, StatusFailed, reports["step1"].Status)
 	assert.Equal(t, failErr, reports["step1"].Error)
@@ -198,7 +198,7 @@ func TestWorkflow_RollbackFrom_ContinueOnError(t *testing.T) {
 	wf := newTestWorkflow("wf", []Step{step1, step2})
 	wf.rollbackMode = ContinueOnError
 
-	reports := wf.rollbackFrom(ctx, 1)
+	reports := wf.rollbackFrom(ctx, 1, nil)
 	assert.Len(t, reports, 2)
 	assert.Equal(t, StatusFailed, reports["step1"].Status)
 	assert.Equal(t, failErr, reports["step1"].Error)
@@ -224,7 +224,7 @@ func TestWorkflow_RollbackFrom_StopOnError(t *testing.T) {
 	wf := newTestWorkflow("wf", []Step{step1, step2})
 	wf.rollbackMode = StopOnError
 
-	reports := wf.rollbackFrom(ctx, 1)
+	reports := wf.rollbackFrom(ctx, 1, nil)
 	assert.Len(t, reports, 1)
 	assert.Equal(t, StatusFailed, reports["step2"].Status)
 	assert.Equal(t, failErr, reports["step2"].Error)
@@ -250,7 +250,7 @@ func TestWorkflow_RollbackFrom_SkippedStatus(t *testing.T) {
 	wf := newTestWorkflow("wf", []Step{step1, step2})
 	wf.rollbackMode = ContinueOnError
 
-	reports := wf.rollbackFrom(ctx, 1)
+	reports := wf.rollbackFrom(ctx, 1, nil)
 	assert.Len(t, reports, 2)
 	assert.Equal(t, StatusSkipped, reports["step1"].Status)
 	assert.Equal(t, StatusFailed, reports["step2"].Status)
@@ -667,4 +667,123 @@ func TestWorkflow_Execute_StopOnError(t *testing.T) {
 	// verify individual statuses
 	assert.Equal(t, StatusSuccess, report.StepReports[0].Status)
 	assert.Equal(t, StatusFailed, report.StepReports[1].Status)
+}
+
+func TestWorkflow_SubWorkflow_Isolation(t *testing.T) {
+	// prepare sub-workflow that reads parent's key and writes its own key
+	var subSawParent string
+	subStep := &defaultStep{
+		id: "sub-step",
+		execute: func(ctx context.Context, stp Step) *Report {
+			subSawParent = StringFromState(stp.State(), Key("parentKey"))
+			// mutate sub-workflow state (should not affect parent)
+			stp.State().Set(Key("subKey"), "sub-value")
+			return StepSuccessReport("sub-step")
+		},
+	}
+	subWF := newTestWorkflow("subwf", []Step{subStep})
+
+	// check step in parent that verifies parent was not mutated by sub-workflow
+	var parentHasSubKey bool
+	checkStep := &defaultStep{
+		id: "check",
+		execute: func(ctx context.Context, stp Step) *Report {
+			_, parentHasSubKey = stp.State().Get(Key("subKey"))
+			return StepSuccessReport("check")
+		},
+	}
+
+	parent := newTestWorkflow("parent", []Step{subWF, checkStep})
+	parent.State().Set(Key("parentKey"), "pval")
+
+	report := parent.Execute(context.Background())
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, "pval", subSawParent, "sub-workflow should see parent's key value at start")
+	assert.False(t, parentHasSubKey, "parent state must not be modified by sub-workflow")
+}
+
+func TestWorkflow_NonWorkflow_SharedState(t *testing.T) {
+	// first step mutates shared state, second step should observe it
+	setStep := &defaultStep{
+		id: "set",
+		prepare: func(ctx context.Context, stp Step) (context.Context, error) {
+			stp.State().Set(Key("shared"), "val")
+			return ctx, nil
+		},
+		execute: func(ctx context.Context, stp Step) *Report {
+			return StepSuccessReport("set")
+		},
+	}
+
+	var saw string
+	checkStep := &defaultStep{
+		id: "check",
+		execute: func(ctx context.Context, stp Step) *Report {
+			saw = StringFromState(stp.State(), Key("shared"))
+			return StepSuccessReport("check")
+		},
+	}
+
+	wf := newTestWorkflow("wf-shared", []Step{setStep, checkStep})
+
+	report := wf.Execute(context.Background())
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, "val", saw, "subsequent non-workflow step should observe shared mutation")
+	// workflow state should also contain the key
+	assert.Equal(t, "val", StringFromState(wf.State(), Key("shared")))
+}
+
+func TestWorkflow_ParentMutates_BetweenSubWorkflows(t *testing.T) {
+	// sub-workflow 1 records version seen
+	var seen1 string
+	sub1 := newTestWorkflow("sub1", []Step{
+		&defaultStep{
+			id: "s1",
+			execute: func(ctx context.Context, stp Step) *Report {
+				seen1 = StringFromState(stp.State(), Key("version"))
+				return StepSuccessReport("s1")
+			},
+		},
+	})
+
+	// sub-workflow 2 records version seen
+	var seen2 string
+	sub2 := newTestWorkflow("sub2", []Step{
+		&defaultStep{
+			id: "s2",
+			execute: func(ctx context.Context, stp Step) *Report {
+				seen2 = StringFromState(stp.State(), Key("version"))
+				return StepSuccessReport("s2")
+			},
+		},
+	})
+
+	// parent steps: set v1 -> sub1 -> set v2 -> sub2
+	setV1 := &defaultStep{
+		id: "set-v1",
+		prepare: func(ctx context.Context, stp Step) (context.Context, error) {
+			// mutate parent state visible to next sub-workflow (which will clone it)
+			stp.State().Set(Key("version"), "v1")
+			return ctx, nil
+		},
+		execute: func(ctx context.Context, stp Step) *Report { return StepSuccessReport("set-v1") },
+	}
+	setV2 := &defaultStep{
+		id: "set-v2",
+		prepare: func(ctx context.Context, stp Step) (context.Context, error) {
+			stp.State().Set(Key("version"), "v2")
+			return ctx, nil
+		},
+		execute: func(ctx context.Context, stp Step) *Report { return StepSuccessReport("set-v2") },
+	}
+
+	parent := newTestWorkflow("parent-versions", []Step{setV1, sub1, setV2, sub2})
+
+	report := parent.Execute(context.Background())
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, "v1", seen1, "first sub-workflow should see v1")
+	assert.Equal(t, "v2", seen2, "second sub-workflow should see v2")
 }

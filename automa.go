@@ -11,6 +11,7 @@ type Step interface {
 	Execute(ctx context.Context) *Report
 	Rollback(ctx context.Context) *Report
 	State() StateBag
+	WithState(s StateBag) Step
 }
 
 type StateBag interface {
