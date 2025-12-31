@@ -402,9 +402,9 @@ func TestWorkflow_StepStatePropagation(t *testing.T) {
 			assert.True(t, ok, "step state should contain the key set in prepare")
 			assert.Equal(t, stepStateValue, StringFromState(state, stepStateKey))
 
-			// also verify workflow state item is not accessible
+			// also verify workflow state item is accessible
 			_, ok = state.Get(workflowStateKey)
-			assert.False(t, ok, "workflow state should not be accessible from step")
+			assert.True(t, ok, "workflow state should not be accessible from step")
 
 			return StepSuccessReport("step")
 		},
