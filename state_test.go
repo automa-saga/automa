@@ -229,7 +229,7 @@ func TestSyncStateBag_HelperMethods_TypeSafety(t *testing.T) {
 	assert.Equal(t, 0.0, bag.Float("notAFloat"))
 }
 
-// testCloner implements the repository's expected Cloner\[any\] shape used in tests.
+// testCloner implements the repository's expected Cloner[any] shape used in tests.
 type testCloner struct {
 	Data []int
 }

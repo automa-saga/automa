@@ -12,7 +12,7 @@ import (
 )
 
 // Cloner marks values that can return a cloned copy of themselves.
-// Keep it minimal: Clone returns an `interface{}` and the caller decides what to store.
+// Clone returns a typed value of type T and an error; the caller decides what to store.
 type Cloner[T any] interface {
 	Clone() (T, error)
 }

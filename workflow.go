@@ -227,7 +227,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		var report *Report
 		stepStart := time.Now()
 
-		var stepCtx context.Context
+		stepCtx := ctx
 		var stepState StateBag
 		var statePrepError error
 		var ctxPrepError error
@@ -251,7 +251,8 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		// attach snapshot for possible rollback (keeps alignment even if nil)
 		stepStates = append(stepStates, stepState)
 
-		// make sure step has its state before calling Prepare so Prepare can access it
+		// make sure step has its state before calling Prepare so Prepare can access it.
+		// It also ensures during Execute the step has the correct state
 		step = step.WithState(stepState)
 
 		// prepare step context

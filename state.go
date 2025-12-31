@@ -27,7 +27,7 @@ type SyncStateBag struct {
 	m sync.Map
 }
 
-// Clone creates a deep copy of the SyncStateBag if all items implements Clone method and returns deep copy when invoked.
+// Clone creates a deep copy of the SyncStateBag if all items implement Clone method and returns deep copy when invoked.
 // If any item does not implement Cloner or Clone method, it performs a shallow copy for that item.
 func (s *SyncStateBag) Clone() (StateBag, error) {
 	if s == nil {
