@@ -145,6 +145,7 @@ func (v *defaultValue[T]) Clone() (Value[T], error) {
 //     but not cached; subsequent calls will re-evaluate.
 //
 // The function is expected to be side-effect-free if caching is enabled.
+// It accepts a context for cancellation and timeout control.
 type EffectiveFunc[T any] func(ctx context.Context, defaultVal Value[T], userInput Value[T]) (Value[T], bool, error)
 
 // RuntimeValue is a generic container for a default value together with
@@ -174,10 +175,22 @@ type RuntimeValue[T any] struct {
 	userInput     Value[T]
 	effectiveFunc EffectiveFunc[T]
 
-	sf singleflight.Group
+	ctx context.Context
+	sf  singleflight.Group
 }
 
-// Effective returns the effective Value for the runtime value.
+// WithContext sets the context to be used for effectiveFunc invocations.
+// It returns the same RuntimeValue instance for chaining.
+func (v *RuntimeValue[T]) WithContext(ctx context.Context) *RuntimeValue[T] {
+	v.mu.Lock()
+	v.ctx = ctx
+	v.mu.Unlock()
+	return v
+}
+
+// EffectiveWithContext returns the effective Value for the runtime value,
+// using the provided context for effectiveFunc invocation.
+// It does not modify the stored context of the RuntimeValue.
 //
 // If an effectiveFunc is provided, it is invoked to compute the effective
 // value on demand. If the effectiveFunc returns a value with shouldCache==true,
@@ -188,7 +201,7 @@ type RuntimeValue[T any] struct {
 // read-mostly pattern: read locks for fast returns and a write lock only when
 // the effective value must be cached after computing it via effectiveFunc.
 // Concurrent evaluations of effectiveFunc are deduplicated using singleflight.
-func (v *RuntimeValue[T]) Effective(ctx context.Context) (Value[T], error) {
+func (v *RuntimeValue[T]) EffectiveWithContext(ctx context.Context) (Value[T], error) {
 	if v == nil {
 		return nil, errorx.IllegalState.New("RuntimeValue receiver is nil")
 	}
@@ -243,6 +256,14 @@ func (v *RuntimeValue[T]) Effective(ctx context.Context) (Value[T], error) {
 		return nil, errorx.IllegalState.New("singleflight invocation for effectiveFunc returned unexpected type")
 	}
 	return vres, nil
+}
+
+// Effective returns the effective Value for the runtime value.
+// It uses the stored context for effectiveFunc invocation.
+//
+// See EffectiveWithContext for full semantics and concurrency behavior.
+func (v *RuntimeValue[T]) Effective() (Value[T], error) {
+	return v.EffectiveWithContext(v.ctx)
 }
 
 // Default returns the configured default Value.
@@ -328,61 +349,6 @@ func (v *RuntimeValue[T]) Clone() (*RuntimeValue[T], error) {
 	return c, nil
 }
 
-// ValueOption is a functional option used to configure a RuntimeValue.
-type ValueOption[T any] func(*RuntimeValue[T])
-
-// WithEffectiveFunc returns a ValueOption that sets the effective function
-// which will be invoked by Effective.
-//
-// Note: these option setters mutate fields without internal locking and are
-// intended for construction-time configuration only. For runtime-safe updates
-// use the SetEffectiveFunc method on RuntimeValue.
-func WithEffectiveFunc[T any](f EffectiveFunc[T]) ValueOption[T] {
-	return func(v *RuntimeValue[T]) {
-		v.effectiveFunc = f
-	}
-}
-
-// WithUserInput returns a ValueOption that sets a user input Value to be
-// used as the effective value (unless an effectiveFunc is provided).
-//
-// Note: see WithEffectiveFunc regarding runtime mutation.
-func WithUserInput[T any](userInput Value[T]) ValueOption[T] {
-	return func(v *RuntimeValue[T]) {
-		v.userInput = userInput
-	}
-}
-
-// NewRuntimeValue constructs a new RuntimeValue instance.
-//
-// The defaultVal must be provided and cannot be nil. Optional ValueOptions
-// may set userInput and effectiveFunc. If effectiveFunc is not provided,
-// the effective value is set to userInput if present, otherwise to defaultVal.
-func NewRuntimeValue[T any](defaultVal Value[T], opts ...ValueOption[T]) (*RuntimeValue[T], error) {
-	if defaultVal == nil {
-		return nil, IllegalArgument.New("defaultVal must be provided and cannot be nil")
-	}
-
-	v := &RuntimeValue[T]{
-		defaultVal: defaultVal,
-	}
-
-	for _, opt := range opts {
-		opt(v)
-	}
-
-	// Determine effective defaultValue if effectiveFunc is not provided
-	if v.effectiveFunc == nil {
-		if v.userInput != nil {
-			v.effective = v.userInput
-		} else {
-			v.effective = defaultVal
-		}
-	}
-
-	return v, nil
-}
-
 // SetEffectiveFunc safely sets a new EffectiveFunc at runtime.
 // It clears any cached effective value to ensure the new function will be used.
 func (v *RuntimeValue[T]) SetEffectiveFunc(f EffectiveFunc[T]) {
@@ -426,4 +392,60 @@ func (v *RuntimeValue[T]) ClearCache() {
 	v.mu.Lock()
 	v.effective = nil
 	v.mu.Unlock()
+}
+
+// ValueOption is a functional option used to configure a RuntimeValue.
+type ValueOption[T any] func(*RuntimeValue[T])
+
+// WithEffectiveFunc returns a ValueOption that sets the effective function
+// which will be invoked by Effective.
+//
+// Note: these option setters mutate fields without internal locking and are
+// intended for construction-time configuration only. For runtime-safe updates
+// use the SetEffectiveFunc method on RuntimeValue.
+func WithEffectiveFunc[T any](f EffectiveFunc[T]) ValueOption[T] {
+	return func(v *RuntimeValue[T]) {
+		v.effectiveFunc = f
+	}
+}
+
+// WithUserInput returns a ValueOption that sets a user input Value to be
+// used as the effective value (unless an effectiveFunc is provided).
+//
+// Note: see WithEffectiveFunc regarding runtime mutation.
+func WithUserInput[T any](userInput Value[T]) ValueOption[T] {
+	return func(v *RuntimeValue[T]) {
+		v.userInput = userInput
+	}
+}
+
+// NewRuntimeValue constructs a new RuntimeValue instance.
+//
+// The defaultVal must be provided and cannot be nil. Optional ValueOptions
+// may set userInput and effectiveFunc. If effectiveFunc is not provided,
+// the effective value is set to userInput if present, otherwise to defaultVal.
+func NewRuntimeValue[T any](defaultVal Value[T], opts ...ValueOption[T]) (*RuntimeValue[T], error) {
+	if defaultVal == nil {
+		return nil, IllegalArgument.New("defaultVal must be provided and cannot be nil")
+	}
+
+	v := &RuntimeValue[T]{
+		defaultVal: defaultVal,
+		ctx:        context.Background(),
+	}
+
+	for _, opt := range opts {
+		opt(v)
+	}
+
+	// Determine effective defaultValue if effectiveFunc is not provided
+	if v.effectiveFunc == nil {
+		if v.userInput != nil {
+			v.effective = v.userInput
+		} else {
+			v.effective = defaultVal
+		}
+	}
+
+	return v, nil
 }

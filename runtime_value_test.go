@@ -136,7 +136,7 @@ func TestRuntimeValue_UserInputBecomesEffectiveAndCloneDeepCopies(t *testing.T) 
 	require.NotNil(t, rv)
 
 	// Effective should be userInput
-	eff, err := rv.Effective(context.Background())
+	eff, err := rv.Effective()
 	if err != nil {
 		t.Fatalf("Effective returned error: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestRuntimeValue_UserInputBecomesEffectiveAndCloneDeepCopies(t *testing.T) 
 	}
 
 	// cloned effective (userInput) should keep original user value 2
-	clonedEff, err := clone.Effective(context.Background())
+	clonedEff, err := clone.Effective()
 	if err != nil {
 		t.Fatalf("cloned Effective returned error: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestRuntimeValue_EffectiveFuncInvokedAndPreservedOnClone(t *testing.T) {
 	require.NotNil(t, rv)
 
 	// first call computes and caches (counter -> 1)
-	v1, err := rv.Effective(context.Background())
+	v1, err := rv.Effective()
 	if err != nil {
 		t.Fatalf("Effective call 1 failed: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestRuntimeValue_EffectiveFuncInvokedAndPreservedOnClone(t *testing.T) {
 	}
 
 	// second call should return cached value (counter still 1)
-	v2, err := rv.Effective(context.Background())
+	v2, err := rv.Effective()
 	if err != nil {
 		t.Fatalf("Effective call 2 failed: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestRuntimeValue_EffectiveFuncInvokedAndPreservedOnClone(t *testing.T) {
 		t.Fatalf("Clone failed: %v", err)
 	}
 
-	cv, err := clone.Effective(context.Background())
+	cv, err := clone.Effective()
 	if err != nil {
 		t.Fatalf("clone Effective failed: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestRuntimeValue_SingleFlightDedupesConcurrentEvaluations(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			v, e := rv.Effective(context.Background())
+			v, e := rv.Effective()
 			results[idx] = v
 			errs[idx] = e
 		}(i)
@@ -322,7 +322,7 @@ func TestRuntimeValue_DefaultWhenNoEffectiveFunc(t *testing.T) {
 	rv, err := NewRuntimeValue[*S](defVal)
 	require.NoError(t, err)
 
-	eff, err := rv.Effective(context.Background())
+	eff, err := rv.Effective()
 	require.NoError(t, err)
 	require.NotNil(t, eff)
 	require.Equal(t, 7, eff.Val().V)
@@ -344,13 +344,13 @@ func TestRuntimeValue_SetUserInputUpdatesEffective(t *testing.T) {
 	require.NoError(t, err)
 
 	// initially effective is default
-	eff, err := rv.Effective(context.Background())
+	eff, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 1, eff.Val().V)
 
 	// set user input, effective should switch
 	rv.SetUserInput(userVal)
-	eff2, err := rv.Effective(context.Background())
+	eff2, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 42, eff2.Val().V)
 
@@ -364,14 +364,14 @@ func TestRuntimeValue_SetUserInputUpdatesEffective(t *testing.T) {
 
 	rv.SetEffectiveFunc(effFunc)
 	// first Effective will compute & cache
-	v1, err := rv.Effective(context.Background())
+	v1, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 1, v1.Val().V)
 
 	// set user input while effectiveFunc configured -> cache cleared
 	rv.SetUserInput(userVal)
 	// since effectiveFunc present, Effective will recompute using effFunc
-	v2, err := rv.Effective(context.Background())
+	v2, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 2, v2.Val().V)
 }
@@ -393,7 +393,7 @@ func TestRuntimeValue_SetEffectiveFuncClearsCache(t *testing.T) {
 	rv, err := NewRuntimeValue[*S](defVal, WithEffectiveFunc[*S](f1))
 	require.NoError(t, err)
 
-	v1, err := rv.Effective(context.Background())
+	v1, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 1, v1.Val().V)
 
@@ -406,7 +406,7 @@ func TestRuntimeValue_SetEffectiveFuncClearsCache(t *testing.T) {
 	}
 
 	rv.SetEffectiveFunc(f2)
-	v2, err := rv.Effective(context.Background())
+	v2, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 10, v2.Val().V)
 }
@@ -428,11 +428,11 @@ func TestRuntimeValue_Effective_ReevaluatesWhenNotCaching(t *testing.T) {
 	rv, err := NewRuntimeValue[*S](defVal, WithEffectiveFunc[*S](f))
 	require.NoError(t, err)
 
-	a, err := rv.Effective(context.Background())
+	a, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 1, a.Val().V)
 
-	b, err := rv.Effective(context.Background())
+	b, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 2, b.Val().V)
 }
@@ -493,13 +493,13 @@ func TestRuntimeValue_ClearCache(t *testing.T) {
 	require.NoError(t, err)
 
 	// First call should compute & cache (counter == 1)
-	v1, err := rv.Effective(context.Background())
+	v1, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 1, v1.Val().V)
 
 	// Clear cache and ensure next call recomputes (counter == 2)
 	rv.ClearCache()
-	v2, err := rv.Effective(context.Background())
+	v2, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 2, v2.Val().V)
 
