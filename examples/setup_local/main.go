@@ -172,6 +172,7 @@ func buildWorkflow(wg *sync.WaitGroup) *automa.WorkflowBuilder {
 								WithOnFailure(onFailure),
 				),
 		).
+		WithExecutionMode(automa.RollbackOnError).
 		WithRollbackMode(automa.StopOnError).
 		WithOnCompletion(func(ctx context.Context, w automa.Step, report *automa.Report) {
 			wgStep.Wait()
