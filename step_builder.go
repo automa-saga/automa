@@ -3,6 +3,7 @@ package automa
 import (
 	"context"
 
+	"github.com/joomcode/errorx"
 	"github.com/rs/zerolog"
 )
 
@@ -108,8 +109,12 @@ func (s *StepBuilder) BuildAndCopy() (Step, error) {
 	s.Step.onFailure = finishedStep.onFailure
 	s.Step.enableAsyncCallbacks = finishedStep.enableAsyncCallbacks
 
+	var err error
 	if finishedStep.state != nil {
-		s.Step.state = finishedStep.state.Clone()
+		s.Step.state, err = finishedStep.state.Clone()
+		if err != nil {
+			return nil, errorx.IllegalState.Wrap(err, "failed to clone state bag for step %q", finishedStep.id)
+		}
 	} else {
 		s.Step.state = nil
 	}

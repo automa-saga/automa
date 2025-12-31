@@ -4,7 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/joomcode/errorx"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSyncStateBag_SetAndGet(t *testing.T) {
@@ -156,22 +158,6 @@ func TestSyncStateBag_Items(t *testing.T) {
 	assert.Equal(t, "baz", items["bar"])
 }
 
-func TestSyncStateBag_Clone(t *testing.T) {
-	orig := &SyncStateBag{}
-	orig.Set("foo", 42)
-	orig.Set("bar", "baz")
-
-	clone := orig.Clone()
-	assert.Equal(t, 2, clone.Size())
-	assert.Equal(t, 42, IntFromState(clone, "foo"))
-	assert.Equal(t, "baz", StringFromState(clone, "bar"))
-
-	// Mutate clone and check original is unchanged
-	clone.Set("foo", 100)
-	assert.Equal(t, 42, IntFromState(orig, "foo"))
-	assert.Equal(t, 100, IntFromState(clone, "foo"))
-}
-
 func TestSyncStateBag_HelperMethods(t *testing.T) {
 	bag := &SyncStateBag{}
 
@@ -241,4 +227,117 @@ func TestSyncStateBag_HelperMethods_TypeSafety(t *testing.T) {
 
 	bag.Set("notAFloat", "3.14")
 	assert.Equal(t, 0.0, bag.Float("notAFloat"))
+}
+
+// testCloner implements the repository's expected Cloner[any] shape used in tests.
+type testCloner struct {
+	Data []int
+}
+
+func (t *testCloner) Clone() interface{} {
+	cp := make([]int, len(t.Data))
+	copy(cp, t.Data)
+	return &testCloner{Data: cp}
+}
+
+type errCloner struct{}
+
+func (e *errCloner) Clone() (interface{}, error) {
+	return nil, errorx.IllegalState.New("clone error")
+}
+
+type simplePtr struct {
+	X int
+}
+
+func TestSyncStateBag_Clone_DeepCloneForCloner(t *testing.T) {
+	type S struct {
+		M map[string]int
+	}
+
+	defVal, err := NewValue[*S](&S{M: map[string]int{"x": 1}})
+	if err != nil {
+		t.Fatalf("NewValue failed: %v", err)
+	}
+
+	rv, err := NewRuntimeValue[*S](defVal)
+	require.NoError(t, err)
+	require.NotNil(t, rv)
+
+	orig := &SyncStateBag{}
+	orig.Set("NIL", nil)
+	orig.Set("clonable", &testCloner{Data: []int{1, 2, 3}})
+	orig.Set("ptr", &simplePtr{X: 1}) // non-clonable: should be shallow-copied
+	orig.Set("runtimeVal", rv)
+
+	cloned, err := orig.Clone()
+	require.NoError(t, err)
+	require.NotNil(t, cloned)
+
+	// verify clonable deep-copy
+	clonedVal, ok := cloned.Get("clonable")
+	require.True(t, ok)
+	clonedTC, ok := clonedVal.(*testCloner)
+	require.True(t, ok)
+
+	_, ok = orig.Get("NIL")
+	require.True(t, ok)
+
+	origVal, ok := orig.Get("clonable")
+	require.True(t, ok)
+
+	_, ok = cloned.Get("NIL")
+	require.True(t, ok)
+
+	clonedVal, ok = cloned.Get("runtimeVal")
+	require.True(t, ok)
+
+	clonedRV, ok := clonedVal.(*RuntimeValue[*S])
+	require.True(t, ok)
+
+	require.True(t, ok)
+	origTC, ok := origVal.(*testCloner)
+	require.True(t, ok)
+
+	// modify clone's data; original should remain unchanged
+	clonedTC.Data[0] = 999
+	clonedRV.Default().Val().M["x"] = 999
+	rv.Default().Val().M["d"] = 2
+	assert.Equal(t, 1, origTC.Data[0], "original should not be affected by clone modification")
+	assert.Equal(t, 999, clonedTC.Data[0], "clone should reflect modification")
+	assert.Equal(t, 1, rv.Default().Val().M["x"], "Runtime value should not reflect modification")
+	assert.Equal(t, 0, clonedRV.Default().Val().M["d"], "Cloned runtime value should not reflect modification in the original")
+
+	// verify non-clonable is shallow-copied (same pointer)
+	clonedPtrVal, ok := cloned.Get("ptr")
+	require.True(t, ok)
+	clonedPtr, ok := clonedPtrVal.(*simplePtr)
+	require.True(t, ok)
+
+	origPtrVal, ok := orig.Get("ptr")
+	require.True(t, ok)
+	origPtr, ok := origPtrVal.(*simplePtr)
+	require.True(t, ok)
+
+	// pointers should be identical (shallow copy)
+	assert.Equal(t, origPtr, clonedPtr)
+	clonedPtr.X = 42
+	assert.Equal(t, 42, origPtr.X, "modifying shallow-copied value should reflect in original")
+}
+
+func TestSyncStateBag_Clone_FailsWhenClonerReturnsError(t *testing.T) {
+	orig := &SyncStateBag{}
+	orig.Set("bad", &errCloner{})
+
+	clone, err := orig.Clone()
+	assert.Nil(t, clone)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to clone", "error should indicate failure to clone value")
+}
+
+func TestSyncStateBag_Clone_NilReceiver(t *testing.T) {
+	var nilBag *SyncStateBag
+	clone, err := nilBag.Clone()
+	assert.Nil(t, clone)
+	require.Error(t, err)
 }

@@ -11,6 +11,7 @@ type Step interface {
 	Execute(ctx context.Context) *Report
 	Rollback(ctx context.Context) *Report
 	State() StateBag
+	WithState(s StateBag) Step
 }
 
 type StateBag interface {
@@ -22,7 +23,7 @@ type StateBag interface {
 	Size() int
 	Items() map[Key]interface{}
 	Merge(other StateBag) StateBag
-	Clone() StateBag
+	Clone() (StateBag, error)
 	// Helper methods for extracting typed values
 	String(key Key) string
 	Bool(key Key) bool

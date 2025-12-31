@@ -2,7 +2,10 @@ package automa
 
 import (
 	"context"
+	"reflect"
 	"sync"
+
+	"github.com/joomcode/errorx"
 )
 
 // Key is an exported type for context keys to avoid collisions.
@@ -24,14 +27,52 @@ type SyncStateBag struct {
 	m sync.Map
 }
 
-func (s *SyncStateBag) Clone() StateBag {
-	clone := &SyncStateBag{}
-	s.m.Range(func(key, value interface{}) bool {
-		clone.m.Store(key, value)
-		return true
-	})
+// Clone creates a deep copy of the SyncStateBag if all items implement Clone method and returns deep copy when invoked.
+// If any item does not implement Cloner or Clone method, it performs a shallow copy for that item.
+func (s *SyncStateBag) Clone() (StateBag, error) {
+	if s == nil {
+		return nil, IllegalArgument.New("cannot clone a nil SyncStateBag")
+	}
 
-	return clone
+	clone := &SyncStateBag{}
+	errInterface := reflect.TypeOf((*error)(nil)).Elem()
+
+	for k, v := range s.Items() {
+		if v == nil {
+			clone.m.Store(k, nil)
+			continue
+		}
+
+		rv := reflect.ValueOf(v)
+		m := rv.MethodByName("Clone")
+		if m.IsValid() && m.Type().NumIn() == 0 {
+			outCount := m.Type().NumOut()
+
+			// support Clone() (value, error): Cloner interface
+			if outCount == 2 && m.Type().Out(1).Implements(errInterface) {
+				results := m.Call([]reflect.Value{})
+				// check error
+				if !results[1].IsNil() {
+					errVal := results[1].Interface().(error)
+					return nil, errorx.IllegalState.Wrap(errVal, "failed to clone value for key %v", k)
+				}
+				clone.m.Store(k, results[0].Interface())
+				continue
+			}
+
+			// support Clone() value: if any other clone signature without error
+			if outCount == 1 {
+				results := m.Call([]reflect.Value{})
+				clone.m.Store(k, results[0].Interface())
+				continue
+			}
+		}
+
+		// fallback: shallow copy
+		clone.m.Store(k, v)
+	}
+
+	return clone, nil
 }
 
 func (s *SyncStateBag) Merge(other StateBag) StateBag {

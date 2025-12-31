@@ -7,6 +7,34 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// workflow provides orchestration primitives for composing and executing
+// Steps with structured reporting, error handling and rollback support.
+//
+// Overview:
+//   - A workflow exposes a workflow-level StateBag via Workflow.State() that represents
+//     workflow-wide state.
+//   - Ordinary Steps receive the shared workflow StateBag (mutations are visible to later
+//     steps and to the workflow).
+//   - Steps that are themselves Workflows receive a cloned StateBag so sub-workflows cannot
+//     unintentionally mutate parent workflow state. The parent workflow may still mutate its
+//     own state between steps and thus pass different versions to subsequent steps/sub-workflows.
+//   - Execute records per-step state snapshots to enable deterministic rollback. When a
+//     rollback is triggered by execution failure, rollback routines operate against the state
+//     snapshot that existed when each step executed. Direct calls to Rollback fall back to the
+//     current workflow state (preserving prior behavior).
+//
+// Hooks and callbacks:
+//   - A workflow-level prepare hook (w.prepare) can return a context used for subsequent
+//     step Prepare/Execute calls. Each Step's Prepare is invoked after the step's StateBag
+//     has been attached so Prepare can access state.
+//   - onCompletion and onFailure callbacks are supported; when enableAsyncCallbacks is true,
+//     reports are cloned and callbacks are invoked asynchronously.
+//
+// Execution/rollback modes:
+//   - Execution and rollback semantics respect w.executionMode and w.rollbackMode (StopOnError,
+//     ContinueOnError, RollbackOnError).
+//   - Execute and Rollback produce aggregated Reports containing per-step reports and, when
+//     applicable, per-step rollback reports.
 type workflow struct {
 	id                   string
 	state                StateBag
@@ -21,6 +49,16 @@ type workflow struct {
 	rollback     RollbackFunc // optional user-defined rollback function for the entire workflow
 	onCompletion OnCompletionFunc
 	onFailure    OnFailureFunc
+}
+
+func (w *workflow) WithState(s StateBag) Step {
+	if w.state == s {
+		// avoid redundant assignment when same state is provided
+		return w
+	}
+
+	w.state = s
+	return w
 }
 
 func IsWorkflow(stp Step) bool {
@@ -64,12 +102,40 @@ func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 }
 
 // rollbackFrom rollbacks the workflow backward from the given index to the start.
-func (w *workflow) rollbackFrom(ctx context.Context, index int) map[string]*Report {
+func (w *workflow) rollbackFrom(ctx context.Context, index int, states []StateBag) map[string]*Report {
 	stepReports := map[string]*Report{}
+	startTime := time.Now()
+
 	for i := index; i >= 0; i-- {
 		step := w.steps[i]
 
-		rollbackReport := step.Rollback(ctx)
+		// choose snapshot if provided, otherwise use workflow state
+		var state StateBag
+		if states != nil && i < len(states) && states[i] != nil {
+			state = states[i]
+		} else {
+			state = w.State()
+		}
+
+		// pass the chosen state in context for the rollback
+		stepCtx := context.WithValue(ctx, KeyState, state.
+			Set(KeyId, w.Id()).
+			Set(KeyIsWorkflow, true).
+			Set(KeyStartTime, startTime),
+		)
+
+		rollbackReport := step.Rollback(stepCtx)
+
+		if rollbackReport == nil {
+			rollbackReport = FailureReport(step,
+				WithWorkflow(w),
+				WithActionType(ActionRollback),
+				WithStartTime(startTime),
+				WithError(StepExecutionError.New("workflow %q step %q returned nil report from Rollback", w.id, step.Id()).
+					WithProperty(StepIdProperty, step.Id()),
+				),
+			)
+		}
 
 		// Ensure rollback report has ActionRollback set for consistency
 		if rollbackReport.Action != ActionRollback {
@@ -121,9 +187,25 @@ func (w *workflow) State() StateBag {
 }
 
 // Execute runs the workflow by executing each step in sequence.
-// It returns a Report summarizing the execution result.
-// When execution mode is StopOnError, a step failure triggers rollback all previously executed steps
-// When execution mode is ContinueOnError, step failures don't need to be rolled back.
+//
+// Preparation and state handling:
+//   - If a workflow-level `prepare` hook is configured it is invoked first with the incoming `ctx` and the
+//     workflow instance. The returned context (if non-nil) is used for step preparation and execution.
+//   - The workflow exposes a shared `StateBag` via `w.State()` that represents workflow-wide state.
+//   - For ordinary steps the shared `StateBag` is used as-is (state is shared between workflow and step).
+//   - For steps that are themselves workflows (detected with `IsWorkflow(step)`), `Execute` clones the
+//     workflow state by calling `StateBag.Clone()` and provides the cloned `StateBag` to the sub-workflow.
+//     This prevents unintended state sharing and isolates sub-workflow mutations from the parent workflow.
+//   - If cloning the state fails or context preparation fails, the step is treated as failed and a failure `Report`
+//     is produced; the step is not executed.
+//   - After state preparation each step's `Prepare` hook is invoked; the context returned by the step's
+//     `Prepare` (if any) is used for the step's execution.
+//     A nil `Report` from a step is treated as a failure.
+//
+// Execution semantics:
+//   - Execution behavior respects `w.executionMode` (StopOnError, ContinueOnError, RollbackOnError).
+//   - When rollback is required, rollback reports from executed steps are attached to the corresponding
+//     step reports and returned as part of the workflow `Report`.
 func (w *workflow) Execute(ctx context.Context) *Report {
 	startTime := time.Now()
 
@@ -137,24 +219,59 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 	var stepReports []*Report
 	var hasFailed bool
+
+	// capture per-step state snapshots for rollback
+	stepStates := make([]StateBag, 0, len(w.steps))
+
 	for index, step := range w.steps {
 		var report *Report
 		stepStart := time.Now()
-		stepCtx, err := step.Prepare(ctx)
-		if err != nil {
-			report = FailureReport(step,
-				WithWorkflow(w),
-				WithStartTime(stepStart),
-				WithActionType(ActionExecute),
-				WithError(StepExecutionError.
-					Wrap(err, "workflow %q step %q preparation failed", w.id, step.Id()).
-					WithProperty(StepIdProperty, step.Id()),
-				))
 
-			if stepCtx == nil {
-				stepCtx = ctx
+		stepCtx := ctx
+		var stepState StateBag
+		var statePrepError error
+		var ctxPrepError error
+
+		// prepare step state (start from current workflow state)
+		stepState = w.State()
+		if IsWorkflow(step) { // clone state for sub-workflows
+			stepState, statePrepError = stepState.Clone()
+			if statePrepError != nil {
+				report = FailureReport(step,
+					WithWorkflow(w),
+					WithStartTime(stepStart),
+					WithActionType(ActionExecute),
+					WithError(StepExecutionError.
+						Wrap(statePrepError, "workflow %q step %q failed to clone state for sub-workflow execution", w.id, step.Id()).
+						WithProperty(StepIdProperty, step.Id()),
+					))
 			}
-		} else {
+		}
+
+		// attach snapshot for possible rollback (keeps alignment even if nil)
+		stepStates = append(stepStates, stepState)
+
+		// make sure step has its state before calling Prepare so Prepare can access it.
+		// It also ensures during Execute the step has the correct state
+		step = step.WithState(stepState)
+
+		// prepare step context
+		if statePrepError == nil {
+			stepCtx, ctxPrepError = step.Prepare(ctx)
+			if ctxPrepError != nil {
+				report = FailureReport(step,
+					WithWorkflow(w),
+					WithStartTime(stepStart),
+					WithActionType(ActionExecute),
+					WithError(StepExecutionError.
+						Wrap(ctxPrepError, "workflow %q step %q preparation failed", w.id, step.Id()).
+						WithProperty(StepIdProperty, step.Id()),
+					))
+			}
+		}
+
+		// execute step if preparation succeeded
+		if statePrepError == nil && ctxPrepError == nil {
 			report = step.Execute(stepCtx)
 			if report == nil {
 				report = FailureReport(step,
@@ -168,19 +285,18 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			}
 		}
 
+		// collect step report
 		stepReports = append(stepReports, report)
 
+		// check for step failure
 		if report.IsFailed() {
 			hasFailed = true
 
-			// if execution mode is StopOnError, we stop execution
-			// if execution mode is RollbackOnError, we perform rollback from this step to the start and break
-			// if it's ContinueOnError, we continue to next step without rolling back
 			if w.executionMode == StopOnError {
-				break // stop execution on first failure
+				break
 			} else if w.executionMode == RollbackOnError {
-				// Perform rollback for all executed steps from the current one to the start
-				rollbackReports := w.rollbackFrom(stepCtx, index)
+				// perform rollback using recorded per-step states
+				rollbackReports := w.rollbackFrom(stepCtx, index, stepStates)
 
 				// Attach rollback reports to corresponding step reports
 				for _, stepReport := range stepReports {
@@ -194,8 +310,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		}
 	}
 
-	if hasFailed { // workflow failed, but we don't need to rollback here as it's already done above if needed
-		// collect failed step IDs for reporting
+	if hasFailed {
 		var failedStepIDs []string
 		for _, sr := range stepReports {
 			if sr.IsFailed() {
@@ -215,10 +330,9 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 		w.handleFailure(ctx, workflowReport)
 
-		return workflowReport // return failure report
+		return workflowReport
 	}
 
-	// all steps succeeded, return success report
 	workflowReport := SuccessReport(w,
 		WithWorkflow(w),
 		WithStartTime(startTime),
@@ -268,7 +382,7 @@ func (w *workflow) invokeRollbackFunc(ctx context.Context) *Report {
 
 func (w *workflow) Rollback(ctx context.Context) *Report {
 	if w.rollback != nil {
-		return w.invokeRollbackFunc(ctx) // use user-defined rollback function if provided
+		return w.invokeRollbackFunc(ctx)
 	}
 
 	startTime := time.Now()
@@ -277,7 +391,8 @@ func (w *workflow) Rollback(ctx context.Context) *Report {
 		Set(KeyIsWorkflow, true).
 		Set(KeyStartTime, startTime),
 	)
-	rollbackReports := w.rollbackFrom(stepCtx, len(w.steps)-1)
+	// call with nil states so rollbackFrom falls back to current workflow state
+	rollbackReports := w.rollbackFrom(stepCtx, len(w.steps)-1, nil)
 
 	var stepReports []*Report
 	for _, step := range w.steps {

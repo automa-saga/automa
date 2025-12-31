@@ -27,6 +27,16 @@ func (s *defaultStep) State() StateBag {
 	return s.state
 }
 
+func (s *defaultStep) WithState(st StateBag) Step {
+	// avoid redundant assignment when same state is provided
+	if s.state == st {
+		return s
+	}
+
+	s.state = st
+	return s
+}
+
 func (s *defaultStep) Id() string {
 	return s.id
 }
