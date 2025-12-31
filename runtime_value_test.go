@@ -100,11 +100,16 @@ func TestRuntimeValue_CloneDeepCopiesInternalValues(t *testing.T) {
 	// Modify original
 	orig.M["x"] = 99
 
+	if rv.Default().Val().M["x"] != 99 {
+		t.Fatalf("expected original RuntimeValue default to reflect mutated value 99, got %d", rv.Default().Val().M["x"])
+	}
+
 	// cloned default should remain unchanged
 	clonedDefault := clonedRV.Default().Val()
 	if clonedDefault.M["x"] != 1 {
 		t.Fatalf("expected cloned default to keep value 1, got %d", clonedDefault.M["x"])
 	}
+
 }
 
 // Test that WithUserInput makes userInput the effective value and Clone deep-copies default and userInput.
@@ -447,7 +452,7 @@ func TestValue_Val(t *testing.T) {
 }
 
 func TestRuntimeValue_UserInput(t *testing.T) {
-	v, err := NewValue[int](10)
+	v, err := NewValue(10)
 	require.NoError(t, err)
 
 	rv, err := NewRuntimeValue[int](v)
@@ -456,7 +461,7 @@ func TestRuntimeValue_UserInput(t *testing.T) {
 	ui := rv.UserInput()
 	require.Nil(t, ui)
 
-	uv, err := NewValue[int](20)
+	uv, err := NewValue(20)
 	require.NoError(t, err)
 
 	rv.SetUserInput(uv)

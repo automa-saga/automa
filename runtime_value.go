@@ -11,6 +11,12 @@ import (
 	"github.com/joomcode/errorx"
 )
 
+// Cloner marks values that can return a cloned copy of themselves.
+// Keep it minimal: Clone returns an `interface{}` and the caller decides what to store.
+type Cloner[T any] interface {
+	Clone() (T, error)
+}
+
 // Value provides primitives for building and resolving typed
 // configuration values used by the automa framework. It is centered around
 // the concept of a runtime-resolvable value container represented
@@ -20,7 +26,7 @@ import (
 // container which composes default values, optional user input and an
 // optional effective resolution function.
 type Value[T any] interface {
-	Clone() (Value[T], error)
+	Cloner[Value[T]]
 	Val() T
 }
 

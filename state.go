@@ -3,6 +3,8 @@ package automa
 import (
 	"context"
 	"sync"
+
+	"github.com/joomcode/errorx"
 )
 
 // Key is an exported type for context keys to avoid collisions.
@@ -24,14 +26,28 @@ type SyncStateBag struct {
 	m sync.Map
 }
 
-func (s *SyncStateBag) Clone() StateBag {
-	clone := &SyncStateBag{}
-	s.m.Range(func(key, value interface{}) bool {
-		clone.m.Store(key, value)
-		return true
-	})
+// Clone creates a deep copy of the SyncStateBag if all items implements Cloner and returns deep copy when invoked.
+// If any item does not implement Cloner, it performs a shallow copy for that item.
+func (s *SyncStateBag) Clone() (StateBag, error) {
+	if s == nil {
+		return nil, IllegalArgument.New("cannot clone a nil SyncStateBag")
+	}
 
-	return clone
+	clone := &SyncStateBag{}
+	for k, v := range s.Items() {
+		// if the value implements Cloner, use it to clone the value
+		if c, ok := v.(Cloner[any]); ok {
+			cp, err := c.Clone()
+			if err != nil {
+				return nil, errorx.IllegalState.Wrap(err, "failed to clone value for key %v", k)
+			}
+			clone.m.Store(k, cp)
+		} else {
+			clone.m.Store(k, v) // store the value as is (shallow copy)
+		}
+	}
+
+	return clone, nil
 }
 
 func (s *SyncStateBag) Merge(other StateBag) StateBag {
