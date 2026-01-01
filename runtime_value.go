@@ -214,12 +214,18 @@ func (v *RuntimeValue[T]) EffectiveWithContext(ctx context.Context) (Value[T], e
 	user := v.userInput
 	v.mu.RUnlock()
 
-	// fast path: already resolved or no effective function configured
-	if eff != nil || effFunc == nil {
+	// fast path: already resolved
+	if eff != nil {
 		return eff, nil
 	}
 
+	if v.effectiveFunc == nil {
+		return nil, errorx.IllegalState.New("effectiveFunc is not configured on RuntimeValue") // should not happen due to constructor enforcement
+	}
+
 	// Use singleflight to dedupe concurrent evaluations for this instance.
+	// Note: key "effective" is safe because sf is per-instance; we keep it constant
+	// to dedupe within this RuntimeValue only.
 	res, err, _ := v.sf.Do("effective", func() (interface{}, error) {
 		val, shouldCache, err := effFunc(ctx, def, user)
 		if err != nil {
@@ -248,7 +254,7 @@ func (v *RuntimeValue[T]) EffectiveWithContext(ctx context.Context) (Value[T], e
 		return nil, err
 	}
 	if res == nil {
-		return nil, nil
+		return nil, errorx.IllegalState.New("effective evaluation returned nil")
 	}
 
 	vres, ok := res.(Value[T])
@@ -283,6 +289,7 @@ func (v *RuntimeValue[T]) Default() Value[T] {
 //
 // This method is nil-receiver safe: calling UserInput on a nil *RuntimeValue
 // returns nil.
+// User input is nil if not provided via WithUserInput or SetUserInput, so callers should check for nil.
 func (v *RuntimeValue[T]) UserInput() Value[T] {
 	if v == nil {
 		return nil
@@ -315,6 +322,7 @@ func (v *RuntimeValue[T]) Clone() (*RuntimeValue[T], error) {
 	def := v.defaultVal
 	user := v.userInput
 	effFunc := v.effectiveFunc
+	ctx := v.ctx
 	v.mu.RUnlock()
 
 	var err error
@@ -344,6 +352,7 @@ func (v *RuntimeValue[T]) Clone() (*RuntimeValue[T], error) {
 		defaultVal:    cdef,
 		userInput:     cuser,
 		effectiveFunc: effFunc,
+		ctx:           ctx,
 	}
 
 	return c, nil
@@ -355,6 +364,12 @@ func (v *RuntimeValue[T]) SetEffectiveFunc(f EffectiveFunc[T]) {
 	if v == nil {
 		return
 	}
+
+	// we won't allow setting nil effectiveFunc
+	if f == nil {
+		return
+	}
+
 	v.mu.Lock()
 	v.effectiveFunc = f
 	v.effective = nil
@@ -371,15 +386,7 @@ func (v *RuntimeValue[T]) SetUserInput(user Value[T]) {
 	}
 	v.mu.Lock()
 	v.userInput = user
-	if v.effectiveFunc == nil {
-		if user != nil {
-			v.effective = user
-		} else {
-			v.effective = v.defaultVal
-		}
-	} else {
-		v.effective = nil
-	}
+	v.effective = nil
 	v.mu.Unlock()
 }
 
@@ -405,6 +412,10 @@ type ValueOption[T any] func(*RuntimeValue[T])
 // use the SetEffectiveFunc method on RuntimeValue.
 func WithEffectiveFunc[T any](f EffectiveFunc[T]) ValueOption[T] {
 	return func(v *RuntimeValue[T]) {
+		if f == nil {
+			return // ignore nil effectiveFunc
+		}
+
 		v.effectiveFunc = f
 	}
 }
@@ -438,12 +449,14 @@ func NewRuntimeValue[T any](defaultVal Value[T], opts ...ValueOption[T]) (*Runti
 		opt(v)
 	}
 
-	// Determine effective defaultValue if effectiveFunc is not provided
+	// If no effectiveFunc is provided, set a default function to use userInput if present, otherwise defaultVal.
+	// This ensures effectiveFunc is always set and simplifies Effective() logic.
 	if v.effectiveFunc == nil {
-		if v.userInput != nil {
-			v.effective = v.userInput
-		} else {
-			v.effective = defaultVal
+		v.effectiveFunc = func(ctx context.Context, defaultVal Value[T], userInput Value[T]) (Value[T], bool, error) {
+			if userInput != nil {
+				return userInput, true, nil
+			}
+			return defaultVal, true, nil
 		}
 	}
 
