@@ -98,6 +98,22 @@ func NewEffectiveValue[T any](v Value[T], strategy EffectiveStrategy) (*Effectiv
 	}, nil
 }
 
+// NewEffective constructs a new EffectiveValue that pairs the provided
+// Value with the given EffectiveStrategy.
+// An error is returned if the provided Value is nil.
+func NewEffective[T any](v T, strategy EffectiveStrategy) (*EffectiveValue[T], error) {
+	if IsNil(v) {
+		return nil, errorx.IllegalArgument.New("value cannot be nil")
+	}
+
+	vv, err := NewValue[T](v)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewEffectiveValue(vv, strategy)
+}
+
 // Clone produces a deep clone of the EffectiveValue by cloning the
 // underlying Value using its Clone method.
 //

@@ -77,4 +77,16 @@ func TestNewEffectiveValue_NilValueBehavior(t *testing.T) {
 	ev, err := NewEffectiveValue[string](nilVal, StrategyDefault)
 	require.Error(t, err)
 	require.Nil(t, ev)
+
+	evr, err := NewEffective[*string](nil, StrategyDefault)
+	require.Error(t, err)
+	require.Nil(t, evr)
+}
+
+func TestNewEffectiveRaw(t *testing.T) {
+	ev, err := NewEffective[string]("test", StrategyCustom)
+	require.NoError(t, err)
+	require.NotNil(t, ev)
+	assert.Equal(t, StrategyCustom, ev.Strategy())
+	assert.Equal(t, "test", ev.Get().Val())
 }

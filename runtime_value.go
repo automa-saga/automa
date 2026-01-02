@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/gob"
+	"reflect"
 	"sync"
 
 	"golang.org/x/sync/singleflight"
@@ -403,7 +404,7 @@ func (v *RuntimeValue[T]) ClearCache() {
 }
 
 // ValueOption is a functional option used to configure a RuntimeValue.
-type ValueOption[T any] func(*RuntimeValue[T])
+type ValueOption[T any] func(*RuntimeValue[T]) error
 
 // WithEffectiveFunc returns a ValueOption that sets the effective function
 // which will be invoked by Effective.
@@ -412,12 +413,13 @@ type ValueOption[T any] func(*RuntimeValue[T])
 // intended for construction-time configuration only. For runtime-safe updates
 // use the SetEffectiveFunc method on RuntimeValue.
 func WithEffectiveFunc[T any](f EffectiveFunc[T]) ValueOption[T] {
-	return func(v *RuntimeValue[T]) {
+	return func(v *RuntimeValue[T]) error {
 		if f == nil {
-			return // ignore nil effectiveFunc
+			return IllegalArgument.New("effectiveFunc cannot be nil")
 		}
 
 		v.effectiveFunc = f
+		return nil
 	}
 }
 
@@ -426,8 +428,13 @@ func WithEffectiveFunc[T any](f EffectiveFunc[T]) ValueOption[T] {
 //
 // Note: see WithEffectiveFunc regarding runtime mutation.
 func WithUserInput[T any](userInput Value[T]) ValueOption[T] {
-	return func(v *RuntimeValue[T]) {
+	return func(v *RuntimeValue[T]) error {
+		if userInput == nil {
+			return IllegalArgument.New("userInput cannot be nil")
+		}
+
 		v.userInput = userInput
+		return nil
 	}
 }
 
@@ -447,7 +454,10 @@ func NewRuntimeValue[T any](defaultVal Value[T], opts ...ValueOption[T]) (*Runti
 	}
 
 	for _, opt := range opts {
-		opt(v)
+		err := opt(v)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if v.effectiveFunc == nil {
@@ -478,4 +488,36 @@ func NewRuntimeValue[T any](defaultVal Value[T], opts ...ValueOption[T]) (*Runti
 	}
 
 	return v, nil
+}
+
+// NewRuntime constructs a new RuntimeValue instance from a default value.
+//
+// The defaultVal must be provided and cannot be nil. Optional ValueOptions
+// may set userInput and effectiveFunc.
+func NewRuntime[T any](defaultVal T, opts ...ValueOption[T]) (*RuntimeValue[T], error) {
+	if IsNil(defaultVal) {
+		return nil, IllegalArgument.New("defaultVal must be provided and cannot be nil")
+	}
+
+	dv, err := NewValue[T](defaultVal)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewRuntimeValue[T](dv, opts...)
+}
+
+// IsNil reports whether the provided generic value is nil for kinds that can be nil.
+// It returns false for non-nilable kinds (and will not panic).
+func IsNil[T any](v T) bool {
+	rv := reflect.ValueOf(v)
+	if !rv.IsValid() {
+		return true // treat zero reflect as nil
+	}
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
