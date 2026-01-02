@@ -132,13 +132,13 @@ func (v *defaultValue[T]) Clone() (Value[T], error) {
 // EffectiveFunc is a function type used to compute the effective Value[T]
 // based on the provided defaultVal and userInput.
 //
-// The function should return the computed Value[T], a boolean indicating
+// The function should return the computed *EffectiveValue[T], a boolean indicating
 // whether the result should be cached for future calls, and an error if
 // the computation fails.
 //
 // Semantics:
 //   - If error != nil the call fails.
-//   - If returned Value[T] is nil, the call fails (treated as an implementation error).
+//   - If returned *EffectiveValue[T] is nil, the call fails (treated as an implementation error).
 //   - If shouldCache == true the first successful non-nil result will be cached
 //     in the RuntimeValue instance and returned to subsequent callers.
 //   - If shouldCache == false the computed result will be returned to the caller
@@ -146,7 +146,7 @@ func (v *defaultValue[T]) Clone() (Value[T], error) {
 //
 // The function is expected to be side-effect-free if caching is enabled.
 // It accepts a context for cancellation and timeout control.
-type EffectiveFunc[T any] func(ctx context.Context, defaultVal Value[T], userInput Value[T]) (Value[T], bool, error)
+type EffectiveFunc[T any] func(ctx context.Context, defaultVal Value[T], userInput Value[T]) (*EffectiveValue[T], bool, error)
 
 // RuntimeValue is a generic container for a default value together with
 // optional user input and an optional effective function.
@@ -154,7 +154,7 @@ type EffectiveFunc[T any] func(ctx context.Context, defaultVal Value[T], userInp
 // Resolution semantics:
 //   - If an effectiveFunc is provided, it is invoked during the first call
 //     to Effective() to compute the effective value. The function is expected
-//     to return a non-nil Value and to be side-effect-free when it returns shouldCache=true.
+//     to return a non-nil EffectiveValue and to be side-effect-free when it returns shouldCache=true.
 //   - If effectiveFunc is not provided, the effective value is determined
 //     at construction time: userInput (if provided) otherwise defaultVal.
 //   - Default() returns the configured defaultVal.
@@ -170,7 +170,7 @@ type EffectiveFunc[T any] func(ctx context.Context, defaultVal Value[T], userInp
 //     otherwise protect them.
 type RuntimeValue[T any] struct {
 	mu            sync.RWMutex
-	effective     Value[T]
+	effective     *EffectiveValue[T]
 	defaultVal    Value[T]
 	userInput     Value[T]
 	effectiveFunc EffectiveFunc[T]
@@ -188,7 +188,7 @@ func (v *RuntimeValue[T]) WithContext(ctx context.Context) *RuntimeValue[T] {
 	return v
 }
 
-// EffectiveWithContext returns the effective Value for the runtime value,
+// EffectiveWithContext returns the effective EffectiveValue for the runtime value,
 // using the provided context for effectiveFunc invocation.
 // It does not modify the stored context of the RuntimeValue.
 //
@@ -201,7 +201,7 @@ func (v *RuntimeValue[T]) WithContext(ctx context.Context) *RuntimeValue[T] {
 // read-mostly pattern: read locks for fast returns and a write lock only when
 // the effective value must be cached after computing it via effectiveFunc.
 // Concurrent evaluations of effectiveFunc are deduplicated using singleflight.
-func (v *RuntimeValue[T]) EffectiveWithContext(ctx context.Context) (Value[T], error) {
+func (v *RuntimeValue[T]) EffectiveWithContext(ctx context.Context) (*EffectiveValue[T], error) {
 	if v == nil {
 		return nil, errorx.IllegalState.New("RuntimeValue receiver is nil")
 	}
@@ -257,18 +257,18 @@ func (v *RuntimeValue[T]) EffectiveWithContext(ctx context.Context) (Value[T], e
 		return nil, errorx.IllegalState.New("effective evaluation returned nil")
 	}
 
-	vres, ok := res.(Value[T])
+	vres, ok := res.(*EffectiveValue[T])
 	if !ok {
-		return nil, errorx.IllegalState.New("singleflight invocation for effectiveFunc returned unexpected type")
+		return nil, errorx.IllegalState.New("singleflight invocation returned unexpected type (expected *EffectiveValue[T])")
 	}
 	return vres, nil
 }
 
-// Effective returns the effective Value for the runtime value.
+// Effective returns the effective EffectiveValue for the runtime value.
 // It uses the stored context for effectiveFunc invocation.
 //
 // See EffectiveWithContext for full semantics and concurrency behavior.
-func (v *RuntimeValue[T]) Effective() (Value[T], error) {
+func (v *RuntimeValue[T]) Effective() (*EffectiveValue[T], error) {
 	return v.EffectiveWithContext(v.ctx)
 }
 
@@ -326,7 +326,8 @@ func (v *RuntimeValue[T]) Clone() (*RuntimeValue[T], error) {
 	v.mu.RUnlock()
 
 	var err error
-	var ceff, cdef, cuser Value[T]
+	var ceff *EffectiveValue[T]
+	var cdef, cuser Value[T]
 
 	if eff != nil {
 		ceff, err = eff.Clone()
@@ -449,15 +450,31 @@ func NewRuntimeValue[T any](defaultVal Value[T], opts ...ValueOption[T]) (*Runti
 		opt(v)
 	}
 
-	// If no effectiveFunc is provided, set a default function to use userInput if present, otherwise defaultVal.
-	// This ensures effectiveFunc is always set and simplifies Effective() logic.
 	if v.effectiveFunc == nil {
-		v.effectiveFunc = func(ctx context.Context, defaultVal Value[T], userInput Value[T]) (Value[T], bool, error) {
+		// If no effectiveFunc is provided, set a default function to use userInput if present, otherwise defaultVal.
+		// This ensures effectiveFunc is always set and simplifies checks in Effective() logic.
+		v.effectiveFunc = func(ctx context.Context, defaultVal Value[T], userInput Value[T]) (*EffectiveValue[T], bool, error) {
+			val := defaultVal
+			strategy := StrategyDefault
 			if userInput != nil {
-				return userInput, true, nil
+				val = userInput
+				strategy = StrategyUserInput
 			}
-			return defaultVal, true, nil
+
+			ev, err := NewEffectiveValue(val, strategy)
+			if err != nil {
+				return nil, false, err
+			}
+
+			return ev, true, nil
 		}
+
+		// set effective now to avoid first-call evaluation
+		ev, _, err := v.effectiveFunc(v.ctx, v.defaultVal, v.userInput)
+		if err != nil {
+			return nil, err
+		}
+		v.effective = ev
 	}
 
 	return v, nil

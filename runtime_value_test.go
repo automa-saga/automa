@@ -144,8 +144,8 @@ func TestRuntimeValue_UserInputBecomesEffectiveAndCloneDeepCopies(t *testing.T) 
 	if eff == nil {
 		t.Fatalf("Effective returned nil value")
 	}
-	if eff.Val().M["u"] != 2 {
-		t.Fatalf("expected effective user value 2, got %d", eff.Val().M["u"])
+	if eff.Get().Val().M["u"] != 2 {
+		t.Fatalf("expected effective user value 2, got %d", eff.Get().Val().M["u"])
 	}
 
 	// Clone and then mutate originals; clone should remain unchanged
@@ -174,8 +174,8 @@ func TestRuntimeValue_UserInputBecomesEffectiveAndCloneDeepCopies(t *testing.T) 
 	if clonedEff == nil {
 		t.Fatalf("cloned Effective is nil")
 	}
-	if clonedEff.Val().M["u"] != 2 {
-		t.Fatalf("expected cloned effective u==2, got %d", clonedEff.Val().M["u"])
+	if clonedEff.Get().Val().M["u"] != 2 {
+		t.Fatalf("expected cloned effective u==2, got %d", clonedEff.Get().Val().M["u"])
 	}
 }
 
@@ -187,14 +187,20 @@ func TestRuntimeValue_EffectiveFuncInvokedAndPreservedOnClone(t *testing.T) {
 	}
 
 	var counter int32
-	effFunc := func(ctx context.Context, _ Value[*S], _ Value[*S]) (Value[*S], bool, error) {
+	effFunc := func(ctx context.Context, _ Value[*S], _ Value[*S]) (*EffectiveValue[*S], bool, error) {
 		v := atomic.AddInt32(&counter, 1)
 		val, err := NewValue(&S{M: map[string]int{"ctr": int(v)}})
 		if err != nil {
 			return nil, false, err
 		}
+
+		ev, err := NewEffectiveValue(val, StrategyCustom)
+		if err != nil {
+			return nil, false, err
+		}
+
 		// cache the computed result
-		return val, true, nil
+		return ev, true, nil
 	}
 
 	// provide a non-nil defaultVal as required by NewRuntimeValue
@@ -213,18 +219,20 @@ func TestRuntimeValue_EffectiveFuncInvokedAndPreservedOnClone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Effective call 1 failed: %v", err)
 	}
-	if v1.Val().M["ctr"] != 1 {
-		t.Fatalf("expected ctr==1 on first call, got %d", v1.Val().M["ctr"])
+	if v1.Get().Val().M["ctr"] != 1 {
+		t.Fatalf("expected ctr==1 on first call, got %d", v1.Get().Val().M["ctr"])
 	}
+	assert.Equal(t, StrategyCustom, v1.Strategy())
 
 	// second call should return cached value (counter still 1)
 	v2, err := rv.Effective()
 	if err != nil {
 		t.Fatalf("Effective call 2 failed: %v", err)
 	}
-	if v2.Val().M["ctr"] != 1 {
-		t.Fatalf("expected ctr==1 on second call (cached), got %d", v2.Val().M["ctr"])
+	if v2.Get().Val().M["ctr"] != 1 {
+		t.Fatalf("expected ctr==1 on second call (cached), got %d", v2.Get().Val().M["ctr"])
 	}
+	assert.Equal(t, StrategyCustom, v2.Strategy())
 
 	// Clone the runtime value; cloned effective is copied, so clone should not invoke effFunc
 	clone, err := rv.Clone()
@@ -237,8 +245,8 @@ func TestRuntimeValue_EffectiveFuncInvokedAndPreservedOnClone(t *testing.T) {
 		t.Fatalf("clone Effective failed: %v", err)
 	}
 	// clone had cached effective, so counter remains 1
-	if cv.Val().M["ctr"] != 1 {
-		t.Fatalf("expected ctr==1 after clone Effective, got %d", cv.Val().M["ctr"])
+	if cv.Get().Val().M["ctr"] != 1 {
+		t.Fatalf("expected ctr==1 after clone Effective, got %d", cv.Get().Val().M["ctr"])
 	}
 }
 
@@ -258,7 +266,7 @@ func TestRuntimeValue_SingleFlightDedupesConcurrentEvaluations(t *testing.T) {
 	}
 
 	var counter int32
-	effFunc := func(ctx context.Context, _ Value[*S], _ Value[*S]) (Value[*S], bool, error) {
+	effFunc := func(ctx context.Context, _ Value[*S], _ Value[*S]) (*EffectiveValue[*S], bool, error) {
 		// simulate expensive work
 		time.Sleep(100 * time.Millisecond)
 		v := atomic.AddInt32(&counter, 1)
@@ -266,8 +274,14 @@ func TestRuntimeValue_SingleFlightDedupesConcurrentEvaluations(t *testing.T) {
 		if err != nil {
 			return nil, false, err
 		}
-		// cache the result
-		return val, true, nil
+
+		ev, err := NewEffectiveValue(val, StrategyCustom)
+		if err != nil {
+			return nil, false, err
+		}
+
+		// cache the computed result
+		return ev, true, nil
 	}
 
 	defVal, err := NewValue(&S{M: map[string]int{}})
@@ -281,7 +295,7 @@ func TestRuntimeValue_SingleFlightDedupesConcurrentEvaluations(t *testing.T) {
 
 	var wg sync.WaitGroup
 	const goroutines = 20
-	results := make([]Value[*S], goroutines)
+	results := make([]*EffectiveValue[*S], goroutines)
 	errs := make([]error, goroutines)
 
 	for i := 0; i < goroutines; i++ {
@@ -307,8 +321,8 @@ func TestRuntimeValue_SingleFlightDedupesConcurrentEvaluations(t *testing.T) {
 		if results[i] == nil {
 			t.Fatalf("goroutine %d: Effective returned nil", i)
 		}
-		if results[i].Val().M["ctr"] != 1 {
-			t.Fatalf("goroutine %d: expected ctr==1, got %d", i, results[i].Val().M["ctr"])
+		if results[i].Get().Val().M["ctr"] != 1 {
+			t.Fatalf("goroutine %d: expected ctr==1, got %d", i, results[i].Get().Val().M["ctr"])
 		}
 	}
 }
@@ -326,7 +340,8 @@ func TestRuntimeValue_DefaultWhenNoEffectiveFunc(t *testing.T) {
 	eff, err := rv.Effective()
 	require.NoError(t, err)
 	require.NotNil(t, eff)
-	require.Equal(t, 7, eff.Val().V)
+	require.Equal(t, 7, eff.Get().Val().V)
+	assert.Equal(t, StrategyDefault, eff.Strategy())
 }
 
 // Test SetUserInput updates effective when no effectiveFunc and clears cache when effectiveFunc present.
@@ -347,34 +362,48 @@ func TestRuntimeValue_SetUserInputUpdatesEffective(t *testing.T) {
 	// initially effective is default
 	eff, err := rv.Effective()
 	require.NoError(t, err)
-	require.Equal(t, 1, eff.Val().V)
+	require.Equal(t, 1, eff.Get().Val().V)
 
 	// set user input, effective should switch
 	rv.SetUserInput(userVal)
 	eff2, err := rv.Effective()
 	require.NoError(t, err)
-	require.Equal(t, 42, eff2.Val().V)
+	require.Equal(t, 42, eff2.Get().Val().V)
+	assert.Equal(t, StrategyDefault, eff.Strategy())
 
 	// now configure an effectiveFunc that caches a computed value
 	var counter int32
-	effFunc := func(ctx context.Context, _ Value[*S], _ Value[*S]) (Value[*S], bool, error) {
+	effFunc := func(ctx context.Context, _ Value[*S], _ Value[*S]) (*EffectiveValue[*S], bool, error) {
 		v := atomic.AddInt32(&counter, 1)
 		val, err := NewValue(&S{V: int(v)})
-		return val, true, err
+		if err != nil {
+			return nil, false, err
+		}
+
+		ev, err := NewEffectiveValue(val, StrategyCustom)
+		if err != nil {
+			return nil, false, err
+		}
+
+		// cache the computed result
+		return ev, true, nil
 	}
 
 	rv.SetEffectiveFunc(effFunc)
 	// first Effective will compute & cache
 	v1, err := rv.Effective()
 	require.NoError(t, err)
-	require.Equal(t, 1, v1.Val().V)
+	require.Equal(t, 1, v1.Get().Val().V)
+	assert.Equal(t, StrategyCustom, v1.Strategy())
 
 	// set user input while effectiveFunc configured -> cache cleared
 	rv.SetUserInput(userVal)
 	// since effectiveFunc present, Effective will recompute using effFunc
 	v2, err := rv.Effective()
 	require.NoError(t, err)
-	require.Equal(t, 2, v2.Val().V)
+	require.Equal(t, 2, v2.Get().Val().V)
+	assert.Equal(t, StrategyCustom, v2.Strategy())
+
 }
 
 // Test SetEffectiveFunc clears previous cache and new function is used.
@@ -385,10 +414,19 @@ func TestRuntimeValue_SetEffectiveFuncClearsCache(t *testing.T) {
 	require.NoError(t, err)
 
 	var c1 int32
-	f1 := func(ctx context.Context, _ Value[*S], _ Value[*S]) (Value[*S], bool, error) {
+	f1 := func(ctx context.Context, _ Value[*S], _ Value[*S]) (*EffectiveValue[*S], bool, error) {
 		v := atomic.AddInt32(&c1, 1)
 		val, err := NewValue(&S{V: int(v)})
-		return val, true, err
+		if err != nil {
+			return nil, false, err
+		}
+
+		ev, err := NewEffectiveValue(val, StrategyCustom)
+		if err != nil {
+			return nil, false, err
+		}
+
+		return ev, true, nil
 	}
 
 	rv, err := NewRuntimeValue[*S](defVal, WithEffectiveFunc[*S](f1))
@@ -396,7 +434,7 @@ func TestRuntimeValue_SetEffectiveFuncClearsCache(t *testing.T) {
 
 	v1, err := rv.Effective()
 	require.NoError(t, err)
-	require.Equal(t, 1, v1.Val().V)
+	require.Equal(t, 1, v1.Get().Val().V)
 
 	// setting nil effectiveFunc won't set it
 	assert.NotNil(t, rv.effectiveFunc)
@@ -405,16 +443,25 @@ func TestRuntimeValue_SetEffectiveFuncClearsCache(t *testing.T) {
 
 	// replace effective func
 	var c2 int32
-	f2 := func(ctx context.Context, _ Value[*S], _ Value[*S]) (Value[*S], bool, error) {
+	f2 := func(ctx context.Context, _ Value[*S], _ Value[*S]) (*EffectiveValue[*S], bool, error) {
 		v := atomic.AddInt32(&c2, 1)
 		val, err := NewValue(&S{V: int(v * 10)})
-		return val, true, err
+		if err != nil {
+			return nil, false, err
+		}
+
+		ev, err := NewEffectiveValue(val, StrategyCustom)
+		if err != nil {
+			return nil, false, err
+		}
+
+		return ev, true, nil
 	}
 
 	rv.SetEffectiveFunc(f2)
 	v2, err := rv.Effective()
 	require.NoError(t, err)
-	require.Equal(t, 10, v2.Val().V)
+	require.Equal(t, 10, v2.Get().Val().V)
 }
 
 // Test that effectiveFunc returning shouldCache==false is re-evaluated on each call.
@@ -425,10 +472,19 @@ func TestRuntimeValue_Effective_ReevaluatesWhenNotCaching(t *testing.T) {
 	require.NoError(t, err)
 
 	var counter int32
-	f := func(ctx context.Context, _ Value[*S], _ Value[*S]) (Value[*S], bool, error) {
+	f := func(ctx context.Context, _ Value[*S], _ Value[*S]) (*EffectiveValue[*S], bool, error) {
 		v := atomic.AddInt32(&counter, 1)
 		val, err := NewValue(&S{V: int(v)})
-		return val, false, err
+		if err != nil {
+			return nil, false, err
+		}
+
+		ev, err := NewEffectiveValue(val, StrategyCustom)
+		if err != nil {
+			return nil, false, err
+		}
+
+		return ev, false, nil
 	}
 
 	rv, err := NewRuntimeValue[*S](defVal, WithEffectiveFunc[*S](f))
@@ -436,11 +492,11 @@ func TestRuntimeValue_Effective_ReevaluatesWhenNotCaching(t *testing.T) {
 
 	a, err := rv.Effective()
 	require.NoError(t, err)
-	require.Equal(t, 1, a.Val().V)
+	require.Equal(t, 1, a.Get().Val().V)
 
 	b, err := rv.Effective()
 	require.NoError(t, err)
-	require.Equal(t, 2, b.Val().V)
+	require.Equal(t, 2, b.Get().Val().V)
 }
 
 // Test cloning a nil *defaultValue returns an error.
@@ -489,10 +545,19 @@ func TestRuntimeValue_ClearCache(t *testing.T) {
 	require.NoError(t, err)
 
 	var counter int32
-	f := func(ctx context.Context, _ Value[*S], _ Value[*S]) (Value[*S], bool, error) {
+	f := func(ctx context.Context, _ Value[*S], _ Value[*S]) (*EffectiveValue[*S], bool, error) {
 		v := atomic.AddInt32(&counter, 1)
 		val, err := NewValue(&S{V: int(v)})
-		return val, true, err
+		if err != nil {
+			return nil, false, err
+		}
+
+		ev, err := NewEffectiveValue(val, StrategyCustom)
+		if err != nil {
+			return nil, false, err
+		}
+
+		return ev, true, nil
 	}
 
 	rv, err := NewRuntimeValue[*S](defVal, WithEffectiveFunc[*S](f))
@@ -501,15 +566,106 @@ func TestRuntimeValue_ClearCache(t *testing.T) {
 	// First call should compute & cache (counter == 1)
 	v1, err := rv.Effective()
 	require.NoError(t, err)
-	require.Equal(t, 1, v1.Val().V)
+	require.Equal(t, 1, v1.Get().Val().V)
 
 	// Clear cache and ensure next call recomputes (counter == 2)
 	rv.ClearCache()
 	v2, err := rv.Effective()
 	require.NoError(t, err)
-	require.Equal(t, 2, v2.Val().V)
+	require.Equal(t, 2, v2.Get().Val().V)
 
 	// nil-receiver: calling ClearCache on a nil *RuntimeValue should be safe (no panic)
 	var nilRV *RuntimeValue[*S] = nil
 	nilRV.ClearCache()
+}
+
+// Test that WithContext stores the provided context and that Effective()
+// uses the stored context when invoking the EffectiveFunc.
+func TestRuntimeValue_WithContext_EffectiveReceivesContext(t *testing.T) {
+	type S struct{ V int }
+
+	seen := false
+	effFunc := func(ctx context.Context, _ Value[*S], _ Value[*S]) (*EffectiveValue[*S], bool, error) {
+		// ensure the context value is propagated
+		if ctx.Value("test-key") == "test-val" {
+			seen = true
+		}
+		val, err := NewValue(&S{V: 123})
+		if err != nil {
+			return nil, false, err
+		}
+		ev, err := NewEffectiveValue(val, StrategyCustom)
+		if err != nil {
+			return nil, false, err
+		}
+		return ev, true, nil
+	}
+
+	defVal, err := NewValue(&S{V: 0})
+	require.NoError(t, err)
+
+	rv, err := NewRuntimeValue[*S](defVal, WithEffectiveFunc[*S](effFunc))
+	require.NoError(t, err)
+	require.NotNil(t, rv)
+
+	ctx := context.WithValue(context.Background(), "test-key", "test-val")
+	rv = rv.WithContext(ctx)
+
+	ev, err := rv.Effective()
+	require.NoError(t, err)
+	require.NotNil(t, ev)
+	assert.True(t, seen, "effectiveFunc should receive the context set via WithContext")
+	assert.Equal(t, 123, ev.Get().Val().V)
+}
+
+// Test Clone deep-copies contained Values and preserves the stored context.
+func TestRuntimeValue_ClonePreservesContextAndDeepCopies(t *testing.T) {
+	type S struct {
+		M map[string]int
+	}
+
+	origDef := &S{M: map[string]int{"d": 1}}
+	origUser := &S{M: map[string]int{"u": 2}}
+
+	defVal, err := NewValue[*S](origDef)
+	require.NoError(t, err)
+	userVal, err := NewValue[*S](origUser)
+	require.NoError(t, err)
+
+	ctx := context.WithValue(context.Background(), "ctx-key", "ctx-val")
+
+	rv, err := NewRuntimeValue[*S](defVal, WithUserInput[*S](userVal))
+	require.NoError(t, err)
+	require.NotNil(t, rv)
+	rv = rv.WithContext(ctx)
+
+	clone, err := rv.Clone()
+	require.NoError(t, err)
+	require.NotNil(t, clone)
+
+	// Mutate original underlying objects after cloning
+	origDef.M["d"] = 99
+	origUser.M["u"] = 99
+
+	// cloned default and user input should preserve original values
+	clonedDef := clone.Default()
+	require.NotNil(t, clonedDef)
+	assert.Equal(t, 1, clonedDef.Val().M["d"])
+
+	clonedUser := clone.UserInput()
+	require.NotNil(t, clonedUser)
+	assert.Equal(t, 2, clonedUser.Val().M["u"])
+
+	// clone should preserve stored context value
+	require.NotNil(t, rv)
+	require.NotNil(t, clone)
+	assert.Equal(t, rv.ctx.Value("ctx-key"), clone.ctx.Value("ctx-key"))
+}
+
+// Test that Clone on a nil *RuntimeValue returns an error.
+func TestRuntimeValue_CloneNilReceiver(t *testing.T) {
+	var rv *RuntimeValue[int] = nil
+	_, err := rv.Clone()
+	require.Error(t, err)
+	assert.True(t, errorx.IsOfType(err, errorx.IllegalState) || errorx.IsOfType(err, IllegalArgument))
 }
