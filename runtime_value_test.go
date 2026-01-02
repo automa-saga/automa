@@ -222,6 +222,7 @@ func TestRuntimeValue_EffectiveFuncInvokedAndPreservedOnClone(t *testing.T) {
 	if v1.Get().Val().M["ctr"] != 1 {
 		t.Fatalf("expected ctr==1 on first call, got %d", v1.Get().Val().M["ctr"])
 	}
+	assert.Equal(t, StrategyCustom, v1.Strategy())
 
 	// second call should return cached value (counter still 1)
 	v2, err := rv.Effective()
@@ -231,6 +232,7 @@ func TestRuntimeValue_EffectiveFuncInvokedAndPreservedOnClone(t *testing.T) {
 	if v2.Get().Val().M["ctr"] != 1 {
 		t.Fatalf("expected ctr==1 on second call (cached), got %d", v2.Get().Val().M["ctr"])
 	}
+	assert.Equal(t, StrategyCustom, v2.Strategy())
 
 	// Clone the runtime value; cloned effective is copied, so clone should not invoke effFunc
 	clone, err := rv.Clone()
@@ -339,6 +341,7 @@ func TestRuntimeValue_DefaultWhenNoEffectiveFunc(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, eff)
 	require.Equal(t, 7, eff.Get().Val().V)
+	assert.Equal(t, StrategyDefault, eff.Strategy())
 }
 
 // Test SetUserInput updates effective when no effectiveFunc and clears cache when effectiveFunc present.
@@ -366,6 +369,7 @@ func TestRuntimeValue_SetUserInputUpdatesEffective(t *testing.T) {
 	eff2, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 42, eff2.Get().Val().V)
+	assert.Equal(t, StrategyDefault, eff.Strategy())
 
 	// now configure an effectiveFunc that caches a computed value
 	var counter int32
@@ -390,6 +394,7 @@ func TestRuntimeValue_SetUserInputUpdatesEffective(t *testing.T) {
 	v1, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 1, v1.Get().Val().V)
+	assert.Equal(t, StrategyCustom, v1.Strategy())
 
 	// set user input while effectiveFunc configured -> cache cleared
 	rv.SetUserInput(userVal)
@@ -397,6 +402,8 @@ func TestRuntimeValue_SetUserInputUpdatesEffective(t *testing.T) {
 	v2, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 2, v2.Get().Val().V)
+	assert.Equal(t, StrategyCustom, v2.Strategy())
+
 }
 
 // Test SetEffectiveFunc clears previous cache and new function is used.

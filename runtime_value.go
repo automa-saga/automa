@@ -132,13 +132,13 @@ func (v *defaultValue[T]) Clone() (Value[T], error) {
 // EffectiveFunc is a function type used to compute the effective Value[T]
 // based on the provided defaultVal and userInput.
 //
-// The function should return the computed Value[T], a boolean indicating
+// The function should return the computed *EffectiveValue[T], a boolean indicating
 // whether the result should be cached for future calls, and an error if
 // the computation fails.
 //
 // Semantics:
 //   - If error != nil the call fails.
-//   - If returned Value[T] is nil, the call fails (treated as an implementation error).
+//   - If returned *EffectiveValue[T] is nil, the call fails (treated as an implementation error).
 //   - If shouldCache == true the first successful non-nil result will be cached
 //     in the RuntimeValue instance and returned to subsequent callers.
 //   - If shouldCache == false the computed result will be returned to the caller
@@ -154,7 +154,7 @@ type EffectiveFunc[T any] func(ctx context.Context, defaultVal Value[T], userInp
 // Resolution semantics:
 //   - If an effectiveFunc is provided, it is invoked during the first call
 //     to Effective() to compute the effective value. The function is expected
-//     to return a non-nil Value and to be side-effect-free when it returns shouldCache=true.
+//     to return a non-nil EffectiveValue and to be side-effect-free when it returns shouldCache=true.
 //   - If effectiveFunc is not provided, the effective value is determined
 //     at construction time: userInput (if provided) otherwise defaultVal.
 //   - Default() returns the configured defaultVal.
@@ -188,7 +188,7 @@ func (v *RuntimeValue[T]) WithContext(ctx context.Context) *RuntimeValue[T] {
 	return v
 }
 
-// EffectiveWithContext returns the effective Value for the runtime value,
+// EffectiveWithContext returns the effective EffectiveValue for the runtime value,
 // using the provided context for effectiveFunc invocation.
 // It does not modify the stored context of the RuntimeValue.
 //
@@ -259,12 +259,12 @@ func (v *RuntimeValue[T]) EffectiveWithContext(ctx context.Context) (*EffectiveV
 
 	vres, ok := res.(*EffectiveValue[T])
 	if !ok {
-		return nil, errorx.IllegalState.New("singleflight invocation for effectiveFunc returned unexpected type")
+		return nil, errorx.IllegalState.New("singleflight invocation returned unexpected type (expected *EffectiveValue[T])")
 	}
 	return vres, nil
 }
 
-// Effective returns the effective Value for the runtime value.
+// Effective returns the effective EffectiveValue for the runtime value.
 // It uses the stored context for effectiveFunc invocation.
 //
 // See EffectiveWithContext for full semantics and concurrency behavior.
@@ -466,7 +466,7 @@ func NewRuntimeValue[T any](defaultVal Value[T], opts ...ValueOption[T]) (*Runti
 				return nil, false, err
 			}
 
-			return ev, true, err
+			return ev, true, nil
 		}
 
 		// set effective now to avoid first-call evaluation
