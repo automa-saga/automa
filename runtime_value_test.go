@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/joomcode/errorx"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -396,6 +397,11 @@ func TestRuntimeValue_SetEffectiveFuncClearsCache(t *testing.T) {
 	v1, err := rv.Effective()
 	require.NoError(t, err)
 	require.Equal(t, 1, v1.Val().V)
+
+	// setting nil effectiveFunc won't set it
+	assert.NotNil(t, rv.effectiveFunc)
+	rv.SetEffectiveFunc(nil)
+	assert.NotNil(t, rv.effectiveFunc)
 
 	// replace effective func
 	var c2 int32
