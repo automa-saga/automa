@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/joomcode/errorx"
+	"gopkg.in/yaml.v3"
 )
 
 // EffectiveStrategy describes how an effective value was determined.
@@ -22,8 +23,12 @@ const (
 	StrategyUserInput EffectiveStrategy = 1
 
 	// StrategyCustom indicates that the effective value was determined by
-	// custom logic (for example, an EffectiveFunc).
+	// custom logic
 	StrategyCustom EffectiveStrategy = 2
+
+	// StrategyCurrent indicates that the effective value was determined by
+	// current state
+	StrategyCurrent EffectiveStrategy = 3
 )
 
 // String returns the textual representation of the EffectiveStrategy.
@@ -38,6 +43,10 @@ func (es EffectiveStrategy) String() string {
 		return "userInput"
 	case StrategyCustom:
 		return "custom"
+	case StrategyCurrent:
+		{
+			return "current"
+		}
 	default:
 		return "unknown"
 	}
@@ -68,6 +77,37 @@ func (es *EffectiveStrategy) UnmarshalJSON(data []byte) error {
 		*es = StrategyUserInput
 	case "custom":
 		*es = StrategyCustom
+	case "current":
+		{
+			*es = StrategyCurrent
+		}
+	default:
+		*es = StrategyDefault
+	}
+	return nil
+}
+
+// MarshalYAML encodes the EffectiveStrategy as its string representation.
+func (es EffectiveStrategy) MarshalYAML() (interface{}, error) {
+	return es.String(), nil
+}
+
+// UnmarshalYAML decodes the EffectiveStrategy from a YAML node containing the string.
+// Unknown values are mapped to StrategyDefault for compatibility.
+func (es *EffectiveStrategy) UnmarshalYAML(node *yaml.Node) error {
+	var s string
+	if err := node.Decode(&s); err != nil {
+		return err
+	}
+	switch s {
+	case "default":
+		*es = StrategyDefault
+	case "userInput":
+		*es = StrategyUserInput
+	case "custom":
+		*es = StrategyCustom
+	case "current":
+		*es = StrategyCurrent
 	default:
 		*es = StrategyDefault
 	}
@@ -96,6 +136,22 @@ func NewEffectiveValue[T any](v Value[T], strategy EffectiveStrategy) (*Effectiv
 		v:        v,
 		strategy: strategy,
 	}, nil
+}
+
+// NewEffective constructs a new EffectiveValue that pairs the provided
+// Value with the given EffectiveStrategy.
+// An error is returned if the provided Value is nil.
+func NewEffective[T any](v T, strategy EffectiveStrategy) (*EffectiveValue[T], error) {
+	if IsNil(v) {
+		return nil, errorx.IllegalArgument.New("value cannot be nil")
+	}
+
+	vv, err := NewValue[T](v)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewEffectiveValue(vv, strategy)
 }
 
 // Clone produces a deep clone of the EffectiveValue by cloning the

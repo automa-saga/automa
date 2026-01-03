@@ -669,3 +669,89 @@ func TestRuntimeValue_CloneNilReceiver(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errorx.IsOfType(err, errorx.IllegalState) || errorx.IsOfType(err, IllegalArgument))
 }
+
+// Tests IsNil for various kinds to ensure correct detection and no panics.
+func TestIsNil_VariousKinds(t *testing.T) {
+	tests := []struct {
+		name string
+		call func() bool
+		want bool
+	}{
+		{"int zero (non-nilable)", func() bool { return IsNil(0) }, false},
+		{"struct zero (non-nilable)", func() bool { return IsNil(struct{}{}) }, false},
+		{"nil pointer", func() bool { return IsNil[*int](nil) }, true},
+		{"non-nil pointer", func() bool { v := 1; return IsNil(&v) }, false},
+		{"nil slice", func() bool { return IsNil[[]int](nil) }, true},
+		{"empty slice (non-nil)", func() bool { s := make([]int, 0); return IsNil(s) }, false},
+		{"nil map", func() bool { return IsNil[map[string]int](nil) }, true},
+		{"empty map (non-nil)", func() bool { m := map[string]int{}; return IsNil(m) }, false},
+		{"nil chan", func() bool { return IsNil[chan int](nil) }, true},
+		{"non-nil chan", func() bool { ch := make(chan int); return IsNil(ch) }, false},
+		{"nil func", func() bool { return IsNil[func()](nil) }, true},
+		{"nil interface (untyped nil)", func() bool { return IsNil[interface{}](nil) }, true},
+		{"interface holding typed nil pointer", func() bool { var p *int = nil; var ii interface{} = p; return IsNil(ii) }, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.call()
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestNewRuntimeValue_NilEffectiveFuncReturnsError(t *testing.T) {
+	defVal, err := NewValue(1)
+	require.NoError(t, err)
+
+	rv, err := NewRuntimeValue[int](defVal, WithEffectiveFunc[int](nil))
+	require.Error(t, err)
+	require.Nil(t, rv)
+	require.True(t, errorx.IsOfType(err, IllegalArgument))
+}
+
+func TestNewRuntimeValue_NilUserInputReturnsError(t *testing.T) {
+	defVal, err := NewValue(1)
+	require.NoError(t, err)
+
+	rv, err := NewRuntimeValue[int](defVal, WithUserInput[int](nil))
+	require.Error(t, err)
+	require.Nil(t, rv)
+	require.True(t, errorx.IsOfType(err, IllegalArgument))
+}
+
+func TestNewRuntime_ValidInput(t *testing.T) {
+	rv, err := NewRuntime[int](5)
+	require.NoError(t, err)
+	require.NotNil(t, rv)
+
+	// Default Value present and holds the provided value
+	def := rv.Default()
+	require.NotNil(t, def)
+	require.Equal(t, 5, def.Val())
+
+	// Effective should return the default with StrategyDefault
+	ev, err := rv.Effective()
+	require.NoError(t, err)
+	require.NotNil(t, ev)
+	require.Equal(t, 5, ev.Get().Val())
+	assert.Equal(t, StrategyDefault, ev.Strategy())
+}
+
+func TestNewRuntime_NilInput(t *testing.T) {
+	rv, err := NewRuntime[*int](nil)
+	require.Error(t, err)
+	require.Nil(t, rv)
+	require.True(t, errorx.IsOfType(err, IllegalArgument))
+	require.Contains(t, err.Error(), "defaultVal must be provided")
+}
+
+func TestNewRuntime_NewValueErrorPropagated(t *testing.T) {
+	// type with a func field is not gob-encodable; NewValue should fail and NewRuntime should propagate.
+	type Bad struct{ F func() }
+
+	rv, err := NewRuntime[Bad](Bad{F: func() {}})
+	require.Error(t, err)
+	require.Nil(t, rv)
+	require.True(t, errorx.IsOfType(err, errorx.IllegalArgument))
+}
