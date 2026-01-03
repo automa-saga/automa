@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestEffectiveStrategy_JSONAndString(t *testing.T) {
@@ -16,6 +17,7 @@ func TestEffectiveStrategy_JSONAndString(t *testing.T) {
 		{StrategyDefault, "default"},
 		{StrategyUserInput, "userInput"},
 		{StrategyCustom, "custom"},
+		{StrategyCurrent, "current"},
 	}
 
 	for _, c := range cases {
@@ -89,4 +91,18 @@ func TestNewEffectiveRaw(t *testing.T) {
 	require.NotNil(t, ev)
 	assert.Equal(t, StrategyCustom, ev.Strategy())
 	assert.Equal(t, "test", ev.Get().Val())
+}
+
+func TestEffectiveStrategy_YAMLUnmarshalUnknownDefaultsToDefault(t *testing.T) {
+	var es EffectiveStrategy
+
+	// plain unknown token
+	err := yaml.Unmarshal([]byte("invalid\n"), &es)
+	require.NoError(t, err)
+	assert.Equal(t, StrategyDefault, es)
+
+	// quoted unknown token
+	err = yaml.Unmarshal([]byte("\"unknown\"\n"), &es)
+	require.NoError(t, err)
+	assert.Equal(t, StrategyDefault, es)
 }
