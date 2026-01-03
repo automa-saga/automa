@@ -106,3 +106,21 @@ func TestEffectiveStrategy_YAMLUnmarshalUnknownDefaultsToDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StrategyDefault, es)
 }
+
+func TestEffectiveStrategy_YAMLMarshal(t *testing.T) {
+	cases := []struct {
+		s        EffectiveStrategy
+		expected string
+	}{
+		{StrategyDefault, "default"},
+		{StrategyUserInput, "userInput"},
+		{StrategyCustom, "custom"},
+		{StrategyCurrent, "current"},
+	}
+
+	for _, c := range cases {
+		b, err := yaml.Marshal(c.s)
+		require.NoError(t, err)
+		assert.Equal(t, c.expected+"\n", string(b))
+	}
+}

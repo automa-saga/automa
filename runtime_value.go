@@ -508,7 +508,11 @@ func NewRuntime[T any](defaultVal T, opts ...ValueOption[T]) (*RuntimeValue[T], 
 }
 
 // IsNil reports whether the provided generic value is nil for kinds that can be nil.
-// It returns false for non-nilable kinds (and will not panic).
+//
+// It returns true for values that are nil, and also for untyped nil values
+// (for example `var x interface{} = nil`) which are represented internally as
+// an invalid `reflect.Value`. For kinds that cannot be nil this function
+// returns false and will not panic.
 func IsNil[T any](v T) bool {
 	rv := reflect.ValueOf(v)
 	if !rv.IsValid() {

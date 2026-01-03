@@ -699,3 +699,59 @@ func TestIsNil_VariousKinds(t *testing.T) {
 		})
 	}
 }
+
+func TestNewRuntimeValue_NilEffectiveFuncReturnsError(t *testing.T) {
+	defVal, err := NewValue(1)
+	require.NoError(t, err)
+
+	rv, err := NewRuntimeValue[int](defVal, WithEffectiveFunc[int](nil))
+	require.Error(t, err)
+	require.Nil(t, rv)
+	require.True(t, errorx.IsOfType(err, IllegalArgument))
+}
+
+func TestNewRuntimeValue_NilUserInputReturnsError(t *testing.T) {
+	defVal, err := NewValue(1)
+	require.NoError(t, err)
+
+	rv, err := NewRuntimeValue[int](defVal, WithUserInput[int](nil))
+	require.Error(t, err)
+	require.Nil(t, rv)
+	require.True(t, errorx.IsOfType(err, IllegalArgument))
+}
+
+func TestNewRuntime_ValidInput(t *testing.T) {
+	rv, err := NewRuntime[int](5)
+	require.NoError(t, err)
+	require.NotNil(t, rv)
+
+	// Default Value present and holds the provided value
+	def := rv.Default()
+	require.NotNil(t, def)
+	require.Equal(t, 5, def.Val())
+
+	// Effective should return the default with StrategyDefault
+	ev, err := rv.Effective()
+	require.NoError(t, err)
+	require.NotNil(t, ev)
+	require.Equal(t, 5, ev.Get().Val())
+	assert.Equal(t, StrategyDefault, ev.Strategy())
+}
+
+func TestNewRuntime_NilInput(t *testing.T) {
+	rv, err := NewRuntime[*int](nil)
+	require.Error(t, err)
+	require.Nil(t, rv)
+	require.True(t, errorx.IsOfType(err, IllegalArgument))
+	require.Contains(t, err.Error(), "defaultVal must be provided")
+}
+
+func TestNewRuntime_NewValueErrorPropagated(t *testing.T) {
+	// type with a func field is not gob-encodable; NewValue should fail and NewRuntime should propagate.
+	type Bad struct{ F func() }
+
+	rv, err := NewRuntime[Bad](Bad{F: func() {}})
+	require.Error(t, err)
+	require.Nil(t, rv)
+	require.True(t, errorx.IsOfType(err, errorx.IllegalArgument))
+}
