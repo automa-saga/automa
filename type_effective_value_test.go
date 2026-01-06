@@ -18,6 +18,7 @@ func TestEffectiveStrategy_JSONAndString(t *testing.T) {
 		{StrategyUserInput, "userInput"},
 		{StrategyCustom, "custom"},
 		{StrategyCurrent, "current"},
+		{StrategyConfig, "config"},
 	}
 
 	for _, c := range cases {
@@ -116,6 +117,7 @@ func TestEffectiveStrategy_YAMLMarshal(t *testing.T) {
 		{StrategyUserInput, "userInput"},
 		{StrategyCustom, "custom"},
 		{StrategyCurrent, "current"},
+		{StrategyConfig, "config"},
 	}
 
 	for _, c := range cases {
