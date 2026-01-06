@@ -29,6 +29,10 @@ const (
 	// StrategyCurrent indicates that the effective value was determined by
 	// current state
 	StrategyCurrent EffectiveStrategy = 3
+
+	// StrategyConfig indicates that the effective value was determined by
+	// configuration
+	StrategyConfig EffectiveStrategy = 4
 )
 
 // String returns the textual representation of the EffectiveStrategy.
@@ -46,6 +50,10 @@ func (es EffectiveStrategy) String() string {
 	case StrategyCurrent:
 		{
 			return "current"
+		}
+	case StrategyConfig:
+		{
+			return "config"
 		}
 	default:
 		return "unknown"
@@ -78,9 +86,9 @@ func (es *EffectiveStrategy) UnmarshalJSON(data []byte) error {
 	case "custom":
 		*es = StrategyCustom
 	case "current":
-		{
-			*es = StrategyCurrent
-		}
+		*es = StrategyCurrent
+	case "config":
+		*es = StrategyConfig
 	default:
 		*es = StrategyDefault
 	}
@@ -108,6 +116,8 @@ func (es *EffectiveStrategy) UnmarshalYAML(node *yaml.Node) error {
 		*es = StrategyCustom
 	case "current":
 		*es = StrategyCurrent
+	case "config":
+		*es = StrategyConfig
 	default:
 		*es = StrategyDefault
 	}
