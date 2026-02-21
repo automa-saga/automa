@@ -261,7 +261,8 @@ func TestWorkflow_State_LazyInit(t *testing.T) {
 	assert.Nil(t, wf.state)
 	state := wf.State()
 	assert.NotNil(t, state)
-	assert.Equal(t, 0, state.Size())
+	assert.Equal(t, 0, state.Local().Size())
+	assert.Equal(t, 0, state.Global().Size())
 }
 
 func TestWorkflow_Prepare_InjectsState(t *testing.T) {
@@ -390,7 +391,7 @@ func TestWorkflow_StepStatePropagation(t *testing.T) {
 	step := &defaultStep{
 		id: "step",
 		prepare: func(ctx context.Context, stp Step) (context.Context, error) {
-			stp.State().Set(stepStateKey, stepStateValue) // set state
+			stp.State().Local().Set(stepStateKey, stepStateValue) // set state in local namespace
 			return ctx, nil
 		},
 		execute: func(ctx context.Context, stp Step) *Report {
@@ -398,20 +399,21 @@ func TestWorkflow_StepStatePropagation(t *testing.T) {
 			assert.NotNil(t, state)
 
 			// retrieve state item and verify
-			_, ok := state.Get(stepStateKey)
+			_, ok := state.Local().Get(stepStateKey)
 			assert.True(t, ok, "step state should contain the key set in prepare")
-			assert.Equal(t, stepStateValue, StringFromState(state, stepStateKey))
+			assert.Equal(t, stepStateValue, state.Local().String(stepStateKey))
 
-			// also verify workflow state item is accessible
-			_, ok = state.Get(workflowStateKey)
-			assert.True(t, ok, "workflow state should not be accessible from step")
+			// also verify workflow state item is accessible from global namespace
+			_, ok = state.Global().Get(workflowStateKey)
+			assert.True(t, ok, "workflow state should be accessible from step via global namespace")
 
 			return StepSuccessReport("step")
 		},
 	}
 
 	wf := newTestWorkflow("wf", []Step{step})
-	wf.State().Set(workflowStateKey, workflowStateValue)
+	// Use Global() to set workflow state that should be shared with steps
+	wf.State().Global().Set(workflowStateKey, workflowStateValue)
 	report := wf.Execute(context.Background())
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusSuccess, report.Status)
@@ -675,9 +677,9 @@ func TestWorkflow_SubWorkflow_Isolation(t *testing.T) {
 	subStep := &defaultStep{
 		id: "sub-step",
 		execute: func(ctx context.Context, stp Step) *Report {
-			subSawParent = StringFromState(stp.State(), Key("parentKey"))
+			subSawParent = stp.State().Global().String(Key("parentKey"))
 			// mutate sub-workflow state (should not affect parent)
-			stp.State().Set(Key("subKey"), "sub-value")
+			stp.State().Local().Set(Key("subKey"), "sub-value")
 			return StepSuccessReport("sub-step")
 		},
 	}
@@ -688,13 +690,14 @@ func TestWorkflow_SubWorkflow_Isolation(t *testing.T) {
 	checkStep := &defaultStep{
 		id: "check",
 		execute: func(ctx context.Context, stp Step) *Report {
-			_, parentHasSubKey = stp.State().Get(Key("subKey"))
+			_, parentHasSubKey = stp.State().Local().Get(Key("subKey"))
 			return StepSuccessReport("check")
 		},
 	}
 
 	parent := newTestWorkflow("parent", []Step{subWF, checkStep})
-	parent.State().Set(Key("parentKey"), "pval")
+	// Use Global() to set parent state that should be visible to sub-workflows
+	parent.State().Global().Set(Key("parentKey"), "pval")
 
 	report := parent.Execute(context.Background())
 	assert.NotNil(t, report)
@@ -708,7 +711,8 @@ func TestWorkflow_NonWorkflow_SharedState(t *testing.T) {
 	setStep := &defaultStep{
 		id: "set",
 		prepare: func(ctx context.Context, stp Step) (context.Context, error) {
-			stp.State().Set(Key("shared"), "val")
+			// Use Global() to share state between steps
+			stp.State().Global().Set(Key("shared"), "val")
 			return ctx, nil
 		},
 		execute: func(ctx context.Context, stp Step) *Report {
@@ -720,7 +724,8 @@ func TestWorkflow_NonWorkflow_SharedState(t *testing.T) {
 	checkStep := &defaultStep{
 		id: "check",
 		execute: func(ctx context.Context, stp Step) *Report {
-			saw = StringFromState(stp.State(), Key("shared"))
+			// Read from global state
+			saw = stp.State().Global().String(Key("shared"))
 			return StepSuccessReport("check")
 		},
 	}
@@ -731,8 +736,8 @@ func TestWorkflow_NonWorkflow_SharedState(t *testing.T) {
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusSuccess, report.Status)
 	assert.Equal(t, "val", saw, "subsequent non-workflow step should observe shared mutation")
-	// workflow state should also contain the key
-	assert.Equal(t, "val", StringFromState(wf.State(), Key("shared")))
+	// workflow state should also contain the key in global namespace
+	assert.Equal(t, "val", wf.State().Global().String(Key("shared")))
 }
 
 func TestWorkflow_ParentMutates_BetweenSubWorkflows(t *testing.T) {
@@ -742,7 +747,7 @@ func TestWorkflow_ParentMutates_BetweenSubWorkflows(t *testing.T) {
 		&defaultStep{
 			id: "s1",
 			execute: func(ctx context.Context, stp Step) *Report {
-				seen1 = StringFromState(stp.State(), Key("version"))
+				seen1 = stp.State().Global().String(Key("version"))
 				return StepSuccessReport("s1")
 			},
 		},
@@ -754,7 +759,7 @@ func TestWorkflow_ParentMutates_BetweenSubWorkflows(t *testing.T) {
 		&defaultStep{
 			id: "s2",
 			execute: func(ctx context.Context, stp Step) *Report {
-				seen2 = StringFromState(stp.State(), Key("version"))
+				seen2 = stp.State().Global().String(Key("version"))
 				return StepSuccessReport("s2")
 			},
 		},
@@ -764,8 +769,8 @@ func TestWorkflow_ParentMutates_BetweenSubWorkflows(t *testing.T) {
 	setV1 := &defaultStep{
 		id: "set-v1",
 		prepare: func(ctx context.Context, stp Step) (context.Context, error) {
-			// mutate parent state visible to next sub-workflow (which will clone it)
-			stp.State().Set(Key("version"), "v1")
+			// Use Global() to mutate parent state visible to next sub-workflow (which will clone it)
+			stp.State().Global().Set(Key("version"), "v1")
 			return ctx, nil
 		},
 		execute: func(ctx context.Context, stp Step) *Report { return StepSuccessReport("set-v1") },
@@ -773,7 +778,8 @@ func TestWorkflow_ParentMutates_BetweenSubWorkflows(t *testing.T) {
 	setV2 := &defaultStep{
 		id: "set-v2",
 		prepare: func(ctx context.Context, stp Step) (context.Context, error) {
-			stp.State().Set(Key("version"), "v2")
+			// Use Global() to mutate parent state
+			stp.State().Global().Set(Key("version"), "v2")
 			return ctx, nil
 		},
 		execute: func(ctx context.Context, stp Step) *Report { return StepSuccessReport("set-v2") },

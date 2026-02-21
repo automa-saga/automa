@@ -152,7 +152,7 @@ func (wb *WorkflowBuilder) WithPrepare(prepareFunc PrepareFunc) *WorkflowBuilder
 	return wb
 }
 
-func (wb *WorkflowBuilder) WithState(state StateBag) *WorkflowBuilder {
+func (wb *WorkflowBuilder) WithState(state NamespacedStateBag) *WorkflowBuilder {
 	wb.workflow.state = state
 	return wb
 }

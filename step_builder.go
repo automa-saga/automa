@@ -62,7 +62,7 @@ func (s *StepBuilder) WithAsyncCallbacks(enable bool) *StepBuilder {
 	return s
 }
 
-func (s *StepBuilder) WithState(state StateBag) *StepBuilder {
+func (s *StepBuilder) WithState(state NamespacedStateBag) *StepBuilder {
 	s.Step.state = state
 	return s
 }
@@ -109,11 +109,12 @@ func (s *StepBuilder) BuildAndCopy() (Step, error) {
 	s.Step.onFailure = finishedStep.onFailure
 	s.Step.enableAsyncCallbacks = finishedStep.enableAsyncCallbacks
 
+	// Clone the NamespacedStateBag (clones local, global, and custom namespaces)
 	var err error
 	if finishedStep.state != nil {
 		s.Step.state, err = finishedStep.state.Clone()
 		if err != nil {
-			return nil, errorx.IllegalState.Wrap(err, "failed to clone state bag for step %q", finishedStep.id)
+			return nil, errorx.IllegalState.Wrap(err, "failed to clone state for step %q", finishedStep.id)
 		}
 	} else {
 		s.Step.state = nil

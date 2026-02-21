@@ -95,7 +95,7 @@ func TestStepBuilder_WithAsyncCallbacks(t *testing.T) {
 }
 
 func TestStepBuilder_WithState(t *testing.T) {
-	state := &SyncStateBag{}
+	state := NewNamespacedStateBag(nil, nil)
 	builder := NewStepBuilder().
 		WithId("step_state").
 		WithExecute(dummyExecute).
@@ -109,7 +109,7 @@ func TestStepBuilder_Build_ResetsAllFields(t *testing.T) {
 		WithId("step1").
 		WithExecute(dummyExecute).
 		WithAsyncCallbacks(true).
-		WithState(&SyncStateBag{})
+		WithState(NewNamespacedStateBag(nil, nil))
 
 	step, err := builder.Build()
 	assert.NoError(t, err)
@@ -126,7 +126,7 @@ func TestStepBuilder_BuildAndCopy_RetainsFields(t *testing.T) {
 		WithId("step1").
 		WithExecute(dummyExecute).
 		WithAsyncCallbacks(true).
-		WithState(&SyncStateBag{})
+		WithState(NewNamespacedStateBag(nil, nil))
 
 	step, err := builder.BuildAndCopy()
 	assert.NoError(t, err)

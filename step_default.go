@@ -17,17 +17,18 @@ type defaultStep struct {
 	onCompletion         OnCompletionFunc
 	onFailure            OnFailureFunc
 	enableAsyncCallbacks bool
-	state                StateBag
+	state                NamespacedStateBag
 }
 
-func (s *defaultStep) State() StateBag {
+func (s *defaultStep) State() NamespacedStateBag {
 	if s.state == nil {
-		s.state = &SyncStateBag{} // lazy initialization
+		// lazy initialization with empty local and global namespaces
+		s.state = NewNamespacedStateBag(nil, nil)
 	}
 	return s.state
 }
 
-func (s *defaultStep) WithState(st StateBag) Step {
+func (s *defaultStep) WithState(st NamespacedStateBag) Step {
 	// avoid redundant assignment when same state is provided
 	if s.state == st {
 		return s
