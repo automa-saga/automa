@@ -115,33 +115,37 @@ func (n *SyncNamespacedStateBag) Merge(other NamespacedStateBag) (NamespacedStat
 		return n, nil
 	}
 
-	// Read from other first (without holding n's lock)
-	otherLocal := other.Local()
-	otherGlobal := other.Global()
-
-	var otherCustom map[string]StateBag
-	if otherSync, ok := other.(*SyncNamespacedStateBag); ok {
-		otherSync.mu.RLock()
-		// Clone the map to avoid holding lock during merge
-		otherCustom = make(map[string]StateBag, len(otherSync.custom))
-		for name, bag := range otherSync.custom {
-			otherCustom[name] = bag
-		}
-		otherSync.mu.RUnlock()
+	// Type check upfront
+	otherSync, ok := other.(*SyncNamespacedStateBag)
+	if !ok {
+		return nil, IllegalArgument.New(
+			"cannot merge: other NamespacedStateBag must be *SyncNamespacedStateBag, got %T", other)
 	}
+
+	// Read from other first (without holding n's lock)
+	otherLocal := otherSync.Local()
+	otherGlobal := otherSync.Global()
+
+	otherSync.mu.RLock()
+	// Clone the map to avoid holding lock during merge
+	otherCustom := make(map[string]StateBag, len(otherSync.custom))
+	for name, bag := range otherSync.custom {
+		otherCustom[name] = bag
+	}
+	otherSync.mu.RUnlock()
 
 	// Now lock n and perform merges
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// Ensure local is initialized before merging (must be done under lock)
+	// Ensure local is initialized before merging
 	n.localOnce.Do(func() {
 		if n.local == nil {
 			n.local = &SyncStateBag{}
 		}
 	})
 
-	// Merge local namespaces (use direct field access)
+	// Merge local namespaces
 	mergedLocal, err := n.local.Merge(otherLocal)
 	if err != nil {
 		return nil, err

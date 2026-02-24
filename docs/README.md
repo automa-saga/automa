@@ -133,7 +133,7 @@ Structured execution results with:
 
 ## Execution Modes
 
-### RollbackOnError (Default)
+### RollbackOnError 
 
 Safest mode - rolls back all executed steps when one fails:
 
@@ -143,7 +143,7 @@ Step1 ✓ → Step2 ✓ → Step3 ✗ → [ROLLBACK]
 Step2 Rollback ✓ ← Step1 Rollback ✓
 ```
 
-### StopOnError
+### StopOnError (Default)
 
 Stops immediately on first failure, no rollback:
 

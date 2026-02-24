@@ -187,7 +187,7 @@ Step1 ✓ → Step2 ✗ → Step3 ✓ → Step4 ✗ → [COMPLETE]
 
 ### RollbackOnError (Default)
 
-Rolls back all previously executed steps when a step fails, then stops.
+Rolls back all previously executed steps when a step fails, then stops. This mode must be explicitly configured; the default execution mode is **StopOnError**.
 
 ```
 Step1 ✓ → Step2 ✓ → Step3 ✗ → [ROLLBACK]

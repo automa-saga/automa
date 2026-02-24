@@ -673,3 +673,24 @@ func TestNamespacedStateBag_RollbackStateIsolation(t *testing.T) {
 		assert.Equal(t, "step1-data", rollbackValue)
 	})
 }
+
+// Create a mock NamespacedStateBag implementation
+type mockNamespacedStateBag struct{}
+
+func (m *mockNamespacedStateBag) Local() StateBag                    { return &SyncStateBag{} }
+func (m *mockNamespacedStateBag) Global() StateBag                   { return &SyncStateBag{} }
+func (m *mockNamespacedStateBag) WithNamespace(name string) StateBag { return &SyncStateBag{} }
+func (m *mockNamespacedStateBag) Clone() (NamespacedStateBag, error) { return m, nil }
+func (m *mockNamespacedStateBag) Merge(other NamespacedStateBag) (NamespacedStateBag, error) {
+	return m, nil
+}
+
+func TestSyncNamespacedStateBag_Merge_TypeCheck(t *testing.T) {
+	ns := NewNamespacedStateBag(nil, nil)
+	mock := &mockNamespacedStateBag{}
+
+	// ✅ Should return error for non-*SyncNamespacedStateBag
+	_, err := ns.Merge(mock)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "must be *SyncNamespacedStateBag")
+}
