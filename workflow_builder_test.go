@@ -110,8 +110,10 @@ func TestWorkflowBuilder_WithAsyncCallbacks(t *testing.T) {
 }
 
 func TestWorkflowBuilder_WithPrepare_SetsFunc(t *testing.T) {
-	state := &SyncStateBag{}
-	state.Set("test", 123)
+	globalBag := &SyncStateBag{}
+	globalBag.Set("test", 123)
+	state := NewNamespacedStateBag(nil, globalBag)
+
 	wb := NewWorkflowBuilder().WithId("wf").
 		WithState(state).
 		Steps(&mockStepBuilder{id: "step", valid: true, buildStep: &defaultStep{id: "step"}})
@@ -122,12 +124,12 @@ func TestWorkflowBuilder_WithPrepare_SetsFunc(t *testing.T) {
 			return ctx, errors.New("state bag missing")
 		}
 
-		val, ok := stp.State().Get("test")
+		val, ok := stp.State().Global().Get("test")
 		if !ok || val != 123 {
 			return ctx, errors.New("state bag value incorrect")
 		}
 
-		stp.State().Set("test", 456) // modify state
+		stp.State().Global().Set("test", 456) // modify state
 
 		called = true
 		return ctx, nil
@@ -141,7 +143,7 @@ func TestWorkflowBuilder_WithPrepare_SetsFunc(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, ctx)
 	assert.NotNil(t, wf.State())
-	val, ok := wf.State().Get("test")
+	val, ok := wf.State().Global().Get("test")
 	assert.True(t, ok)
 	assert.Equal(t, 456, val)
 	assert.True(t, called)
@@ -200,7 +202,7 @@ func TestWorkflowBuilder_MethodChaining(t *testing.T) {
 		WithId("chain").
 		WithRollbackMode(StopOnError).
 		WithAsyncCallbacks(true).
-		WithState(&SyncStateBag{}).
+		WithState(NewNamespacedStateBag(nil, nil)).
 		WithLogger(zerolog.Nop())
 	assert.Equal(t, "chain", wb.Id())
 	assert.Equal(t, StopOnError, wb.workflow.rollbackMode)

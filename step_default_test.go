@@ -3,11 +3,12 @@ package automa
 import (
 	"context"
 	"errors"
-	"github.com/rs/zerolog"
-	"github.com/stretchr/testify/assert"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestDefaultStep_Prepare(t *testing.T) {
@@ -120,9 +121,8 @@ func TestDefaultStep_Rollback_Skipped(t *testing.T) {
 func TestDefaultStep_State_LazyInit(t *testing.T) {
 	step := newDefaultStep()
 	assert.NotNil(t, step.State())
-	assert.Equal(t, 0, step.State().Size())
-	step.State().Set("foo", "bar")
-	val, ok := step.State().Get("foo")
+	step.State().Local().Set("foo", "bar")
+	val, ok := step.State().Local().Get("foo")
 	assert.True(t, ok)
 	assert.Equal(t, "bar", val)
 }

@@ -10,6 +10,13 @@ import (
 // workflow provides orchestration primitives for composing and executing
 // Steps with structured reporting, error handling and rollback support.
 //
+// Thread-safety:
+//   - Workflow instances are NOT thread-safe and must not be shared across goroutines.
+//   - Each workflow instance is designed for single execution. Create a new instance for
+//     concurrent executions.
+//   - Callbacks (onCompletion, onFailure) may run asynchronously but operate on cloned
+//     reports, ensuring the workflow instance itself is not accessed concurrently.
+//
 // Overview:
 //   - A workflow exposes a workflow-level StateBag via Workflow.State() that represents
 //     workflow-wide state.
@@ -37,12 +44,44 @@ import (
 //     applicable, per-step rollback reports.
 type workflow struct {
 	id                   string
-	state                StateBag
+	state                NamespacedStateBag
 	logger               zerolog.Logger
 	steps                []Step
 	executionMode        TypeMode
 	rollbackMode         TypeMode
 	enableAsyncCallbacks bool
+
+	// preserve step states after execution for potential rollback; keyed by step ID
+	lastExecutionStates map[string]NamespacedStateBag
+
+	// preserveStatesForRollback controls whether state snapshots are cloned and preserved
+	// after each step execution. When true (default), enables deterministic rollback but
+	// increases memory usage. When false, skips state cloning to reduce overhead.
+	//
+	// When true (default):
+	//   - State is cloned and stored for each step after execution
+	//   - Rollback steps receive their execution-time state snapshots (local + global + custom namespaces)
+	//   - Higher memory usage due to deep state cloning
+	//
+	// When false:
+	//   - State is NOT cloned or stored for rollback
+	//   - Rollback steps receive workflow.State() (global state only)
+	//   - Per-step local namespaces are NOT available during rollback
+	//   - Lower memory usage (no cloning or storage overhead)
+	//
+	// Use preservation=false when:
+	//
+	//   - Rollback steps are idempotent (don't need per-step state)
+	//   - Rollback only needs global state
+	//   - Rollback uses external state (database, files, APIs)
+	//   - executionMode is StopOnError or ContinueOnError (no rollback triggered)
+	//
+	// Keep preservation=true (default) when:
+	//
+	//   - Rollback needs per-step local namespaces
+	//   - Rollback needs exact state snapshot from execution time
+	//   - Multiple steps might mutate shared state before rollback
+	preserveStatesForRollback bool
 
 	// callbacks and hooks
 	prepare      PrepareFunc
@@ -51,7 +90,7 @@ type workflow struct {
 	onFailure    OnFailureFunc
 }
 
-func (w *workflow) WithState(s StateBag) Step {
+func (w *workflow) WithState(s NamespacedStateBag) Step {
 	if w.state == s {
 		// avoid redundant assignment when same state is provided
 		return w
@@ -102,7 +141,7 @@ func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 }
 
 // rollbackFrom rollbacks the workflow backward from the given index to the start.
-func (w *workflow) rollbackFrom(ctx context.Context, index int, states []StateBag) map[string]*Report {
+func (w *workflow) rollbackFrom(ctx context.Context, index int, states map[string]NamespacedStateBag) map[string]*Report {
 	stepReports := map[string]*Report{}
 	startTime := time.Now()
 
@@ -110,21 +149,21 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int, states []StateBa
 		step := w.steps[i]
 
 		// choose snapshot if provided, otherwise use workflow state
-		var state StateBag
-		if states != nil && i < len(states) && states[i] != nil {
-			state = states[i]
+		var state NamespacedStateBag
+		if states != nil {
+			if snapshot, ok := states[step.Id()]; ok {
+				state = snapshot
+			} else {
+				state = w.State()
+			}
 		} else {
 			state = w.State()
 		}
 
-		// pass the chosen state in context for the rollback
-		stepCtx := context.WithValue(ctx, KeyState, state.
-			Set(KeyId, w.Id()).
-			Set(KeyIsWorkflow, true).
-			Set(KeyStartTime, startTime),
-		)
+		// Update the step's state to the snapshot before calling Rollback
+		step = step.WithState(state)
 
-		rollbackReport := step.Rollback(stepCtx)
+		rollbackReport := step.Rollback(ctx)
 
 		if rollbackReport == nil {
 			rollbackReport = FailureReport(step,
@@ -178,9 +217,10 @@ func (w *workflow) Steps() []Step {
 	return w.steps
 }
 
-func (w *workflow) State() StateBag {
+func (w *workflow) State() NamespacedStateBag {
 	if w.state == nil {
-		w.state = &SyncStateBag{} // lazy initialization
+		// lazy initialization with empty local and global namespaces
+		w.state = NewNamespacedStateBag(nil, nil)
 	}
 
 	return w.state
@@ -189,23 +229,80 @@ func (w *workflow) State() StateBag {
 // Execute runs the workflow by executing each step in sequence.
 //
 // Preparation and state handling:
-//   - If a workflow-level `prepare` hook is configured it is invoked first with the incoming `ctx` and the
+//  1. If a workflow-level `prepare` hook is configured it is invoked first with the incoming `ctx` and the
 //     workflow instance. The returned context (if non-nil) is used for step preparation and execution.
-//   - The workflow exposes a shared `StateBag` via `w.State()` that represents workflow-wide state.
-//   - For ordinary steps the shared `StateBag` is used as-is (state is shared between workflow and step).
-//   - For steps that are themselves workflows (detected with `IsWorkflow(step)`), `Execute` clones the
-//     workflow state by calling `StateBag.Clone()` and provides the cloned `StateBag` to the sub-workflow.
-//     This prevents unintended state sharing and isolates sub-workflow mutations from the parent workflow.
-//   - If cloning the state fails or context preparation fails, the step is treated as failed and a failure `Report`
-//     is produced; the step is not executed.
-//   - After state preparation each step's `Prepare` hook is invoked; the context returned by the step's
-//     `Prepare` (if any) is used for the step's execution.
-//     A nil `Report` from a step is treated as a failure.
+//  2. The workflow exposes a shared `NamespacedStateBag` via `w.State()` that represents workflow-wide state.
+//  3. For ordinary steps, a new `NamespacedStateBag` is created with:
+//     a. An empty local namespace (isolated to the step)
+//     b. A shared global namespace (points to the workflow's global state)
+//  4. For steps that are themselves workflows (detected with `IsWorkflow(step)`), `Execute` creates a new
+//     `NamespacedStateBag` with:
+//     a. An empty local namespace (isolated to the sub-workflow)
+//     b. A cloned global namespace (inherits parent's shared state but prevents mutations from
+//     propagating back to the parent workflow)
+//  5. This ensures sub-workflows have access to parent's global state but cannot mutate it, while
+//     ordinary steps share the global namespace and can mutate it (visible to later steps).
+//
+// State snapshot and rollback:
+//  1. After each step executes (successfully or not), its state is cloned and stored in `stepStates`
+//     (keyed by step ID) for potential rollback (if `preserveStatesForRollback` is enabled).
+//  2. State cloning ensures immutable snapshots (global state is shared across steps, so cloning
+//     prevents later mutations from affecting earlier snapshots).
+//  3. State preservation can be disabled via `WithStatePreservation(false)` on the WorkflowBuilder to
+//     reduce memory overhead when rollback capability isn't needed. When disabled, all state snapshot
+//     operations are skipped, and manual `Rollback()` calls will use current workflow state.
+//  4. If state cloning fails (when preservation is enabled), the step's current (non-cloned) state
+//     reference is stored instead. This:
+//     a. Ensures rollback can access the step's actual execution state (including partial success)
+//     b. Accepts the risk that later steps may mutate this state before rollback occurs
+//     c. Is safer than falling back to workflow state, which may be stale or incomplete
+//     d. A warning is logged when state cloning fails
+//     e. The step is NOT failed due to cloning failure - this ensures rollback can still be
+//     triggered if `executionMode` is `RollbackOnError` and the step fails for other reasons
+//  5. When `executionMode` is `RollbackOnError` and a step fails, rollback is triggered immediately for
+//     the failed step and all previously executed steps (from `index` down to 0). This ensures:
+//     a. The failed step can clean up any partial work it completed before failing
+//     b. All successfully executed steps are rolled back in reverse order
+//     c. Each step's rollback receives its captured state snapshot (cloned or non-cloned reference)
+//  6. Rollback reports are attached to the corresponding step reports via `stepReport.Rollback`.
 //
 // Execution semantics:
-//   - Execution behavior respects `w.executionMode` (StopOnError, ContinueOnError, RollbackOnError).
-//   - When rollback is required, rollback reports from executed steps are attached to the corresponding
+//  1. Execution behavior respects `w.executionMode`:
+//     a. `StopOnError`: Stop immediately when a step fails, no rollback
+//     b. `ContinueOnError`: Continue executing remaining steps even if one fails
+//     c. `RollbackOnError`: Rollback the failed step and all previously executed steps, then stop
+//  2. When rollback is performed, rollback reports from executed steps are attached to the corresponding
 //     step reports and returned as part of the workflow `Report`.
+//  3. The workflow completes successfully only if all steps succeed; otherwise returns a failure `Report`.
+//  4. State cloning failures are logged as warnings but do not fail the step. This ensures that if
+//     `executionMode` is `RollbackOnError` and the step fails for execution-related reasons, rollback
+//     can still be triggered using the non-cloned state reference. Without this behavior, cloning
+//     failures would prevent rollback and leave state inconsistent.
+//
+// State management and persistence:
+//  1. The workflow exposes a shared `NamespacedStateBag` via `w.State()` that represents workflow-wide state.
+//  2. Steps can access and mutate state during execution via `step.State()`.
+//  3. For persistence needs (e.g., saving state to disk, database), users should handle this in their
+//     step implementations or workflow callbacks (onCompletion, onFailure):
+//     a. Write state to files/databases within step.Execute()
+//     b. Use onCompletion callback to persist final workflow state
+//     c. Attach custom metadata to reports via Meta field for tracking
+//  4. After execution (successful or failed), state snapshots are preserved internally via
+//     `w.lastExecutionStates` (keyed by step ID) for potential manual rollback via `Rollback()`.
+//     This is controlled by `preserveStatesForRollback` (default: true).
+//  5. To reduce memory overhead, state preservation can be disabled via `WithStatePreservation(false)`
+//     on the WorkflowBuilder. When disabled, no state snapshots are cloned or stored, and manual
+//     `Rollback()` calls will use the current workflow state instead of per-step snapshots.
+//  6. State cloning failures (when preservation is enabled) result in non-cloned state references being
+//     stored; rollback will use these references but they may have been mutated by later steps (only
+//     if execution continued past the point of cloning failure).
+//
+// Execute runs all steps in sequence according to the configured execution mode.
+//
+// State Preservation:
+// - When preserveStatesForRollback=true (default), step states are cloned after execution
+// - When preserveStatesForRollback=false, states are NOT preserved; rollback receives workflow.State()
+// - See WithStatePreservation() for detailed tradeoffs
 func (w *workflow) Execute(ctx context.Context) *Report {
 	startTime := time.Now()
 
@@ -221,35 +318,47 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 	var hasFailed bool
 
 	// capture per-step state snapshots for rollback
-	stepStates := make([]StateBag, 0, len(w.steps))
+	stepStates := make(map[string]NamespacedStateBag, len(w.steps))
 
 	for index, step := range w.steps {
 		var report *Report
 		stepStart := time.Now()
 
 		stepCtx := ctx
-		var stepState StateBag
+		var stepState NamespacedStateBag
 		var statePrepError error
 		var ctxPrepError error
 
-		// prepare step state (start from current workflow state)
-		stepState = w.State()
-		if IsWorkflow(step) { // clone state for sub-workflows
-			stepState, statePrepError = stepState.Clone()
+		// prepare step state with namespace support
+		if IsWorkflow(step) {
+			var clonedGlobal StateBag
+			// Sub-workflows get a new NamespacedStateBag with:
+			// - Empty local namespace (isolated to the sub-workflow)
+			// - Cloned global namespace (inherits parent's shared state)
+			clonedGlobal, statePrepError = w.State().Global().Clone()
 			if statePrepError != nil {
 				report = FailureReport(step,
 					WithWorkflow(w),
 					WithStartTime(stepStart),
 					WithActionType(ActionExecute),
 					WithError(StepExecutionError.
-						Wrap(statePrepError, "workflow %q step %q failed to clone state for sub-workflow execution", w.id, step.Id()).
+						Wrap(statePrepError, "workflow %q step %q failed to clone global state for sub-workflow execution", w.id, step.Id()).
 						WithProperty(StepIdProperty, step.Id()),
 					))
-			}
-		}
 
-		// attach snapshot for possible rollback (keeps alignment even if nil)
-		stepStates = append(stepStates, stepState)
+				// Fall back to empty state for consistency since we always assume there is a state attached to the step
+				// when calling Prepare and Execute, even though sub-workflow won't have access to parent's global state
+				// in this case.
+				stepState = NewNamespacedStateBag(nil, nil)
+			} else {
+				stepState = NewNamespacedStateBag(nil, clonedGlobal)
+			}
+		} else {
+			// Ordinary steps get namespaced state with:
+			// - Empty local namespace (isolated to this step)
+			// - Shared global namespace (points to workflow's global state)
+			stepState = NewNamespacedStateBag(nil, w.State().Global())
+		}
 
 		// make sure step has its state before calling Prepare so Prepare can access it.
 		// It also ensures during Execute the step has the correct state
@@ -285,6 +394,30 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			}
 		}
 
+		// Capture state snapshot after step processing (successful or failed)
+		// Clone() creates an immutable snapshot by deep-cloning all namespaces (local, global, custom).
+		// This ensures later steps cannot mutate earlier snapshots, enabling deterministic rollback.
+		// State preservation can be disabled via preserveStatesForRollback to reduce memory overhead.
+		if w.preserveStatesForRollback {
+			if state := step.State(); state != nil {
+				clonedState, err := state.Clone()
+				if err != nil {
+					// State cloning failed; log warning and store non-cloned reference
+					// Do NOT fail the step - this would prevent rollback and leave state inconsistent
+					w.logger.Warn().
+						Err(err).
+						Str("workflowId", w.id).
+						Str("stepId", step.Id()).
+						Msg("failed to clone state for rollback snapshot; using current state reference (may be mutated by later steps before rollback)")
+
+					// Store non-cloned state for rollback
+					stepStates[step.Id()] = state
+				} else {
+					stepStates[step.Id()] = clonedState
+				}
+			}
+		}
+
 		// collect step report
 		stepReports = append(stepReports, report)
 
@@ -295,7 +428,8 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			if w.executionMode == StopOnError {
 				break
 			} else if w.executionMode == RollbackOnError {
-				// perform rollback using recorded per-step states
+				// Perform rollback using recorded per-step states
+				// Rollback from index (include the failed step for cleanup)
 				rollbackReports := w.rollbackFrom(stepCtx, index, stepStates)
 
 				// Attach rollback reports to corresponding step reports
@@ -308,6 +442,13 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 				break
 			}
 		}
+	}
+
+	// Preserve state snapshots for potential manual rollback later
+	// (even if workflow failed, manual Rollback() can use these snapshots)
+	// Only preserve if configured to reduce memory overhead when rollback isn't needed
+	if w.preserveStatesForRollback {
+		w.lastExecutionStates = stepStates
 	}
 
 	if hasFailed {
@@ -386,13 +527,9 @@ func (w *workflow) Rollback(ctx context.Context) *Report {
 	}
 
 	startTime := time.Now()
-	stepCtx := context.WithValue(ctx, KeyState, w.State().
-		Set(KeyId, w.Id()).
-		Set(KeyIsWorkflow, true).
-		Set(KeyStartTime, startTime),
-	)
-	// call with nil states so rollbackFrom falls back to current workflow state
-	rollbackReports := w.rollbackFrom(stepCtx, len(w.steps)-1, nil)
+
+	// Use preserved states from last execution, fall back to nil if none available
+	rollbackReports := w.rollbackFrom(ctx, len(w.steps)-1, w.lastExecutionStates)
 
 	var stepReports []*Report
 	for _, step := range w.steps {
@@ -447,8 +584,9 @@ func (w *workflow) handleFailure(ctx context.Context, report *Report) {
 
 func newDefaultWorkflow() *workflow {
 	return &workflow{
-		executionMode: StopOnError,
-		rollbackMode:  ContinueOnError,
-		logger:        zerolog.Nop(),
+		executionMode:             StopOnError,
+		rollbackMode:              ContinueOnError,
+		logger:                    zerolog.Nop(),
+		preserveStatesForRollback: true, // default: enabled for backward compatibility
 	}
 }

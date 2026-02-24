@@ -124,7 +124,8 @@ func TestSyncStateBag_Merge(t *testing.T) {
 	bag2.Set("b", 20)
 	bag2.Set("c", 30)
 
-	bag1.Merge(bag2)
+	_, err := bag1.Merge(bag2)
+	require.NoError(t, err)
 	assert.Equal(t, 1, IntFromState(bag1, "a"))
 	assert.Equal(t, 20, IntFromState(bag1, "b"))
 	assert.Equal(t, 30, IntFromState(bag1, "c"))
@@ -133,7 +134,8 @@ func TestSyncStateBag_Merge(t *testing.T) {
 func TestSyncStateBag_Merge_NilOther(t *testing.T) {
 	bag := &SyncStateBag{}
 	bag.Set("x", 100)
-	result := bag.Merge(nil)
+	result, err := bag.Merge(nil)
+	require.NoError(t, err)
 	assert.Equal(t, bag, result)
 	assert.Equal(t, 100, IntFromState(result, "x"))
 }
