@@ -7,14 +7,15 @@ import (
 // SyncNamespacedStateBag is a thread-safe implementation of NamespacedStateBag.
 // It maintains separate StateBag instances for local, global, and custom namespaces.
 type SyncNamespacedStateBag struct {
-	local  StateBag
-	global StateBag
-	custom map[string]StateBag
-	mu     sync.RWMutex
+	local     StateBag
+	global    StateBag
+	custom    map[string]StateBag
+	mu        sync.RWMutex // protects local, global, and custom fields during writes (Merge)
+	localOnce sync.Once    // ensures local is initialized only once
 }
 
 // NewNamespacedStateBag creates a new SyncNamespacedStateBag with the given local and global bags.
-// If local is nil, a new empty SyncStateBag is created.
+// If local is nil, it will be lazily initialized when Local is first called.
 // If global is nil, a new empty SyncStateBag is created.
 func NewNamespacedStateBag(local, global StateBag) *SyncNamespacedStateBag {
 	if global == nil {
@@ -30,18 +31,20 @@ func NewNamespacedStateBag(local, global StateBag) *SyncNamespacedStateBag {
 
 // Local returns a view of the local namespace.
 func (n *SyncNamespacedStateBag) Local() StateBag {
-	if n.local == nil {
-		n.mu.Lock()
-		if n.local == nil { // double-check locking
+	n.localOnce.Do(func() {
+		if n.local == nil {
 			n.local = &SyncStateBag{}
 		}
-		n.mu.Unlock()
-	}
+	})
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 	return n.local
 }
 
 // Global returns a view of the global namespace.
 func (n *SyncNamespacedStateBag) Global() StateBag {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 	return n.global
 }
 
@@ -131,11 +134,14 @@ func (n *SyncNamespacedStateBag) Merge(other NamespacedStateBag) (NamespacedStat
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	// Merge local namespaces (use direct field access)
-	if n.local == nil {
-		n.local = &SyncStateBag{}
-	}
+	// Ensure local is initialized before merging (must be done under lock)
+	n.localOnce.Do(func() {
+		if n.local == nil {
+			n.local = &SyncStateBag{}
+		}
+	})
 
+	// Merge local namespaces (use direct field access)
 	mergedLocal, err := n.local.Merge(otherLocal)
 	if err != nil {
 		return nil, err

@@ -157,6 +157,11 @@ func (wb *WorkflowBuilder) WithState(state NamespacedStateBag) *WorkflowBuilder 
 	return wb
 }
 
+func (wb *WorkflowBuilder) WithStatePreservation(enable bool) *WorkflowBuilder {
+	wb.workflow.preserveStatesForRollback = enable
+	return wb
+}
+
 func (wb *WorkflowBuilder) WithRollback(rollback RollbackFunc) *WorkflowBuilder {
 	wb.workflow.rollback = rollback
 	return wb

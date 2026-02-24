@@ -54,6 +54,11 @@ type workflow struct {
 	// preserve step states after execution for potential rollback; keyed by step ID
 	lastExecutionStates map[string]NamespacedStateBag
 
+	// preserveStatesForRollback controls whether state snapshots are cloned and preserved
+	// after each step execution. When true (default), enables deterministic rollback but
+	// increases memory usage. When false, skips state cloning to reduce overhead.
+	preserveStatesForRollback bool
+
 	// callbacks and hooks
 	prepare      PrepareFunc
 	rollback     RollbackFunc // optional user-defined rollback function for the entire workflow
@@ -216,22 +221,26 @@ func (w *workflow) State() NamespacedStateBag {
 //
 // State snapshot and rollback:
 //  1. After each step executes (successfully or not), its state is cloned and stored in `stepStates`
-//     (keyed by step ID) for potential rollback.
+//     (keyed by step ID) for potential rollback (if `preserveStatesForRollback` is enabled).
 //  2. State cloning ensures immutable snapshots (global state is shared across steps, so cloning
 //     prevents later mutations from affecting earlier snapshots).
-//  3. If state cloning fails, the step's current (non-cloned) state reference is stored instead. This:
+//  3. State preservation can be disabled via `WithStatePreservation(false)` on the WorkflowBuilder to
+//     reduce memory overhead when rollback capability isn't needed. When disabled, all state snapshot
+//     operations are skipped, and manual `Rollback()` calls will use current workflow state.
+//  4. If state cloning fails (when preservation is enabled), the step's current (non-cloned) state
+//     reference is stored instead. This:
 //     a. Ensures rollback can access the step's actual execution state (including partial success)
 //     b. Accepts the risk that later steps may mutate this state before rollback occurs
 //     c. Is safer than falling back to workflow state, which may be stale or incomplete
 //     d. A warning is logged when state cloning fails
 //     e. The step is NOT failed due to cloning failure - this ensures rollback can still be
 //     triggered if `executionMode` is `RollbackOnError` and the step fails for other reasons
-//  4. When `executionMode` is `RollbackOnError` and a step fails, rollback is triggered immediately for
+//  5. When `executionMode` is `RollbackOnError` and a step fails, rollback is triggered immediately for
 //     the failed step and all previously executed steps (from `index` down to 0). This ensures:
 //     a. The failed step can clean up any partial work it completed before failing
 //     b. All successfully executed steps are rolled back in reverse order
 //     c. Each step's rollback receives its captured state snapshot (cloned or non-cloned reference)
-//  5. Rollback reports are attached to the corresponding step reports via `stepReport.Rollback`.
+//  6. Rollback reports are attached to the corresponding step reports via `stepReport.Rollback`.
 //
 // Execution semantics:
 //  1. Execution behavior respects `w.executionMode`:
@@ -256,9 +265,13 @@ func (w *workflow) State() NamespacedStateBag {
 //     c. Attach custom metadata to reports via Meta field for tracking
 //  4. After execution (successful or failed), state snapshots are preserved internally via
 //     `w.lastExecutionStates` (keyed by step ID) for potential manual rollback via `Rollback()`.
-//  5. State cloning failures result in non-cloned state references being stored; rollback will use these
-//     references but they may have been mutated by later steps (only if execution continued past the
-//     point of cloning failure).
+//     This is controlled by `preserveStatesForRollback` (default: true).
+//  5. To reduce memory overhead, state preservation can be disabled via `WithStatePreservation(false)`
+//     on the WorkflowBuilder. When disabled, no state snapshots are cloned or stored, and manual
+//     `Rollback()` calls will use the current workflow state instead of per-step snapshots.
+//  6. State cloning failures (when preservation is enabled) result in non-cloned state references being
+//     stored; rollback will use these references but they may have been mutated by later steps (only
+//     if execution continued past the point of cloning failure).
 func (w *workflow) Execute(ctx context.Context) *Report {
 	startTime := time.Now()
 
@@ -318,9 +331,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 		// make sure step has its state before calling Prepare so Prepare can access it.
 		// It also ensures during Execute the step has the correct state
-		if stepState != nil {
-			step = step.WithState(stepState)
-		}
+		step = step.WithState(stepState)
 
 		// prepare step context
 		if statePrepError == nil {
@@ -355,21 +366,24 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		// Capture state snapshot after step processing (successful or failed)
 		// Clone() creates an immutable snapshot by deep-cloning all namespaces (local, global, custom).
 		// This ensures later steps cannot mutate earlier snapshots, enabling deterministic rollback.
-		if state := step.State(); state != nil {
-			clonedState, err := state.Clone()
-			if err != nil {
-				// State cloning failed; log warning and store non-cloned reference
-				// Do NOT fail the step - this would prevent rollback and leave state inconsistent
-				w.logger.Warn().
-					Err(err).
-					Str("workflowId", w.id).
-					Str("stepId", step.Id()).
-					Msg("failed to clone state for rollback snapshot; using current state reference (may be mutated by later steps before rollback)")
+		// State preservation can be disabled via preserveStatesForRollback to reduce memory overhead.
+		if w.preserveStatesForRollback {
+			if state := step.State(); state != nil {
+				clonedState, err := state.Clone()
+				if err != nil {
+					// State cloning failed; log warning and store non-cloned reference
+					// Do NOT fail the step - this would prevent rollback and leave state inconsistent
+					w.logger.Warn().
+						Err(err).
+						Str("workflowId", w.id).
+						Str("stepId", step.Id()).
+						Msg("failed to clone state for rollback snapshot; using current state reference (may be mutated by later steps before rollback)")
 
-				// Store non-cloned state for rollback
-				stepStates[step.Id()] = state
-			} else {
-				stepStates[step.Id()] = clonedState
+					// Store non-cloned state for rollback
+					stepStates[step.Id()] = state
+				} else {
+					stepStates[step.Id()] = clonedState
+				}
 			}
 		}
 
@@ -401,7 +415,10 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 	// Preserve state snapshots for potential manual rollback later
 	// (even if workflow failed, manual Rollback() can use these snapshots)
-	w.lastExecutionStates = stepStates
+	// Only preserve if configured to reduce memory overhead when rollback isn't needed
+	if w.preserveStatesForRollback {
+		w.lastExecutionStates = stepStates
+	}
 
 	if hasFailed {
 		var failedStepIDs []string
@@ -536,8 +553,9 @@ func (w *workflow) handleFailure(ctx context.Context, report *Report) {
 
 func newDefaultWorkflow() *workflow {
 	return &workflow{
-		executionMode: StopOnError,
-		rollbackMode:  ContinueOnError,
-		logger:        zerolog.Nop(),
+		executionMode:             StopOnError,
+		rollbackMode:              ContinueOnError,
+		logger:                    zerolog.Nop(),
+		preserveStatesForRollback: true, // default: enabled for backward compatibility
 	}
 }
