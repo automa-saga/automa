@@ -185,7 +185,8 @@ func TestNamespacedStateBag_Merge(t *testing.T) {
 		ns2.Local().Set("key2", "value2")
 		ns2.Local().Set("shared-key", "merged")
 
-		result := ns1.Merge(ns2)
+		result, err := ns1.Merge(ns2)
+		require.NoError(t, err)
 
 		// Verify it returns itself
 		assert.Same(t, ns1, result)
@@ -279,7 +280,8 @@ func TestNamespacedStateBag_Merge(t *testing.T) {
 		ns := NewNamespacedStateBag(nil, nil)
 		ns.Local().Set("key", "value")
 
-		result := ns.Merge(nil)
+		result, err := ns.Merge(nil)
+		require.NoError(t, err)
 
 		assert.Same(t, ns, result)
 		assert.Equal(t, "value", ns.Local().String("key"), "original data should be unchanged")

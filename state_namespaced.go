@@ -10,7 +10,7 @@ type SyncNamespacedStateBag struct {
 	local  StateBag
 	global StateBag
 	custom map[string]StateBag
-	mu     sync.RWMutex // protects custom map
+	mu     sync.RWMutex
 }
 
 // NewNamespacedStateBag creates a new SyncNamespacedStateBag with the given local and global bags.
@@ -67,10 +67,19 @@ func (n *SyncNamespacedStateBag) Clone() (NamespacedStateBag, error) {
 		return nil, IllegalArgument.New("cannot clone a nil SyncNamespacedStateBag")
 	}
 
-	// Clone local namespace
-	localClone, err := n.Local().Clone() // use Local() to ensure lazy initialization
-	if err != nil {
-		return nil, err
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	// Clone local namespace (use direct field access, not Local() to avoid lock)
+	var localClone StateBag
+	var err error
+	if n.local != nil {
+		localClone, err = n.local.Clone()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		localClone = &SyncStateBag{} // create empty if nil
 	}
 
 	// Clone global namespace
@@ -81,16 +90,13 @@ func (n *SyncNamespacedStateBag) Clone() (NamespacedStateBag, error) {
 
 	// Clone custom namespaces
 	customClone := make(map[string]StateBag)
-	n.mu.RLock()
 	for name, bag := range n.custom {
 		clonedBag, err := bag.Clone()
 		if err != nil {
-			n.mu.RUnlock()
 			return nil, err
 		}
 		customClone[name] = clonedBag
 	}
-	n.mu.RUnlock()
 
 	return &SyncNamespacedStateBag{
 		local:  localClone,
@@ -101,37 +107,64 @@ func (n *SyncNamespacedStateBag) Clone() (NamespacedStateBag, error) {
 
 // Merge merges another NamespacedStateBag into this one and returns itself.
 // It merges local, global, and custom namespaces separately.
-func (n *SyncNamespacedStateBag) Merge(other NamespacedStateBag) NamespacedStateBag {
+func (n *SyncNamespacedStateBag) Merge(other NamespacedStateBag) (NamespacedStateBag, error) {
 	if other == nil {
-		return n
+		return n, nil
 	}
 
-	// Merge local namespaces
-	n.Local().Merge(other.Local()) // use Local() to ensure lazy initialization
+	// Read from other first (without holding n's lock)
+	otherLocal := other.Local()
+	otherGlobal := other.Global()
 
-	// Merge global namespaces
-	n.global.Merge(other.Global())
-
-	// Merge custom namespaces
+	var otherCustom map[string]StateBag
 	if otherSync, ok := other.(*SyncNamespacedStateBag); ok {
 		otherSync.mu.RLock()
-		defer otherSync.mu.RUnlock()
+		// Clone the map to avoid holding lock during merge
+		otherCustom = make(map[string]StateBag, len(otherSync.custom))
+		for name, bag := range otherSync.custom {
+			otherCustom[name] = bag
+		}
+		otherSync.mu.RUnlock()
+	}
 
-		n.mu.Lock()
-		defer n.mu.Unlock()
+	// Now lock n and perform merges
+	n.mu.Lock()
+	defer n.mu.Unlock()
 
-		for name, otherBag := range otherSync.custom {
-			if existingBag, exists := n.custom[name]; exists {
-				// Merge with existing custom namespace
-				existingBag.Merge(otherBag)
-			} else {
-				// Add new custom namespace (clone to avoid sharing reference)
-				if clonedBag, err := otherBag.Clone(); err == nil {
-					n.custom[name] = clonedBag
-				}
+	// Merge local namespaces (use direct field access)
+	if n.local == nil {
+		n.local = &SyncStateBag{}
+	}
+
+	mergedLocal, err := n.local.Merge(otherLocal)
+	if err != nil {
+		return nil, err
+	}
+	n.local = mergedLocal
+
+	// Merge global namespaces
+	mergedGlobal, err := n.global.Merge(otherGlobal)
+	if err != nil {
+		return nil, err
+	}
+	n.global = mergedGlobal
+
+	// Merge custom namespaces
+	for name, otherBag := range otherCustom {
+		if existingBag, exists := n.custom[name]; exists {
+			merged, err := existingBag.Merge(otherBag)
+			if err != nil {
+				return nil, err
 			}
+			n.custom[name] = merged
+		} else {
+			clonedBag, err := otherBag.Clone()
+			if err != nil {
+				return nil, err
+			}
+			n.custom[name] = clonedBag
 		}
 	}
 
-	return n
+	return n, nil
 }

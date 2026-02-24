@@ -75,16 +75,16 @@ func (s *SyncStateBag) Clone() (StateBag, error) {
 	return clone, nil
 }
 
-func (s *SyncStateBag) Merge(other StateBag) StateBag {
+func (s *SyncStateBag) Merge(other StateBag) (StateBag, error) {
 	if other == nil {
-		return s
+		return s, nil
 	}
 
 	for k, v := range other.Items() {
 		s.m.Store(k, v)
 	}
 
-	return s
+	return s, nil
 }
 
 func (s *SyncStateBag) Items() map[Key]interface{} {

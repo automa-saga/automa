@@ -353,6 +353,8 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		}
 
 		// Capture state snapshot after step processing (successful or failed)
+		// Clone() creates an immutable snapshot by deep-cloning all namespaces (local, global, custom).
+		// This ensures later steps cannot mutate earlier snapshots, enabling deterministic rollback.
 		if state := step.State(); state != nil {
 			clonedState, err := state.Clone()
 			if err != nil {

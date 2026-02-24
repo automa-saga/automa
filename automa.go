@@ -27,7 +27,7 @@ type StateBag interface {
 	Keys() []Key
 	Size() int
 	Items() map[Key]interface{}
-	Merge(other StateBag) StateBag
+	Merge(other StateBag) (StateBag, error)
 	Clone() (StateBag, error)
 
 	// Helper methods for extracting typed values
@@ -95,7 +95,7 @@ type NamespacedStateBag interface {
 	// - Custom namespaces are merged individually by name
 	//   - If a custom namespace exists in both, they are merged
 	//   - If a custom namespace only exists in other, it is added
-	Merge(other NamespacedStateBag) NamespacedStateBag
+	Merge(other NamespacedStateBag) (NamespacedStateBag, error)
 }
 
 type Workflow interface {
