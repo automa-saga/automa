@@ -157,6 +157,31 @@ func (wb *WorkflowBuilder) WithState(state NamespacedStateBag) *WorkflowBuilder 
 	return wb
 }
 
+// WithStatePreservation configures whether step states are preserved for rollback.
+//
+// When true (default):
+//   - State is cloned and stored for each step after execution
+//   - Rollback steps receive their execution-time state snapshots (local + global + custom namespaces)
+//   - Higher memory usage due to deep state cloning
+//
+// When false:
+//   - State is NOT cloned or stored for rollback
+//   - Rollback steps receive workflow.State() (global state only)
+//   - Per-step local namespaces are NOT available during rollback
+//   - Lower memory usage (no cloning or storage overhead)
+//
+// Use preservation=false when:
+//
+//   - Rollback steps are idempotent (don't need per-step state)
+//   - Rollback only needs global state
+//   - Rollback uses external state (database, files, APIs)
+//   - executionMode is StopOnError or ContinueOnError (no rollback triggered)
+//
+// Keep preservation=true (default) when:
+//
+//   - Rollback needs per-step local namespaces
+//   - Rollback needs exact state snapshot from execution time
+//   - Multiple steps might mutate shared state before rollback
 func (wb *WorkflowBuilder) WithStatePreservation(enable bool) *WorkflowBuilder {
 	wb.workflow.preserveStatesForRollback = enable
 	return wb

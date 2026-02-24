@@ -57,6 +57,30 @@ type workflow struct {
 	// preserveStatesForRollback controls whether state snapshots are cloned and preserved
 	// after each step execution. When true (default), enables deterministic rollback but
 	// increases memory usage. When false, skips state cloning to reduce overhead.
+	//
+	// When true (default):
+	//   - State is cloned and stored for each step after execution
+	//   - Rollback steps receive their execution-time state snapshots (local + global + custom namespaces)
+	//   - Higher memory usage due to deep state cloning
+	//
+	// When false:
+	//   - State is NOT cloned or stored for rollback
+	//   - Rollback steps receive workflow.State() (global state only)
+	//   - Per-step local namespaces are NOT available during rollback
+	//   - Lower memory usage (no cloning or storage overhead)
+	//
+	// Use preservation=false when:
+	//
+	//   - Rollback steps are idempotent (don't need per-step state)
+	//   - Rollback only needs global state
+	//   - Rollback uses external state (database, files, APIs)
+	//   - executionMode is StopOnError or ContinueOnError (no rollback triggered)
+	//
+	// Keep preservation=true (default) when:
+	//
+	//   - Rollback needs per-step local namespaces
+	//   - Rollback needs exact state snapshot from execution time
+	//   - Multiple steps might mutate shared state before rollback
 	preserveStatesForRollback bool
 
 	// callbacks and hooks
@@ -272,6 +296,13 @@ func (w *workflow) State() NamespacedStateBag {
 //  6. State cloning failures (when preservation is enabled) result in non-cloned state references being
 //     stored; rollback will use these references but they may have been mutated by later steps (only
 //     if execution continued past the point of cloning failure).
+//
+// Execute runs all steps in sequence according to the configured execution mode.
+//
+// State Preservation:
+// - When preserveStatesForRollback=true (default), step states are cloned after execution
+// - When preserveStatesForRollback=false, states are NOT preserved; rollback receives workflow.State()
+// - See WithStatePreservation() for detailed tradeoffs
 func (w *workflow) Execute(ctx context.Context) *Report {
 	startTime := time.Now()
 
