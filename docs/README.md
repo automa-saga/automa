@@ -8,14 +8,43 @@ Welcome to the automa workflow orchestration framework documentation.
 - [Developer Guide](developer-guide.md) - Development, testing, and contribution guidelines  
 - [Usage Examples](usage-examples.md) - Practical examples and best practices
 - [State Preservation](state-preservation.md) - Memory optimization and configuration
-- [Thread Safety Tests](thread-safety-tests.md) - Concurrency testing details
+
+## Examples and Quick Demo
+
+This repository includes runnable examples in the `examples/` directory. A small demo is provided at:
+
+- `examples/setup_local` - CLI-style local environment setup example (uses spinners and nested workflows)
+- `examples/hello` - tiny one-file example for a quick local run (builds a small workflow and prints a YAML report)
+
+Quick run from repository root (recommended):
+
+```bash
+# Run the tiny hello example (single-file example)
+go run ./examples/hello
+
+# Run the setup_local example (it is a separate module with its own go.mod):
+# Option A: change into its directory and run
+cd examples/setup_local && go run .
+# Option B: run in a subshell from repo root (keeps current shell clean)
+(cd examples/setup_local && go run .)
+```
+
+Notes:
+- `examples/setup_local` is a standalone module (it contains a `go.mod` with a `replace` directive referencing the repo root). Running `go run ./examples/setup_local` from the repo root may fail in some setups; use one of the two commands above to run it reliably.
+- `setup_local` performs network downloads and writes to `/tmp` — run it on macOS or Linux and ensure you have network access and write permission.
 
 ## Quick Start
 
 ### Installation
 
+You can install the package for local development using Go modules. A couple of common options:
+
 ```bash
-go get github.com/automa-saga/automa
+# (legacy) fetch into module cache - compatible with many older docs
+go get -u github.com/automa-saga/automa
+
+# (modern) install a specific version (recommended in newer Go toolchains)
+go install github.com/automa-saga/automa@latest
 ```
 
 ### Basic Usage
@@ -26,30 +55,30 @@ package main
 import (
     "context"
     "fmt"
+
     "github.com/automa-saga/automa"
 )
 
 func main() {
     // Define a simple step
     step := automa.NewStepBuilder().
-        WithId("hello-step").
-        WithExecute(func(ctx context.Context, stp automa.Step) *automa.Report {
-            fmt.Println("Hello from automa!")
-            return automa.SuccessReport(stp)
-        }).
-        Build()
+      WithId("hello-step").
+      WithExecute(func(ctx context.Context, stp automa.Step) *automa.Report {
+         fmt.Println("Hello from automa!")
+         return automa.SuccessReport(stp)
+      })
 
     // Build a workflow
     wf, _ := automa.NewWorkflowBuilder().
-        WithId("hello-workflow").
-        Steps(step).
-        Build()
+      WithId("hello-workflow").
+      Steps(step).
+      Build()
 
     // Execute the workflow
     report := wf.Execute(context.Background())
-    
+
     if report.IsSuccess() {
-        fmt.Println("Workflow completed successfully!")
+      fmt.Println("Workflow completed successfully!")
     }
 }
 ```
@@ -77,26 +106,6 @@ Start here if you want to use automa in your projects:
    - Execution modes
    - State management design
    - Thread safety model
-
-### For Contributors
-
-Start here if you want to contribute to automa:
-
-1. **[Developer Guide](developer-guide.md)** - Development workflow
-   - Setup instructions
-   - Testing guidelines
-   - Code style requirements
-   - Contribution process
-
-2. **[Architecture](architecture.md)** - Understand the design
-   - Design principles
-   - Extension points
-   - Performance characteristics
-
-3. **[Thread Safety Tests](thread-safety-tests.md)** - Concurrency testing
-   - Test strategy
-   - Race conditions found and fixed
-   - Running concurrency tests
 
 ## Core Concepts
 
@@ -169,7 +178,6 @@ Step1 ✓ → Step2 ✗ → Step3 ✓ → [COMPLETE]
 ✅ **Observable** - Structured reports with rich metadata  
 ✅ **Testable** - Clean interfaces and dependency injection  
 ✅ **Memory-efficient** - Optional state preservation  
-✅ **Well-documented** - Comprehensive documentation and examples  
 
 ## Common Use Cases
 

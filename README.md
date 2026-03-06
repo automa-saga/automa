@@ -21,7 +21,16 @@ The name `automa` is derived from the word `automate`.
 go get -u github.com/automa-saga/automa
 ```
 
-See an [example](https://github.com/automa-saga/automa/blob/master/examples) in the examples directory. 
+See the `examples/` directory in this repository for runnable examples, e.g. `examples/setup_local`.
+
+Quick run (from repository root):
+
+```sh
+# run the setup_local example
+go run ./examples/setup_local
+# or build and run
+go build -o ./bin/setup_local ./examples/setup_local && ./bin/setup_local
+```
 
 ## Development
  - `task test` runs the tests (install `task` tool: https://taskfile.dev/installation/).
