@@ -8,6 +8,7 @@ Welcome to the automa workflow orchestration framework documentation.
 - [Developer Guide](developer-guide.md) - Development, testing, and contribution guidelines  
 - [Usage Examples](usage-examples.md) - Practical examples and best practices
 - [State Preservation](state-preservation.md) - Memory optimization and configuration
+- [State Serialization](state-serialization.md) - JSON/YAML format and guidance for storing serializable values
 - [Thread Safety Tests](thread-safety-tests.md) - Concurrency testing details
 
 ## Quick Start

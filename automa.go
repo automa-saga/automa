@@ -3,6 +3,9 @@ package automa
 
 import (
 	"context"
+	"encoding/json"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Step interface {
@@ -41,6 +44,12 @@ type StateBag interface {
 	Float(key Key) float64
 	Float32(key Key) float32
 	Float64(key Key) float64
+
+	// Serialization support
+	json.Marshaler
+	json.Unmarshaler
+	yaml.Marshaler
+	yaml.Unmarshaler
 }
 
 // NamespacedStateBag provides namespace-aware state management for workflow steps.

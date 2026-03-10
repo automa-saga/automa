@@ -1,6 +1,8 @@
 package automa
 
 import (
+	"encoding/json"
+	"gopkg.in/yaml.v3"
 	"sync"
 )
 
@@ -177,4 +179,132 @@ func (n *SyncNamespacedStateBag) Merge(other NamespacedStateBag) (NamespacedStat
 	}
 
 	return n, nil
+}
+
+// marshal snapshot structure
+type namespacedSnapshot struct {
+	Local  map[string]interface{}            `json:"local" yaml:"local"`
+	Global map[string]interface{}            `json:"global" yaml:"global"`
+	Custom map[string]map[string]interface{} `json:"custom" yaml:"custom"`
+}
+
+// MarshalJSON implements json.Marshaler for SyncNamespacedStateBag.
+func (n *SyncNamespacedStateBag) MarshalJSON() ([]byte, error) {
+	if n == nil {
+		return json.Marshal(nil)
+	}
+
+	// snapshot under read lock
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	snapshot := namespacedSnapshot{
+		Local:  StateBagToStringMap(n.local),
+		Global: StateBagToStringMap(n.global),
+		Custom: make(map[string]map[string]interface{}),
+	}
+
+	for name, bag := range n.custom {
+		snapshot.Custom[name] = StateBagToStringMap(bag)
+	}
+
+	return json.Marshal(snapshot)
+}
+
+// UnmarshalJSON implements json.Unmarshaler for SyncNamespacedStateBag.
+func (n *SyncNamespacedStateBag) UnmarshalJSON(data []byte) error {
+	if n == nil {
+		return IllegalArgument.New("cannot unmarshal into nil SyncNamespacedStateBag")
+	}
+	var snapshot namespacedSnapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return err
+	}
+
+	// construct new internal structures from snapshot
+	local := &SyncStateBag{}
+	for k, v := range snapshot.Local {
+		local.Set(Key(k), v)
+	}
+	global := &SyncStateBag{}
+	for k, v := range snapshot.Global {
+		global.Set(Key(k), v)
+	}
+	custom := make(map[string]StateBag)
+	for name, mp := range snapshot.Custom {
+		b := &SyncStateBag{}
+		for k, v := range mp {
+			b.Set(Key(k), v)
+		}
+		custom[name] = b
+	}
+
+	// apply under lock
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	n.local = local
+	n.global = global
+	n.custom = custom
+
+	return nil
+}
+
+// MarshalYAML implements yaml.Marshaler for SyncNamespacedStateBag.
+func (n *SyncNamespacedStateBag) MarshalYAML() (interface{}, error) {
+	if n == nil {
+		return nil, nil
+	}
+
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	snapshot := namespacedSnapshot{
+		Local:  StateBagToStringMap(n.local),
+		Global: StateBagToStringMap(n.global),
+		Custom: make(map[string]map[string]interface{}),
+	}
+
+	for name, bag := range n.custom {
+		snapshot.Custom[name] = StateBagToStringMap(bag)
+	}
+
+	return snapshot, nil
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler for SyncNamespacedStateBag.
+func (n *SyncNamespacedStateBag) UnmarshalYAML(node *yaml.Node) error {
+	if n == nil {
+		return IllegalArgument.New("cannot unmarshal into nil SyncNamespacedStateBag")
+	}
+	var snapshot namespacedSnapshot
+	if err := node.Decode(&snapshot); err != nil {
+		return err
+	}
+
+	local := &SyncStateBag{}
+	for k, v := range snapshot.Local {
+		local.Set(Key(k), v)
+	}
+	global := &SyncStateBag{}
+	for k, v := range snapshot.Global {
+		global.Set(Key(k), v)
+	}
+	custom := make(map[string]StateBag)
+	for name, mp := range snapshot.Custom {
+		b := &SyncStateBag{}
+		for k, v := range mp {
+			b.Set(Key(k), v)
+		}
+		custom[name] = b
+	}
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	n.local = local
+	n.global = global
+	n.custom = custom
+
+	return nil
 }

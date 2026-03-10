@@ -217,18 +217,42 @@ func TestSyncStateBag_HelperMethods(t *testing.T) {
 func TestSyncStateBag_HelperMethods_TypeSafety(t *testing.T) {
 	bag := &SyncStateBag{}
 
-	// Test that wrong types return zero values
+	// non-string into String returns empty
 	bag.Set("notAString", 123)
 	assert.Equal(t, "", bag.String("notAString"))
 
+	// invalid numeric string to int => 0
 	bag.Set("notAnInt", "hello")
 	assert.Equal(t, 0, bag.Int("notAnInt"))
 
+	// string boolean coerces to bool
 	bag.Set("notABool", "true")
-	assert.Equal(t, false, bag.Bool("notABool"))
+	assert.Equal(t, true, bag.Bool("notABool"))
 
+	// string float coerces to float and to int (truncation)
 	bag.Set("notAFloat", "3.14")
-	assert.Equal(t, 0.0, bag.Float("notAFloat"))
+	assert.Equal(t, 3.14, bag.Float("notAFloat"))
+	assert.Equal(t, 3, bag.Int("notAFloat"))
+
+	// numeric float value truncates when accessed as int
+	bag.Set("floatVal", 3.99)
+	assert.Equal(t, 3, bag.Int("floatVal"))
+
+	// float32 stored should be accessible via Float32 and coerce to int
+	bag.Set("f32", float32(2.5))
+	assert.InDelta(t, float32(2.5), bag.Float32("f32"), 1e-6)
+	assert.Equal(t, 2, bag.Int("f32"))
+
+	// integer stored as smaller int kinds should be accessible via Int and Int64
+	bag.Set("i32", int32(7))
+	assert.Equal(t, 7, bag.Int("i32"))
+	assert.Equal(t, int64(7), bag.Int64("i32"))
+
+	// wrong types for slices/maps return empty collections
+	bag.Set("slice", "not-a-slice")
+	assert.Empty(t, StringSliceFromState(bag, "slice"))
+	bag.Set("m", "not-a-map")
+	assert.Empty(t, StringMapFromState(bag, "m"))
 }
 
 // testCloner implements the repository's expected Cloner[any] shape used in tests.
