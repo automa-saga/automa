@@ -209,7 +209,8 @@ func TestFromState_SliceAndMapAfterRoundTrip(t *testing.T) {
 	assert.Len(t, sliceIface, 3)
 	// accessor for elements: use FromState on each element and coercion helpers
 	for i, v := range sliceIface {
-		vn := normalizeFromState(v)
+		vn, err := normalizeFromState(v)
+		require.NoError(t, err)
 		iv, ok := toInt64(vn)
 		require.True(t, ok)
 		assert.Equal(t, int64(i+1), iv)

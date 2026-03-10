@@ -219,7 +219,7 @@ func TestSyncStateBag_HelperMethods_TypeSafety(t *testing.T) {
 
 	// non-string into String returns empty
 	bag.Set("notAString", 123)
-	assert.Equal(t, "", bag.String("notAString"))
+	assert.Equal(t, "123", bag.String("notAString"))
 
 	// invalid numeric string to int => 0
 	bag.Set("notAnInt", "hello")

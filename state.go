@@ -288,7 +288,7 @@ func StateFromContext(ctx context.Context) StateBag {
 
 // normalizeFromState dereferences pointers, decodes yaml.Node/json.Number,
 // and converts YAML-style maps recursively to map[string]interface{}.
-func normalizeFromState(v interface{}) interface{} {
+func normalizeFromState(v interface{}) (interface{}, error) {
 	// Handle yaml.Node early (both pointer and value) to avoid pointer deref consuming it
 	if nodePtr, ok := v.(*yaml.Node); ok && nodePtr != nil {
 		var out interface{}
@@ -309,11 +309,11 @@ func normalizeFromState(v interface{}) interface{} {
 	for {
 		rv := reflect.ValueOf(v)
 		if !rv.IsValid() {
-			return nil
+			return nil, errorx.IllegalArgument.New("invalid value: %v", v)
 		}
 		if rv.Kind() == reflect.Ptr {
 			if rv.IsNil() {
-				return nil
+				return nil, nil // treat nil pointer as nil value
 			}
 			v = rv.Elem().Interface()
 			continue
@@ -324,71 +324,91 @@ func normalizeFromState(v interface{}) interface{} {
 	// json.Number -> int64 or float64 or string
 	if jn, ok := v.(json.Number); ok {
 		if i, err := jn.Int64(); err == nil {
-			return i
+			return i, nil
 		}
 		if f, err := jn.Float64(); err == nil {
-			return f
+			return f, nil
 		}
-		return jn.String()
+		return jn.String(), nil
 	}
 
 	// recursively convert YAML map[interface{}]interface{} -> map[string]interface{}
+	var nv interface{}
+	var err error
 	switch t := v.(type) {
 	case map[interface{}]interface{}:
 		out := make(map[string]interface{}, len(t))
 		for k, vv := range t {
 			var ks string
+			var err error
 			switch kk := k.(type) {
 			case string:
 				ks = kk
 			default:
-				ks = stringify(k)
+				ks, err = stringify(k)
+				if err != nil {
+					return nil, err
+				}
 			}
-			out[ks] = normalizeFromState(vv)
+			nv, err = normalizeFromState(vv)
+			if err != nil {
+				return nil, err
+			}
+
+			out[ks] = nv
 		}
-		return out
+		return out, nil
 	case map[string]interface{}:
 		m := make(map[string]interface{}, len(t))
 		for k, vv := range t {
-			m[k] = normalizeFromState(vv)
+			nv, err = normalizeFromState(vv)
+			if err != nil {
+				return nil, err
+			}
+			m[k] = nv
 		}
-		return m
+		return m, nil
 	case []interface{}:
+		out := make([]interface{}, len(t))
 		for i := range t {
-			t[i] = normalizeFromState(t[i])
+			nv, err = normalizeFromState(t[i])
+			if err != nil {
+				return nil, err
+			}
+			t[i] = nv
 		}
-		return t
+		return t, nil
 	default:
-		return v
+		return v, nil
 	}
 }
 
-func stringify(v interface{}) string {
+func stringify(v interface{}) (string, error) {
 	switch t := v.(type) {
 	case string:
-		return t
+		return t, nil
 	case []byte:
-		return string(t)
+		return string(t), nil
 	case int, int8, int16, int32, int64:
 		if i, ok := toInt64(t); ok {
-			return strconv.FormatInt(i, 10)
+			return strconv.FormatInt(i, 10), nil
 		}
 	case uint, uint8, uint16, uint32, uint64:
 		if f, ok := toFloat64(t); ok {
 			if floatIsIntegral(f) {
-				return strconv.FormatInt(int64(f), 10)
+				return strconv.FormatInt(int64(f), 10), nil
 			}
-			return strconv.FormatFloat(f, 'f', -1, 64)
+			return strconv.FormatFloat(f, 'f', -1, 64), nil
 		}
 	case float32, float64:
 		if f, ok := toFloat64(t); ok {
 			if floatIsIntegral(f) {
-				return strconv.FormatInt(int64(f), 10)
+				return strconv.FormatInt(int64(f), 10), nil
 			}
-			return strconv.FormatFloat(f, 'f', -1, 64)
+			return strconv.FormatFloat(f, 'f', -1, 64), nil
 		}
 	}
-	return ""
+	return "", errorx.IllegalState.New("cannot stringify value of type %T", v)
 }
 
 const eps = 1e-9
@@ -510,7 +530,9 @@ func isString(v interface{}) bool {
 	return ok
 }
 
-// FromState normalizes and attempts primitive coercions.
+// FromState returns a value of type T from the StateBag, performing normalization
+// and safe coercions. It also formats numeric/bool values to strings when T is string,
+// preserving integer formatting for integral values.
 func FromState[T any](state StateBag, key Key, zero T) T {
 	if state == nil {
 		return zero
@@ -520,14 +542,63 @@ func FromState[T any](state StateBag, key Key, zero T) T {
 		return zero
 	}
 
-	// Try exact type match first to preserve pointer types and exact stored values.
+	// Exact type match first (preserves pointer/precise stored types).
 	if typedVal, ok := val.(T); ok {
 		return typedVal
 	}
 
-	v := normalizeFromState(val)
+	v, err := normalizeFromState(val)
+	if err != nil {
+		// Normalization failed; keep previous behavior of returning zero.
+		return zero
+	}
 
-	// If the normalized value is a string, allow coercion to numeric or bool when requested.
+	// If the requested target is string, allow coercion from numeric/bool
+	// and format integers without trailing decimal.
+	if _, wantString := any(zero).(string); wantString {
+		switch t := v.(type) {
+		case string:
+			return any(t).(T)
+		case bool:
+			return any(strconv.FormatBool(t)).(T)
+		case json.Number:
+			// Use Number's string representation (preserves original formatting)
+			return any(t.String()).(T)
+		case int:
+			return any(strconv.FormatInt(int64(t), 10)).(T)
+		case int8:
+			return any(strconv.FormatInt(int64(t), 10)).(T)
+		case int16:
+			return any(strconv.FormatInt(int64(t), 10)).(T)
+		case int32:
+			return any(strconv.FormatInt(int64(t), 10)).(T)
+		case int64:
+			return any(strconv.FormatInt(t, 10)).(T)
+		case uint:
+			return any(strconv.FormatUint(uint64(t), 10)).(T)
+		case uint8:
+			return any(strconv.FormatUint(uint64(t), 10)).(T)
+		case uint16:
+			return any(strconv.FormatUint(uint64(t), 10)).(T)
+		case uint32:
+			return any(strconv.FormatUint(uint64(t), 10)).(T)
+		case uint64:
+			return any(strconv.FormatUint(t, 10)).(T)
+		case float32:
+			// Use 'f' with -1 precision to avoid unnecessary ".0" for integral floats.
+			return any(strconv.FormatFloat(float64(t), 'f', -1, 32)).(T)
+		case float64:
+			// if integral (e.g., 42.0), FormatFloat with 'f' and -1 yields "42".
+			return any(strconv.FormatFloat(t, 'f', -1, 64)).(T)
+		default:
+			// Fallback: if value implements fmt.Stringer use that; otherwise fail through.
+			if s, ok := t.(interface{ String() string }); ok {
+				return any(s.String()).(T)
+			}
+		}
+	}
+
+	// existing string-to-primitive coercion handled earlier in the old logic:
 	if s, ok := v.(string); ok {
 		switch any(zero).(type) {
 		case string:
@@ -551,7 +622,7 @@ func FromState[T any](state StateBag, key Key, zero T) T {
 					return any(i).(T)
 				}
 			}
-			// fallthrough: try parse float if int parse failed
+			// try parse float if int parse failed
 			if f, err := strconv.ParseFloat(s, 64); err == nil {
 				switch any(zero).(type) {
 				case float32:
@@ -570,10 +641,9 @@ func FromState[T any](state StateBag, key Key, zero T) T {
 				}
 			}
 		}
-		// if parsing fails, continue to non-string handling to attempt other coercions
 	}
 
-	// Try primitive target coercions based on zero's dynamic type for non-string values.
+	// primitive coercions for non-string targets
 	switch any(zero).(type) {
 	case int:
 		if i, ok := toInt64(v); ok {
@@ -624,7 +694,6 @@ func FromState[T any](state StateBag, key Key, zero T) T {
 			return any(f).(T)
 		}
 	case bool:
-		// be strict: only accept real bool values or numeric/bool conversions
 		if b, ok := v.(bool); ok {
 			return any(b).(T)
 		}
@@ -637,7 +706,7 @@ func FromState[T any](state StateBag, key Key, zero T) T {
 		}
 	}
 
-	// fallback: exact type assertion for complex types
+	// final fallback: try direct assertion on normalized value
 	if typedVal, ok := v.(T); ok {
 		return typedVal
 	}
@@ -729,7 +798,7 @@ func FloatMapFromState(state StateBag, key Key) map[string]float64 {
 //
 // This is useful when consuming values produced by `encoding/json` or `gopkg.in/yaml.v3`
 // before attempting type coercion.
-func NormalizeValue(v interface{}) interface{} {
+func NormalizeValue(v interface{}) (interface{}, error) {
 	return normalizeFromState(v)
 }
 
@@ -756,17 +825,17 @@ func ToBool(v interface{}) (bool, bool) {
 // ToStringSlice converts common decoded slice shapes into []string. Returns (nil,false) if not possible.
 // Example: []interface{} -> []string, []string -> []string
 func ToStringSlice(v interface{}) ([]string, bool) {
-	return ToStringSliceInternal(v)
+	return toStringSlice(v)
 }
 
 // ToStringMap converts common decoded map shapes into map[string]string. Returns (nil,false) if not possible.
 // Example: map[string]interface{} -> map[string]string, map[string]string -> map[string]string
 func ToStringMap(v interface{}) (map[string]string, bool) {
-	return ToStringMapInternal(v)
+	return toStringMap(v)
 }
 
-// ToStringSliceInternal is the actual implementation used by the exported ToStringSlice wrapper.
-func ToStringSliceInternal(v interface{}) ([]string, bool) {
+// toStringSlice is the actual implementation used by the exported ToStringSlice wrapper.
+func toStringSlice(v interface{}) ([]string, bool) {
 	if v == nil {
 		return nil, false
 	}
@@ -792,8 +861,8 @@ func ToStringSliceInternal(v interface{}) ([]string, bool) {
 	return nil, false
 }
 
-// ToStringMapInternal is the actual implementation used by the exported ToStringMap wrapper.
-func ToStringMapInternal(v interface{}) (map[string]string, bool) {
+// toStringMapInternal is the actual implementation used by the exported ToStringMap wrapper.
+func toStringMap(v interface{}) (map[string]string, bool) {
 	if v == nil {
 		return nil, false
 	}

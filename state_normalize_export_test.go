@@ -13,15 +13,18 @@ import (
 func TestNormalizeValue_PointerAndJSONNumber(t *testing.T) {
 	v := 10
 	p := &v
-	r := NormalizeValue(p)
+	r, err := NormalizeValue(p)
+	require.NoError(t, err)
 	assert.Equal(t, 10, r)
 
 	jn := json.Number("42")
-	r2 := NormalizeValue(jn)
+	r2, err := NormalizeValue(jn)
+	require.NoError(t, err)
 	assert.Equal(t, int64(42), r2)
 
 	jnf := json.Number("3.14")
-	r3 := NormalizeValue(jnf)
+	r3, err := NormalizeValue(jnf)
+	require.NoError(t, err)
 	assert.Equal(t, 3.14, r3)
 }
 
@@ -33,7 +36,8 @@ func TestNormalizeValue_YAMLNodeAndMapInterface(t *testing.T) {
 	var node yaml.Node
 	require.NoError(t, yaml.Unmarshal(b, &node))
 
-	n := NormalizeValue(&node)
+	n, err := NormalizeValue(&node)
+	require.NoError(t, err)
 	m, ok := n.(map[string]interface{})
 	require.True(t, ok)
 	// numeric may be int or float64 depending on yaml decoding; accept numeric

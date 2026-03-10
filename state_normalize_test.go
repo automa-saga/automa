@@ -14,18 +14,21 @@ import (
 func TestNormalizeFromState_PointerDereference(t *testing.T) {
 	v := 123
 	p := &v
-	n := normalizeFromState(p)
+	n, err := normalizeFromState(p)
+	require.NoError(t, err)
 	assert.Equal(t, 123, n)
 }
 
 func TestNormalizeFromState_JSONNumber(t *testing.T) {
 	// json.Number should convert to int64 or float64
 	jn := json.Number("42")
-	n := normalizeFromState(jn)
+	n, err := normalizeFromState(jn)
+	require.NoError(t, err)
 	assert.Equal(t, int64(42), n)
 
 	jn2 := json.Number("3.14")
-	n2 := normalizeFromState(jn2)
+	n2, err := normalizeFromState(jn2)
+	require.NoError(t, err)
 	assert.Equal(t, 3.14, n2)
 }
 
@@ -38,7 +41,8 @@ func TestNormalizeFromState_YAMLNodeAndMapInterface(t *testing.T) {
 	var node yaml.Node
 	require.NoError(t, yaml.Unmarshal(b, &node))
 
-	n := normalizeFromState(&node)
+	n, err := normalizeFromState(&node)
+	require.NoError(t, err)
 	// accept either map[string]interface{} or map[interface{}]interface{}
 	switch m := n.(type) {
 	case map[string]interface{}:
@@ -57,7 +61,8 @@ func TestNormalizeFromState_YAMLNodeAndMapInterface(t *testing.T) {
 
 	// test map[interface{}]interface{} conversion
 	mi := map[interface{}]interface{}{"x": 7, 8: "y"}
-	mout := normalizeFromState(mi)
+	mout, err := normalizeFromState(mi)
+	require.NoError(t, err)
 	mm, ok := mout.(map[string]interface{})
 	require.True(t, ok)
 	// values normalized; numeric 7 may be int or float
@@ -68,7 +73,8 @@ func TestNormalizeFromState_YAMLNodeAndMapInterface(t *testing.T) {
 
 func TestNormalizeFromState_Slice(t *testing.T) {
 	in := []interface{}{json.Number("1"), 2, "3"}
-	n := normalizeFromState(in)
+	n, err := normalizeFromState(in)
+	require.NoError(t, err)
 	arr, ok := n.([]interface{})
 	require.True(t, ok)
 	// elements should be normalized: first -> int64(1) or numeric, second -> numeric, third -> "3"
@@ -81,4 +87,24 @@ func TestNormalizeFromState_Slice(t *testing.T) {
 	}
 	// arr[2] should remain the string "3"
 	assert.Equal(t, "3", arr[2])
+}
+
+func TestStringify_UnsupportedType_ReturnsError(t *testing.T) {
+	ch := make(chan int)
+	defer close(ch)
+	_, err := stringify(ch)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot stringify value of type")
+}
+
+func TestNormalizeFromState_MapWithUnstringableKey_PropagatesError(t *testing.T) {
+	// map with a channel key; stringify should fail for the channel key and return an error
+	mi := map[interface{}]interface{}{}
+	ch := make(chan int)
+	// channels are comparable and can be map keys
+	mi[ch] = 1
+
+	_, err := normalizeFromState(mi)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot stringify value of type")
 }

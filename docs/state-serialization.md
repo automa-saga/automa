@@ -3,20 +3,20 @@
 This document describes how `StateBag` and `NamespacedStateBag` are serialized to JSON/YAML and explains
 how the library normalizes decoded values so typed accessors remain usable after marshal/unmarshal round-trips.
 
-Why this matters
+## Why this matters
 
 - Workflows often persist or transmit state for logging, debugging, sub-workflow inputs, or persistence between runs.
 - JSON/YAML decoders change value shapes (numbers, maps, pointers). The library provides normalization and coercion
   helpers so typed getters keep working after round-trips.
 
-Summary
+## Summary
 
 - `SyncStateBag` serializes as an object where keys are the string form of `Key` and values are the encoded values.
 - `SyncNamespacedStateBag` serializes as an object with top-level fields: `local`, `global`, and `custom`.
 - Typed accessors (Int, Float64, Bool, String, etc.) rely on `FromState` normalization and centralized coercion helpers
   to recover expected primitive values after decoding.
 
-What JSON/YAML encoders produce
+## What JSON/YAML encoders produce
 
 - JSON (`encoding/json`):
   - Numbers decode to `float64` by default (unless `json.Number` is used explicitly).
@@ -29,7 +29,7 @@ What JSON/YAML encoders produce
     `map[interface{}]interface{}`.
   - The library decodes `*yaml.Node` when present to obtain stable native values.
 
-Normalization performed by `FromState`
+## Normalization performed by `FromState`
 
 `FromState` (and `normalizeFromState`) canonicalizes decoded shapes before typed coercion. Key behaviors:
 
@@ -42,7 +42,7 @@ Normalization performed by `FromState`
 Centralized coercion helpers (`toInt64`, `toFloat64`, `toBool`, `stringify`) convert between numeric shapes,
 numeric strings, and boolean strings so typed accessors can return the requested primitive type even after a round-trip.
 
-Typed accessor semantics
+## Typed accessor semantics
 
 When you call an accessor such as `Int`, `Float64`, `Bool`, or `String` the library:
 
@@ -62,7 +62,7 @@ Notes about coercion
 - For strictness, `FromState` avoids coercing non-string values into strings implicitly; `String` will return only
   native strings or format other primitives when appropriate.
 
-Practical guidance
+## Practical guidance
 
 - Any Go numeric type is fine to store. However, because JSON round-trips convert numbers to `float64`, do not
   rely on the concrete runtime type after a marshal/unmarshal; instead, use the typed accessors provided by the
@@ -90,7 +90,7 @@ Snapshot, thread-safety, and marshal behavior
 - State preservation (enabled by default) snapshots step state after each successful step execution so rollback
   handlers receive deterministic snapshots; disable preservation to reduce memory cost when snapshots aren't needed.
 
-Examples and common pitfalls
+## Examples and common pitfalls
 
 - JSON numeric pitfall
 
@@ -149,14 +149,14 @@ if sm, ok := automa.ToStringMap(nv); ok {
 }
 ```
 
-Testing guidance
+## Testing guidance
 
 - Add unit tests that perform JSON and YAML round-trips of `SyncStateBag` and `SyncNamespacedStateBag` and assert
   typed accessors still return expected values.
 - Test `Clone()` semantics for any custom types placed into the `StateBag`.
 - Validate behavior when state-preservation is disabled.
 
-Security considerations
+## Security considerations
 
 - Do not unmarshal state from untrusted sources directly into live workflow state without validation.
 - Validate and sanitize fields after unmarshal, especially when values are used for file paths, commands, or other
