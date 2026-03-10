@@ -477,8 +477,9 @@ const eps = 1e-9
 //
 //	int64MinAsFloat64 <= tr && tr < int64MaxExclFloat64
 const (
-	int64MinAsFloat64   = -9223372036854775808.0 // -(1 << 63), exact
-	int64MaxExclFloat64 = 9223372036854775808.0  //  (1 << 63), exclusive upper bound
+	int64MinAsFloat64    = -9223372036854775808.0 // -(1 << 63), exact
+	int64MaxExclFloat64  = 9223372036854775808.0  // (1 << 63), exclusive upper bound
+	uint64MaxExclFloat64 = 18446744073709551616.0 // (1 << 64), exact exclusive upper bound for uint64
 )
 
 func floatIsIntegral(f float64) bool {
@@ -953,9 +954,27 @@ func toUint64Safe(v interface{}, bitSize int) (uint64, bool) {
 		return uint64(i), true
 	}
 
-	// float fallback — only for non-negative, integral values in range
-	if f, ok := toFloat64(v); ok && f >= 0 && floatIsIntegral(f) && f <= float64(maxVal) {
-		return uint64(f), true
+	// float fallback — only for non-negative, integral, exactly-representable values in range.
+	if f, ok := toFloat64(v); ok && f >= 0 && floatIsIntegral(f) {
+		if bitSize == 64 {
+			if f >= uint64MaxExclFloat64 {
+				return 0, false
+			}
+			u := uint64(f)
+			if float64(u) != f {
+				return 0, false
+			}
+			return u, true
+		}
+
+		if f > float64(maxVal) {
+			return 0, false
+		}
+		u := uint64(f)
+		if float64(u) != f || u > maxVal {
+			return 0, false
+		}
+		return u, true
 	}
 
 	return 0, false

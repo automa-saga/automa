@@ -3,6 +3,9 @@
 This document describes how `StateBag` and `NamespacedStateBag` are serialized to JSON/YAML and explains
 how the library normalizes decoded values so typed accessors remain usable after marshal/unmarshal round-trips.
 
+For a beginner-friendly explanation of the integer/float range checks used by `toInt64`, `toUint64Safe`,
+and `FromState`, see [State Numeric Boundaries](state-numeric-boundaries.md).
+
 ## Why this matters
 
 - Workflows often persist or transmit state for logging, debugging, sub-workflow inputs, or persistence between runs.
@@ -53,6 +56,9 @@ When you call an accessor such as `Int`, `Float64`, `Bool`, or `String` the libr
    - Boolean strings (`"true"`/`"false"`) are parsed to booleans.
    - `String` returns string values; numeric values are formatted (integers preserve integer formatting).
 3. Falls back to an exact type assertion for complex types.
+
+If you want the full explanation of why the code uses boundaries such as `2^63` and `2^64` as exclusive limits,
+see [State Numeric Boundaries](state-numeric-boundaries.md).
 
 Notes about coercion
 
@@ -120,7 +126,7 @@ Snapshot, thread-safety, and marshal behavior
 
 Examples: using the exported normalization/coercion helpers
 
-If you need to operate on decoded values directly (for example in custom unmarshalling or migrations), use the
+If you need to operate on decoded values directly (for example in custom unmaralling or migrations), use the
 exported helpers to normalize and coerce values in a stable way.
 
 ```go
@@ -172,3 +178,7 @@ Conclusion
 - Use typed accessors or `FromState` helpers — they normalize and coerce common shapes so primitive access remains
   robust after round-trips.
 - Prefer simple, cloneable, serializable types or provide custom marshal/clone implementations for complex values.
+
+See also:
+
+- [State Numeric Boundaries](state-numeric-boundaries.md)

@@ -9,6 +9,7 @@ Welcome to the automa workflow orchestration framework documentation.
 - [Usage Examples](usage-examples.md) - Practical examples and best practices
 - [State Preservation](state-preservation.md) - Memory optimization and configuration
 - [State Serialization](state-serialization.md) - JSON/YAML format and guidance for storing serializable values
+- [State Numeric Boundaries](state-numeric-boundaries.md) - Safe integer/float conversion and overflow handling
 - [Thread Safety Tests](thread-safety-tests.md) - Concurrency testing details
 
 ## Quick Start
@@ -73,7 +74,18 @@ Start here if you want to use automa in your projects:
    - Memory impact analysis
    - Configuration guide
 
-3. **[Architecture](architecture.md)** - Understand how it works
+3. **[State Serialization](state-serialization.md)** - Understand JSON/YAML round-trips
+   - Decoder shape changes
+   - Typed accessor normalization
+   - Serialization-safe storage guidance
+
+4. **[State Numeric Boundaries](state-numeric-boundaries.md)** - Understand safe numeric conversion
+   - Why `float64` is tricky near integer limits
+   - Why `2^63` is rejected for `int64`
+   - Why `2^64` is rejected for `uint64`
+   - Truncation toward zero and exactness checks
+
+5. **[Architecture](architecture.md)** - Understand how it works
    - Core components
    - Execution modes
    - State management design

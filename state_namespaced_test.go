@@ -694,3 +694,53 @@ func TestSyncNamespacedStateBag_Merge_TypeCheck(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "must be *SyncNamespacedStateBag")
 }
+
+func TestSyncNamespacedStateBag_ZeroValueUsable(t *testing.T) {
+	t.Run("local and global are usable on zero value", func(t *testing.T) {
+		var ns SyncNamespacedStateBag
+
+		ns.Local().Set("local-key", "local-value")
+		ns.Global().Set("global-key", "global-value")
+
+		assert.Equal(t, "local-value", ns.Local().String("local-key"))
+		assert.Equal(t, "global-value", ns.Global().String("global-key"))
+	})
+
+	t.Run("with namespace creates custom namespace on zero value", func(t *testing.T) {
+		var ns SyncNamespacedStateBag
+
+		ns.WithNamespace("step1").Set("key", "value")
+		assert.Equal(t, "value", ns.WithNamespace("step1").String("key"))
+	})
+
+	t.Run("merge works on zero value receiver", func(t *testing.T) {
+		var ns SyncNamespacedStateBag
+		other := NewNamespacedStateBag(nil, nil)
+		other.Local().Set("local-key", "local-value")
+		other.Global().Set("global-key", "global-value")
+		other.WithNamespace("custom").Set("key", "custom-value")
+
+		merged, err := ns.Merge(other)
+		require.NoError(t, err)
+		require.Same(t, &ns, merged)
+
+		assert.Equal(t, "local-value", ns.Local().String("local-key"))
+		assert.Equal(t, "global-value", ns.Global().String("global-key"))
+		assert.Equal(t, "custom-value", ns.WithNamespace("custom").String("key"))
+	})
+
+	t.Run("clone works on zero value receiver", func(t *testing.T) {
+		var ns SyncNamespacedStateBag
+		ns.Local().Set("local-key", "local-value")
+		ns.Global().Set("global-key", "global-value")
+		ns.WithNamespace("custom").Set("key", "custom-value")
+
+		cloned, err := ns.Clone()
+		require.NoError(t, err)
+		require.NotNil(t, cloned)
+
+		assert.Equal(t, "local-value", cloned.Local().String("local-key"))
+		assert.Equal(t, "global-value", cloned.Global().String("global-key"))
+		assert.Equal(t, "custom-value", cloned.WithNamespace("custom").String("key"))
+	})
+}

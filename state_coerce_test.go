@@ -799,3 +799,33 @@ func TestSyncStateBag_BoolFromString(t *testing.T) {
 	s.Set("invalid", "notabool")
 	assert.Equal(t, false, s.Bool("invalid"))
 }
+
+func TestToUint64Safe_Float64UpperBoundExactness(t *testing.T) {
+	const pow64 float64 = 18446744073709551616.0 // 2^64, exactly representable
+	const pow63 float64 = 9223372036854775808.0  // 2^63, exactly representable
+
+	// 2^63 should be accepted for uint64 via float fallback (toInt64 rejects it, fallback accepts it).
+	got, ok := toUint64Safe(pow63, 64)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(1)<<63, got)
+
+	// 2^64 must be rejected (exclusive upper bound)
+	_, ok = toUint64Safe(pow64, 64)
+	assert.False(t, ok)
+
+	// The largest float64 below 2^64 is still an exactly representable integer and should be accepted.
+	justBelowPow64 := math.Nextafter(pow64, 0)
+	got, ok = toUint64Safe(justBelowPow64, 64)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(justBelowPow64), got)
+}
+
+func TestToUint64Safe_FloatFallback_RespectsSmallBitSize(t *testing.T) {
+	// toInt64 rejects this large float, so the float fallback handles it.
+	_, ok := toUint64Safe(300.0, 8)
+	assert.False(t, ok)
+
+	got, ok := toUint64Safe(255.0, 8)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(255), got)
+}

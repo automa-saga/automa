@@ -3,6 +3,7 @@ package automa
 import (
 	"encoding/json"
 	"reflect"
+	"sort"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -107,4 +108,60 @@ func TestNormalizeFromState_MapWithUnstringableKey_PropagatesError(t *testing.T)
 	_, err := normalizeFromState(mi)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot stringify value of type")
+}
+
+func TestSyncStateBag_PrimitiveOperations(t *testing.T) {
+	t.Run("zero value is usable", func(t *testing.T) {
+		var s SyncStateBag
+		s.Set("k", "v")
+		val, ok := s.Get("k")
+		require.True(t, ok)
+		assert.Equal(t, "v", val)
+		assert.Equal(t, 1, s.Size())
+	})
+
+	t.Run("delete removes key", func(t *testing.T) {
+		s := &SyncStateBag{}
+		s.Set("k1", "v1").Set("k2", "v2")
+		s.Delete("k1")
+
+		_, ok := s.Get("k1")
+		assert.False(t, ok)
+		val, ok := s.Get("k2")
+		require.True(t, ok)
+		assert.Equal(t, "v2", val)
+		assert.Equal(t, 1, s.Size())
+	})
+
+	t.Run("clear empties bag and bag remains reusable", func(t *testing.T) {
+		s := &SyncStateBag{}
+		s.Set("k1", 1).Set("k2", 2)
+		assert.Equal(t, 2, s.Size())
+
+		s.Clear()
+		assert.Equal(t, 0, s.Size())
+		assert.Empty(t, s.Keys())
+		assert.Empty(t, s.Items())
+
+		// still reusable after clear
+		s.Set("k3", 3)
+		assert.Equal(t, 1, s.Size())
+		assert.Equal(t, 3, s.Int("k3"))
+	})
+
+	t.Run("keys and items return snapshots", func(t *testing.T) {
+		s := &SyncStateBag{}
+		s.Set("b", 2).Set("a", 1).Set("c", 3)
+
+		keys := s.Keys()
+		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+		assert.Equal(t, []Key{"a", "b", "c"}, keys)
+
+		items := s.Items()
+		assert.Equal(t, map[Key]interface{}{"a": 1, "b": 2, "c": 3}, items)
+
+		// modifying the returned snapshot must not affect the bag
+		items["a"] = 999
+		assert.Equal(t, 1, s.Int("a"))
+	})
 }
