@@ -510,7 +510,7 @@ func isString(v interface{}) bool {
 	return ok
 }
 
-// Updated generic FromState which normalizes and attempts primitive coercions.
+// FromState normalizes and attempts primitive coercions.
 func FromState[T any](state StateBag, key Key, zero T) T {
 	if state == nil {
 		return zero
@@ -518,6 +518,11 @@ func FromState[T any](state StateBag, key Key, zero T) T {
 	val, ok := state.Get(key)
 	if !ok {
 		return zero
+	}
+
+	// Try exact type match first to preserve pointer types and exact stored values.
+	if typedVal, ok := val.(T); ok {
+		return typedVal
 	}
 
 	v := normalizeFromState(val)

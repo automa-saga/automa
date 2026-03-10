@@ -2,30 +2,32 @@ package automa
 
 import (
 	"encoding/json"
-	"gopkg.in/yaml.v3"
 	"sync"
+
+	"gopkg.in/yaml.v3"
 )
 
 // SyncNamespacedStateBag is a thread-safe implementation of NamespacedStateBag.
-// It maintains separate StateBag instances for local, global, and custom namespaces.
+// local is eagerly initialized to avoid concurrent writes during marshaling.
 type SyncNamespacedStateBag struct {
-	local     StateBag
-	global    StateBag
-	custom    map[string]StateBag
-	mu        sync.RWMutex // protects local, global, and custom fields during writes (Merge)
-	localOnce sync.Once    // ensures local is initialized only once
+	local  StateBag
+	global StateBag
+	custom map[string]StateBag
+	mu     sync.RWMutex // protects local, global, and custom fields during writes (Merge)
 }
 
 // NewNamespacedStateBag creates a new SyncNamespacedStateBag with the given local and global bags.
-// If local is nil, it will be lazily initialized when Local is first called.
-// If global is nil, a new empty SyncStateBag is created.
+// If local is nil, it is eagerly initialized to avoid concurrent initialization races.
 func NewNamespacedStateBag(local, global StateBag) *SyncNamespacedStateBag {
 	if global == nil {
 		global = &SyncStateBag{}
 	}
+	if local == nil {
+		local = &SyncStateBag{} // eager initialize to avoid races with readers
+	}
 
 	return &SyncNamespacedStateBag{
-		local:  local, // could be nil, will be lazily initialized
+		local:  local,
 		global: global,
 		custom: make(map[string]StateBag),
 	}
@@ -33,11 +35,6 @@ func NewNamespacedStateBag(local, global StateBag) *SyncNamespacedStateBag {
 
 // Local returns a view of the local namespace.
 func (n *SyncNamespacedStateBag) Local() StateBag {
-	n.localOnce.Do(func() {
-		if n.local == nil {
-			n.local = &SyncStateBag{}
-		}
-	})
 	n.mu.RLock()
 	defer n.mu.RUnlock()
 	return n.local
@@ -139,13 +136,6 @@ func (n *SyncNamespacedStateBag) Merge(other NamespacedStateBag) (NamespacedStat
 	// Now lock n and perform merges
 	n.mu.Lock()
 	defer n.mu.Unlock()
-
-	// Ensure local is initialized before merging
-	n.localOnce.Do(func() {
-		if n.local == nil {
-			n.local = &SyncStateBag{}
-		}
-	})
 
 	// Merge local namespaces
 	mergedLocal, err := n.local.Merge(otherLocal)
