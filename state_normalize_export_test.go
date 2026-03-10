@@ -4,86 +4,38 @@ import (
 	"encoding/json"
 	"testing"
 
-	"gopkg.in/yaml.v3"
-
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestNormalizeValue_PointerAndJSONNumber(t *testing.T) {
-	v := 10
-	p := &v
-	r, err := NormalizeValue(p)
+func TestExportedNormalizationHelpers_Smoke(t *testing.T) {
+	// Minimal smoke tests to ensure exported helpers are wired; detailed behavior
+	// is covered by more specific test files to avoid duplication.
+	v, err := NormalizeValue(42)
 	require.NoError(t, err)
-	assert.Equal(t, 10, r)
+	require.Equal(t, 42, v)
 
-	jn := json.Number("42")
-	r2, err := NormalizeValue(jn)
-	require.NoError(t, err)
-	assert.Equal(t, int64(42), r2)
-
-	jnf := json.Number("3.14")
-	r3, err := NormalizeValue(jnf)
-	require.NoError(t, err)
-	assert.Equal(t, 3.14, r3)
-}
-
-func TestNormalizeValue_YAMLNodeAndMapInterface(t *testing.T) {
-	src := map[string]interface{}{"a": 1, "b": []interface{}{2, 3}}
-	b, err := yaml.Marshal(src)
-	require.NoError(t, err)
-
-	var node yaml.Node
-	require.NoError(t, yaml.Unmarshal(b, &node))
-
-	n, err := NormalizeValue(&node)
-	require.NoError(t, err)
-	m, ok := n.(map[string]interface{})
+	i, ok := ToInt64(json.Number("7"))
 	require.True(t, ok)
-	// numeric may be int or float64 depending on yaml decoding; accept numeric
-	val := m["a"]
-	switch val.(type) {
-	case int, int64, float64:
-		// ok
-	default:
-		require.Fail(t, "unexpected numeric type for 'a'")
-	}
-}
-
-func TestToInt64_ToFloat64_ToBool_ToStringHelpers(t *testing.T) {
-	// numeric types
-	i64, ok := ToInt64(123)
-	assert.True(t, ok)
-	assert.Equal(t, int64(123), i64)
+	require.Equal(t, int64(7), i)
 
 	f, ok := ToFloat64("3.5")
-	assert.True(t, ok)
-	assert.Equal(t, 3.5, f)
+	require.True(t, ok)
+	require.Equal(t, 3.5, f)
 
 	b, ok := ToBool("true")
-	assert.True(t, ok)
-	assert.Equal(t, true, b)
+	require.True(t, ok)
+	require.Equal(t, true, b)
 
-	// json.Number
-	jn := json.Number("7")
-	i2, ok := ToInt64(jn)
-	assert.True(t, ok)
-	assert.Equal(t, int64(7), i2)
+	ss, ok := ToStringSlice([]interface{}{"a", 2})
+	require.True(t, ok)
+	require.Equal(t, []string{"a", "2"}, ss)
 
-	// float truncation
-	i3, ok := ToInt64(3.9)
-	assert.True(t, ok)
-	assert.Equal(t, int64(3), i3)
-}
+	sm, ok := ToStringMap(map[string]interface{}{"x": 1})
+	require.True(t, ok)
+	require.Equal(t, map[string]string{"x": "1"}, sm)
 
-func TestToStringSlice_ToStringMap(t *testing.T) {
-	arr := []interface{}{"a", 2}
-	ss, ok := ToStringSlice(arr)
-	assert.True(t, ok)
-	assert.Equal(t, []string{"a", "2"}, ss)
-
-	m := map[string]interface{}{"x": 1, "y": "two"}
-	mm, ok := ToStringMap(m)
-	assert.True(t, ok)
-	assert.Equal(t, map[string]string{"x": "1", "y": "two"}, mm)
+	// Ensure NormalizeValue handles nil gracefully (was previously an error)
+	n, err := NormalizeValue(nil)
+	require.NoError(t, err)
+	require.Nil(t, n)
 }

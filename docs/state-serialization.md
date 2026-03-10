@@ -108,8 +108,11 @@ Snapshot, thread-safety, and marshal behavior
 
   ```go
   v, _ := s.Get("n")
-  v = normalizeFromState(v) // normalize decoded shapes
-  if i, ok := toInt64(v); ok {
+  v, err = NormalizeValue(v) // normalize decoded shapes
+  if err != nil {
+      // handle error
+  }
+  if i, ok := ToInt64(v); ok {
       n := int(i)
       // use n
   }

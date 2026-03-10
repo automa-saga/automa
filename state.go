@@ -29,7 +29,8 @@ const (
 
 // SyncStateBag is a thread-safe implementation of StateBag.
 type SyncStateBag struct {
-	m sync.Map
+	m  sync.Map
+	mu sync.RWMutex // protects snapshot and write operations for deterministic marshaling
 }
 
 // Clone creates a deep copy of the SyncStateBag if all items implement Clone method and returns deep copy when invoked.
@@ -39,10 +40,14 @@ func (s *SyncStateBag) Clone() (StateBag, error) {
 		return nil, IllegalArgument.New("cannot clone a nil SyncStateBag")
 	}
 
+	// Items() acquires its own RLock; do not hold mu here to avoid
+	// reentrant-lock deadlocks (Go RWMutex is not reentrant).
+	items := s.Items()
+
 	clone := &SyncStateBag{}
 	errInterface := reflect.TypeOf((*error)(nil)).Elem()
 
-	for k, v := range s.Items() {
+	for k, v := range items {
 		if v == nil {
 			clone.m.Store(k, nil)
 			continue
@@ -85,6 +90,10 @@ func (s *SyncStateBag) Merge(other StateBag) (StateBag, error) {
 		return s, nil
 	}
 
+	// lock for writing to ensure merge is atomic relative to snapshots
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for k, v := range other.Items() {
 		s.m.Store(k, v)
 	}
@@ -94,6 +103,10 @@ func (s *SyncStateBag) Merge(other StateBag) (StateBag, error) {
 
 func (s *SyncStateBag) Items() map[Key]interface{} {
 	items := make(map[Key]interface{})
+	// take read lock to provide a consistent snapshot
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	s.m.Range(func(key, value interface{}) bool {
 		if k, ok := key.(Key); ok {
 			items[k] = value
@@ -110,6 +123,10 @@ func (s *SyncStateBag) itemsStringMap() map[string]interface{} {
 	if s == nil {
 		return out
 	}
+	// read-lock while we snapshot the map
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	s.m.Range(func(k, v interface{}) bool {
 		if key, ok := k.(Key); ok {
 			out[string(key)] = v
@@ -124,6 +141,7 @@ func (s *SyncStateBag) MarshalJSON() ([]byte, error) {
 	if s == nil {
 		return json.Marshal(nil)
 	}
+	// create a consistent snapshot
 	return json.Marshal(s.itemsStringMap())
 }
 
@@ -136,8 +154,10 @@ func (s *SyncStateBag) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return err
 	}
-	// clear current contents
-	s.Clear()
+	// clear current contents under write lock
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clearLocked()
 	for k, v := range m {
 		s.m.Store(Key(k), v)
 	}
@@ -149,6 +169,7 @@ func (s *SyncStateBag) MarshalYAML() (interface{}, error) {
 	if s == nil {
 		return nil, nil
 	}
+	// snapshot under read lock
 	return s.itemsStringMap(), nil
 }
 
@@ -161,7 +182,10 @@ func (s *SyncStateBag) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&m); err != nil {
 		return err
 	}
-	s.Clear()
+	// replace under write lock
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clearLocked()
 	for k, v := range m {
 		s.m.Store(Key(k), v)
 	}
@@ -169,30 +193,50 @@ func (s *SyncStateBag) UnmarshalYAML(node *yaml.Node) error {
 }
 
 func (s *SyncStateBag) Get(key Key) (interface{}, bool) {
+	// read lock for consistent view
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.m.Load(key)
 }
 
 func (s *SyncStateBag) Set(key Key, value interface{}) StateBag {
+	// write lock to coordinate with snapshots
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.m.Store(key, value)
 	return s
 }
 
 func (s *SyncStateBag) Delete(key Key) StateBag {
+	// write lock
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.m.Delete(key)
 	return s
 }
 
 func (s *SyncStateBag) Clear() StateBag {
+	// write lock
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.clearLocked()
+	return s
+}
+
+// clearLocked removes all entries without acquiring mu.
+// Caller MUST hold s.mu.Lock().
+func (s *SyncStateBag) clearLocked() {
 	s.m.Range(func(key, _ interface{}) bool {
 		s.m.Delete(key)
 		return true
 	})
-
-	return s
 }
 
 func (s *SyncStateBag) Keys() []Key {
 	var keys []Key
+	// read lock
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	s.m.Range(func(key, _ interface{}) bool {
 		if k, ok := key.(Key); ok {
 			keys = append(keys, k)
@@ -204,6 +248,9 @@ func (s *SyncStateBag) Keys() []Key {
 
 func (s *SyncStateBag) Size() int {
 	count := 0
+	// read lock
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	s.m.Range(func(_, _ interface{}) bool {
 		count++
 		return true
@@ -289,20 +336,25 @@ func StateFromContext(ctx context.Context) StateBag {
 // normalizeFromState dereferences pointers, decodes yaml.Node/json.Number,
 // and converts YAML-style maps recursively to map[string]interface{}.
 func normalizeFromState(v interface{}) (interface{}, error) {
+	// Treat explicit nil as a valid normalized nil rather than an error.
+	if v == nil {
+		return nil, nil
+	}
+
 	// Handle yaml.Node early (both pointer and value) to avoid pointer deref consuming it
 	if nodePtr, ok := v.(*yaml.Node); ok && nodePtr != nil {
 		var out interface{}
-		_ = nodePtr.Decode(&out)
-		if out != nil {
-			return normalizeFromState(out)
+		if err := nodePtr.Decode(&out); err != nil {
+			return nil, err
 		}
+		return normalizeFromState(out)
 	}
 	if nodeVal, ok := v.(yaml.Node); ok {
 		var out interface{}
-		_ = (&nodeVal).Decode(&out)
-		if out != nil {
-			return normalizeFromState(out)
+		if err := (&nodeVal).Decode(&out); err != nil {
+			return nil, err
 		}
+		return normalizeFromState(out)
 	}
 
 	// dereference pointers
@@ -313,7 +365,7 @@ func normalizeFromState(v interface{}) (interface{}, error) {
 		}
 		if rv.Kind() == reflect.Ptr {
 			if rv.IsNil() {
-				return nil, nil // treat nil pointer as nil value
+				return nil, nil
 			}
 			v = rv.Elem().Interface()
 			continue
@@ -359,15 +411,15 @@ func normalizeFromState(v interface{}) (interface{}, error) {
 		}
 		return out, nil
 	case map[string]interface{}:
-		m := make(map[string]interface{}, len(t))
+		out := make(map[string]interface{}, len(t))
 		for k, vv := range t {
 			nv, err = normalizeFromState(vv)
 			if err != nil {
 				return nil, err
 			}
-			m[k] = nv
+			out[k] = nv
 		}
-		return m, nil
+		return out, nil
 	case []interface{}:
 		out := make([]interface{}, len(t))
 		for i := range t {
@@ -375,9 +427,9 @@ func normalizeFromState(v interface{}) (interface{}, error) {
 			if err != nil {
 				return nil, err
 			}
-			t[i] = nv
+			out[i] = nv
 		}
-		return t, nil
+		return out, nil
 	default:
 		return v, nil
 	}
@@ -393,13 +445,16 @@ func stringify(v interface{}) (string, error) {
 		if i, ok := toInt64(t); ok {
 			return strconv.FormatInt(i, 10), nil
 		}
-	case uint, uint8, uint16, uint32, uint64:
-		if f, ok := toFloat64(t); ok {
-			if floatIsIntegral(f) {
-				return strconv.FormatInt(int64(f), 10), nil
-			}
-			return strconv.FormatFloat(f, 'f', -1, 64), nil
-		}
+	case uint:
+		return strconv.FormatUint(uint64(t), 10), nil
+	case uint8:
+		return strconv.FormatUint(uint64(t), 10), nil
+	case uint16:
+		return strconv.FormatUint(uint64(t), 10), nil
+	case uint32:
+		return strconv.FormatUint(uint64(t), 10), nil
+	case uint64:
+		return strconv.FormatUint(t, 10), nil
 	case float32, float64:
 		if f, ok := toFloat64(t); ok {
 			if floatIsIntegral(f) {
@@ -431,6 +486,9 @@ func toInt64(v interface{}) (int64, bool) {
 	case int64:
 		return t, true
 	case uint:
+		if uint64(t) > math.MaxInt64 {
+			return 0, false
+		}
 		return int64(t), true
 	case uint8:
 		return int64(t), true
@@ -439,6 +497,9 @@ func toInt64(v interface{}) (int64, bool) {
 	case uint32:
 		return int64(t), true
 	case uint64:
+		if t > math.MaxInt64 {
+			return 0, false
+		}
 		return int64(t), true
 	case float32:
 		f := float64(t)
@@ -542,109 +603,31 @@ func FromState[T any](state StateBag, key Key, zero T) T {
 		return zero
 	}
 
-	// Exact type match first (preserves pointer/precise stored types).
+	// Exact type match on raw value (preserves pointer/precise stored types).
 	if typedVal, ok := val.(T); ok {
 		return typedVal
 	}
 
 	v, err := normalizeFromState(val)
 	if err != nil {
-		// Normalization failed; keep previous behavior of returning zero.
 		return zero
 	}
 
-	// If the requested target is string, allow coercion from numeric/bool
-	// and format integers without trailing decimal.
-	if _, wantString := any(zero).(string); wantString {
-		switch t := v.(type) {
-		case string:
-			return any(t).(T)
-		case bool:
-			return any(strconv.FormatBool(t)).(T)
-		case json.Number:
-			// Use Number's string representation (preserves original formatting)
-			return any(t.String()).(T)
-		case int:
-			return any(strconv.FormatInt(int64(t), 10)).(T)
-		case int8:
-			return any(strconv.FormatInt(int64(t), 10)).(T)
-		case int16:
-			return any(strconv.FormatInt(int64(t), 10)).(T)
-		case int32:
-			return any(strconv.FormatInt(int64(t), 10)).(T)
-		case int64:
-			return any(strconv.FormatInt(t, 10)).(T)
-		case uint:
-			return any(strconv.FormatUint(uint64(t), 10)).(T)
-		case uint8:
-			return any(strconv.FormatUint(uint64(t), 10)).(T)
-		case uint16:
-			return any(strconv.FormatUint(uint64(t), 10)).(T)
-		case uint32:
-			return any(strconv.FormatUint(uint64(t), 10)).(T)
-		case uint64:
-			return any(strconv.FormatUint(t, 10)).(T)
-		case float32:
-			// Use 'f' with -1 precision to avoid unnecessary ".0" for integral floats.
-			return any(strconv.FormatFloat(float64(t), 'f', -1, 32)).(T)
-		case float64:
-			// if integral (e.g., 42.0), FormatFloat with 'f' and -1 yields "42".
-			return any(strconv.FormatFloat(t, 'f', -1, 64)).(T)
-		default:
-			// Fallback: if value implements fmt.Stringer use that; otherwise fail through.
-			if s, ok := t.(interface{ String() string }); ok {
-				return any(s.String()).(T)
-			}
-		}
+	// After normalization the type may now match directly.
+	if typedVal, ok := v.(T); ok {
+		return typedVal
 	}
 
-	// existing string-to-primitive coercion handled earlier in the old logic:
-	if s, ok := v.(string); ok {
-		switch any(zero).(type) {
-		case string:
-			return any(s).(T)
-		case bool:
-			if b, err := strconv.ParseBool(s); err == nil {
-				return any(b).(T)
-			}
-		case int, int8, int16, int32, int64:
-			if i, err := strconv.ParseInt(s, 10, 64); err == nil {
-				switch any(zero).(type) {
-				case int:
-					return any(int(i)).(T)
-				case int8:
-					return any(int8(i)).(T)
-				case int16:
-					return any(int16(i)).(T)
-				case int32:
-					return any(int32(i)).(T)
-				case int64:
-					return any(i).(T)
-				}
-			}
-			// try parse float if int parse failed
-			if f, err := strconv.ParseFloat(s, 64); err == nil {
-				switch any(zero).(type) {
-				case float32:
-					return any(float32(f)).(T)
-				case float64:
-					return any(f).(T)
-				}
-			}
-		case float32, float64:
-			if f, err := strconv.ParseFloat(s, 64); err == nil {
-				switch any(zero).(type) {
-				case float32:
-					return any(float32(f)).(T)
-				case float64:
-					return any(f).(T)
-				}
-			}
-		}
-	}
-
-	// primitive coercions for non-string targets
+	// Single dispatch on target type for all coercions.
 	switch any(zero).(type) {
+	case string:
+		if s, ok := coerceToString(v); ok {
+			return any(s).(T)
+		}
+	case bool:
+		if b, ok := toBool(v); ok {
+			return any(b).(T)
+		}
 	case int:
 		if i, ok := toInt64(v); ok {
 			return any(int(i)).(T)
@@ -666,24 +649,24 @@ func FromState[T any](state StateBag, key Key, zero T) T {
 			return any(i).(T)
 		}
 	case uint:
-		if f, ok := toFloat64(v); ok {
-			return any(uint(f)).(T)
+		if u, ok := toUint64Safe(v, 64); ok {
+			return any(uint(u)).(T)
 		}
 	case uint8:
-		if f, ok := toFloat64(v); ok {
-			return any(uint8(f)).(T)
+		if u, ok := toUint64Safe(v, 8); ok {
+			return any(uint8(u)).(T)
 		}
 	case uint16:
-		if f, ok := toFloat64(v); ok {
-			return any(uint16(f)).(T)
+		if u, ok := toUint64Safe(v, 16); ok {
+			return any(uint16(u)).(T)
 		}
 	case uint32:
-		if f, ok := toFloat64(v); ok {
-			return any(uint32(f)).(T)
+		if u, ok := toUint64Safe(v, 32); ok {
+			return any(uint32(u)).(T)
 		}
 	case uint64:
-		if f, ok := toFloat64(v); ok {
-			return any(uint64(f)).(T)
+		if u, ok := toUint64Safe(v, 64); ok {
+			return any(u).(T)
 		}
 	case float32:
 		if f, ok := toFloat64(v); ok {
@@ -693,23 +676,8 @@ func FromState[T any](state StateBag, key Key, zero T) T {
 		if f, ok := toFloat64(v); ok {
 			return any(f).(T)
 		}
-	case bool:
-		if b, ok := v.(bool); ok {
-			return any(b).(T)
-		}
-		if b, ok := toBool(v); ok {
-			return any(b).(T)
-		}
-	case string:
-		if s, ok := v.(string); ok {
-			return any(s).(T)
-		}
 	}
 
-	// final fallback: try direct assertion on normalized value
-	if typedVal, ok := v.(T); ok {
-		return typedVal
-	}
 	return zero
 }
 
@@ -888,4 +856,78 @@ func toStringMap(v interface{}) (map[string]string, bool) {
 		}
 	}
 	return nil, false
+}
+
+// coerceToString formats any scalar value as a string.
+// Integers are formatted without trailing decimals; floats use minimal precision.
+func coerceToString(v interface{}) (string, bool) {
+	switch t := v.(type) {
+	case string:
+		return t, true
+	case bool:
+		return strconv.FormatBool(t), true
+	case json.Number:
+		return t.String(), true
+	case int:
+		return strconv.FormatInt(int64(t), 10), true
+	case int8:
+		return strconv.FormatInt(int64(t), 10), true
+	case int16:
+		return strconv.FormatInt(int64(t), 10), true
+	case int32:
+		return strconv.FormatInt(int64(t), 10), true
+	case int64:
+		return strconv.FormatInt(t, 10), true
+	case uint:
+		return strconv.FormatUint(uint64(t), 10), true
+	case uint8:
+		return strconv.FormatUint(uint64(t), 10), true
+	case uint16:
+		return strconv.FormatUint(uint64(t), 10), true
+	case uint32:
+		return strconv.FormatUint(uint64(t), 10), true
+	case uint64:
+		return strconv.FormatUint(t, 10), true
+	case float32:
+		return strconv.FormatFloat(float64(t), 'f', -1, 32), true
+	case float64:
+		return strconv.FormatFloat(t, 'f', -1, 64), true
+	default:
+		if s, ok := t.(interface{ String() string }); ok {
+			return s.String(), true
+		}
+		return "", false
+	}
+}
+
+// toUint64Safe coerces v to uint64 with non-negative and bit-width bounds checks.
+// bitSize is the target width (8, 16, 32, 64).
+func toUint64Safe(v interface{}, bitSize int) (uint64, bool) {
+	maxVal := ^uint64(0)
+	if bitSize < 64 {
+		maxVal = (1 << bitSize) - 1
+	}
+
+	// direct string parse first — handles large uint64 values beyond int64 range
+	// without precision loss through float conversion
+	if s, ok := v.(string); ok {
+		if u, err := strconv.ParseUint(s, 10, bitSize); err == nil {
+			return u, true
+		}
+	}
+
+	// integer path — avoids float64 precision loss for smaller values
+	if i, ok := toInt64(v); ok {
+		if i < 0 || (bitSize < 64 && uint64(i) > maxVal) {
+			return 0, false
+		}
+		return uint64(i), true
+	}
+
+	// float fallback — only for non-negative, integral values in range
+	if f, ok := toFloat64(v); ok && f >= 0 && floatIsIntegral(f) && f <= float64(maxVal) {
+		return uint64(f), true
+	}
+
+	return 0, false
 }
