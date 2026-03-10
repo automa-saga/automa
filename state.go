@@ -27,14 +27,27 @@ const (
 	KeyReport     Key = "automa_report"
 )
 
-// SyncStateBag is a thread-safe implementation of StateBag.
+// SyncStateBag is a thread-safe implementation of StateBag backed by a plain
+// map protected by an RWMutex. Read operations acquire a shared read lock;
+// write operations acquire an exclusive write lock. Snapshot methods (Items,
+// MarshalJSON, MarshalYAML) hold the read lock for the duration of the
+// traversal to produce a consistent, point-in-time view.
 type SyncStateBag struct {
-	m  sync.Map
-	mu sync.RWMutex // protects snapshot and write operations for deterministic marshaling
+	mu sync.RWMutex
+	m  map[Key]interface{}
 }
 
-// Clone creates a deep copy of the SyncStateBag if all items implement Clone method and returns deep copy when invoked.
-// If any item does not implement Cloner or Clone method, it performs a shallow copy for that item.
+// init lazily initialises the internal map. Caller must hold at least a read lock;
+// in practice it is called from write paths that hold the write lock.
+func (s *SyncStateBag) init() {
+	if s.m == nil {
+		s.m = make(map[Key]interface{})
+	}
+}
+
+// Clone creates a deep copy of the SyncStateBag. Values that implement a
+// Clone() (T, error) or Clone() T method are deep-copied; all other values
+// are shallow-copied.
 func (s *SyncStateBag) Clone() (StateBag, error) {
 	if s == nil {
 		return nil, IllegalArgument.New("cannot clone a nil SyncStateBag")
@@ -45,11 +58,12 @@ func (s *SyncStateBag) Clone() (StateBag, error) {
 	items := s.Items()
 
 	clone := &SyncStateBag{}
+	clone.init()
 	errInterface := reflect.TypeOf((*error)(nil)).Elem()
 
 	for k, v := range items {
 		if v == nil {
-			clone.m.Store(k, nil)
+			clone.m[k] = nil
 			continue
 		}
 
@@ -66,73 +80,72 @@ func (s *SyncStateBag) Clone() (StateBag, error) {
 					errVal := results[1].Interface().(error)
 					return nil, errorx.IllegalState.Wrap(errVal, "failed to clone value for key %v", k)
 				}
-				clone.m.Store(k, results[0].Interface())
+				clone.m[k] = results[0].Interface()
 				continue
 			}
 
 			// support Clone() value: if any other clone signature without error
 			if outCount == 1 {
 				results := m.Call([]reflect.Value{})
-				clone.m.Store(k, results[0].Interface())
+				clone.m[k] = results[0].Interface()
 				continue
 			}
 		}
 
 		// fallback: shallow copy
-		clone.m.Store(k, v)
+		clone.m[k] = v
 	}
 
 	return clone, nil
 }
 
+// Merge copies all entries from other into s. The snapshot of other is taken
+// before s's write lock is acquired, which prevents two classes of deadlock:
+//  1. Self-merge (other == s): snapshotting first avoids re-entrant lock.
+//  2. Lock-order inversion: two goroutines doing a.Merge(b) / b.Merge(a)
+//     simultaneously cannot deadlock because neither holds a lock while
+//     calling the other bag's Items().
 func (s *SyncStateBag) Merge(other StateBag) (StateBag, error) {
 	if other == nil {
 		return s, nil
 	}
 
-	// lock for writing to ensure merge is atomic relative to snapshots
+	// Snapshot other BEFORE acquiring our own lock to avoid deadlock.
+	otherItems := other.Items()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.init()
 
-	for k, v := range other.Items() {
-		s.m.Store(k, v)
+	for k, v := range otherItems {
+		s.m[k] = v
 	}
 
 	return s, nil
 }
 
+// Items returns a shallow copy of all entries as a map, taken under a read lock
+// to provide a consistent point-in-time snapshot.
 func (s *SyncStateBag) Items() map[Key]interface{} {
-	items := make(map[Key]interface{})
-	// take read lock to provide a consistent snapshot
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	s.m.Range(func(key, value interface{}) bool {
-		if k, ok := key.(Key); ok {
-			items[k] = value
-		}
-		return true
-	})
-
+	items := make(map[Key]interface{}, len(s.m))
+	for k, v := range s.m {
+		items[k] = v
+	}
 	return items
 }
 
-// itemsStringMap returns a copy of the internal items with string keys suitable for JSON/YAML marshalling.
+// itemsStringMap returns a consistent snapshot with string keys for JSON/YAML marshalling.
 func (s *SyncStateBag) itemsStringMap() map[string]interface{} {
-	out := make(map[string]interface{})
-	if s == nil {
-		return out
-	}
-	// read-lock while we snapshot the map
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	s.m.Range(func(k, v interface{}) bool {
-		if key, ok := k.(Key); ok {
-			out[string(key)] = v
-		}
-		return true
-	})
+	out := make(map[string]interface{}, len(s.m))
+	for k, v := range s.m {
+		out[string(k)] = v
+	}
 	return out
 }
 
@@ -154,12 +167,12 @@ func (s *SyncStateBag) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return err
 	}
-	// clear current contents under write lock
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clearLocked()
+	s.init()
 	for k, v := range m {
-		s.m.Store(Key(k), v)
+		s.m[Key(k)] = v
 	}
 	return nil
 }
@@ -182,41 +195,39 @@ func (s *SyncStateBag) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&m); err != nil {
 		return err
 	}
-	// replace under write lock
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clearLocked()
+	s.init()
 	for k, v := range m {
-		s.m.Store(Key(k), v)
+		s.m[Key(k)] = v
 	}
 	return nil
 }
 
 func (s *SyncStateBag) Get(key Key) (interface{}, bool) {
-	// read lock for consistent view
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.m.Load(key)
+	v, ok := s.m[key]
+	return v, ok
 }
 
 func (s *SyncStateBag) Set(key Key, value interface{}) StateBag {
-	// write lock to coordinate with snapshots
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.m.Store(key, value)
+	s.init()
+	s.m[key] = value
 	return s
 }
 
 func (s *SyncStateBag) Delete(key Key) StateBag {
-	// write lock
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.m.Delete(key)
+	delete(s.m, key)
 	return s
 }
 
 func (s *SyncStateBag) Clear() StateBag {
-	// write lock
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.clearLocked()
@@ -226,36 +237,23 @@ func (s *SyncStateBag) Clear() StateBag {
 // clearLocked removes all entries without acquiring mu.
 // Caller MUST hold s.mu.Lock().
 func (s *SyncStateBag) clearLocked() {
-	s.m.Range(func(key, _ interface{}) bool {
-		s.m.Delete(key)
-		return true
-	})
+	s.m = nil
 }
 
 func (s *SyncStateBag) Keys() []Key {
-	var keys []Key
-	// read lock
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	s.m.Range(func(key, _ interface{}) bool {
-		if k, ok := key.(Key); ok {
-			keys = append(keys, k)
-		}
-		return true
-	})
+	keys := make([]Key, 0, len(s.m))
+	for k := range s.m {
+		keys = append(keys, k)
+	}
 	return keys
 }
 
 func (s *SyncStateBag) Size() int {
-	count := 0
-	// read lock
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	s.m.Range(func(_, _ interface{}) bool {
-		count++
-		return true
-	})
-	return count
+	return len(s.m)
 }
 
 // String retrieves a string value from the StateBag for the given key.
@@ -457,9 +455,8 @@ func stringify(v interface{}) (string, error) {
 		return strconv.FormatUint(t, 10), nil
 	case float32, float64:
 		if f, ok := toFloat64(t); ok {
-			if floatIsIntegral(f) {
-				return strconv.FormatInt(int64(f), 10), nil
-			}
+			// Always use FormatFloat to avoid int64 overflow for large float values.
+			// Use 'f' format with -1 precision so trailing zeros are omitted.
 			return strconv.FormatFloat(f, 'f', -1, 64), nil
 		}
 	}
