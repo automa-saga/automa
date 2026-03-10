@@ -829,3 +829,58 @@ func TestToUint64Safe_FloatFallback_RespectsSmallBitSize(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, uint64(255), got)
 }
+
+func TestToUint64Safe_LargeUint64ViaJSONNumber(t *testing.T) {
+	got, ok := toUint64Safe(json.Number("18446744073709551615"), 64)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(math.MaxUint64), got)
+}
+
+func TestToUint64Safe_JSONNumberBoundaryAndBitSizeChecks(t *testing.T) {
+	tests := []struct {
+		name    string
+		val     json.Number
+		bitSize int
+		want    uint64
+		ok      bool
+	}{
+		{"uint64 max", json.Number("18446744073709551615"), 64, uint64(math.MaxUint64), true},
+		{"uint64 overflow", json.Number("18446744073709551616"), 64, 0, false},
+		{"uint8 overflow", json.Number("256"), 8, 0, false},
+		{"uint8 max", json.Number("255"), 8, 255, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := toUint64Safe(tc.val, tc.bitSize)
+			assert.Equal(t, tc.ok, ok)
+			if ok {
+				assert.Equal(t, tc.want, got)
+			}
+		})
+	}
+}
+
+func TestToUint64Safe_JSONNumberDecimalFallsBackToTruncation(t *testing.T) {
+	got, ok := toUint64Safe(json.Number("3.7"), 64)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(3), got)
+}
+
+func TestFromState_LargeUint64ViaJSONNumber(t *testing.T) {
+	s := &SyncStateBag{}
+	s.Set("big", json.Number("18446744073709551615"))
+	s.Set("small", json.Number("42"))
+
+	assert.Equal(t, uint64(math.MaxUint64), FromState[uint64](s, "big", 0))
+	assert.Equal(t, uint32(42), FromState[uint32](s, "small", 0))
+}
+
+func TestFromState_JSONNumberUintOverflowRejected(t *testing.T) {
+	s := &SyncStateBag{}
+	s.Set("overflow64", json.Number("18446744073709551616"))
+	s.Set("overflow8", json.Number("256"))
+
+	assert.Equal(t, uint64(0), FromState[uint64](s, "overflow64", 0))
+	assert.Equal(t, uint8(0), FromState[uint8](s, "overflow8", 0))
+}

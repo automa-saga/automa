@@ -45,7 +45,8 @@ func TestWorkflowBuilder_NamedSteps_UsesRegistry(t *testing.T) {
 	reg := NewRegistry()
 	b1 := &mockStepBuilder{id: "named1", valid: true}
 	b2 := &mockStepBuilder{id: "named2", valid: true}
-	reg.Add(b1, b2)
+	err := reg.Add(b1, b2)
+	assert.NoError(t, err)
 
 	wb := NewWorkflowBuilder().WithRegistry(reg)
 	wb.NamedSteps("named1", "named2")

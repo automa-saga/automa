@@ -17,32 +17,68 @@ Welcome to the automa developer guide. This document helps you understand how to
 ### Prerequisites
 
 - **Go 1.25.0+** (check with `go version`)
-- **golangci-lint** (for linting)
+- **Task** / **go-task** (the repository's primary task runner; check with `task --version`)
+- **golangci-lint** (for static linting, if you run it directly)
 - **git** (for version control)
 
 ### Initial Setup
+
+Use the Taskfile workflow for day-to-day development:
 
 ```bash
 # Clone the repository
 git clone https://github.com/automa-saga/automa.git
 cd automa
 
-# Install dependencies
+# Install/update module dependencies when needed
 go mod tidy
 
-# Verify setup
-go build ./...
-go test ./...
+# Verify setup using the repo tasks
+task build
+task test
 ```
 
 ### Install Development Tools
 
 ```bash
-# Install golangci-lint
+# Verify task runner
+task --version
+
+# Install golangci-lint if you want to run static linting directly
 go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 # Verify installation
 golangci-lint --version
+```
+
+### Taskfile Quick Reference
+
+The repository ships with `Taskfile.yaml` for common development commands:
+
+```bash
+# Build all packages
+task build
+
+# Run the default test workflow (race + coverage report)
+task test
+
+# Run coverage checks
+task test:coverage
+
+# Format Go files
+task fmt
+
+# Check whether formatting changes are needed
+task fmt:check
+
+# Run the full lint workflow (format check + golangci-lint)
+task lint
+
+# Refresh vendored dependencies
+task vendor
+
+# Clean test caches and generated test report artifacts
+task clean
 ```
 
 ## Project Structure
@@ -100,17 +136,30 @@ automa/
    - Write tests for new functionality
    - Update documentation as needed
 
-3. **Run tests locally**
+3. **Run the normal local workflow**
 
    ```bash
-   go test ./...
-   go test ./... -race  # with race detector
+   # Format source files when needed
+   task fmt
+
+   # Run the single lint workflow used in review/CI
+   task lint
+
+   # Build all packages
+   task build
+
+   # Run the standard test workflow (race + coverage report)
+   task test
    ```
 
-4. **Run linter**
+4. **Run extra targeted commands when needed**
 
    ```bash
-   golangci-lint run
+   # Focus on one specific test while iterating
+   go test -v -run TestWorkflow_Execute ./...
+
+   # Run one package only
+   go test -v ./automa_steps
    ```
 
 5. **Commit your changes**
@@ -145,6 +194,27 @@ feat: add state preservation configuration
 
 ### Running Tests
 
+Prefer the task-based workflow for normal development:
+
+```bash
+# Standard test workflow used in local development
+# - installs go-testreport if needed
+# - runs go test with race + coverage
+# - writes unit-test-report.md
+task test
+
+# Coverage-specific workflow
+# - installs go-test-coverage if needed
+# - writes cover.out
+# - evaluates against .testcoverage.yml
+task test:coverage
+
+# Clean caches and generated test artifacts
+task clean
+```
+
+Use raw `go test` commands for targeted debugging or one-off runs:
+
 ```bash
 # All tests
 go test ./...
@@ -156,15 +226,12 @@ go test -v ./...
 go test -v ./automa_steps
 
 # Specific test
-go test -v -run TestWorkflow_Execute
+go test -v -run TestWorkflow_Execute ./...
 
-# With race detector (important!)
+# With race detector
 go test ./... -race
 
-# With coverage
-go test ./... -cover
-
-# Generate coverage report
+# Generate an ad-hoc coverage report
 go test ./... -coverprofile=cover.out
 go tool cover -html=cover.out -o coverage.html
 ```
@@ -270,23 +337,33 @@ func TestSyncStateBag_Concurrent(t *testing.T) {
 
 ```bash
 # State management tests
-go test -v -run TestSync
+go test -v -run TestSync ./...
 
 # Workflow tests
-go test -v -run TestWorkflow
+go test -v -run TestWorkflow ./...
 
 # Concurrency tests with race detector
-go test -v -run Concurrent -race
+go test -v -run Concurrent -race ./...
 
 # Builder tests
-go test -v -run TestBuilder
+go test -v -run TestBuilder ./...
 ```
 
 ## Code Style
 
 ### Go Formatting
 
-Always run `gofmt` before committing:
+Use the Taskfile formatting commands by default:
+
+```bash
+# Format all Go files
+task fmt
+
+# Check whether formatting changes are needed
+task fmt:check
+```
+
+Equivalent raw Go commands:
 
 ```bash
 # Format all files
@@ -298,17 +375,29 @@ gofmt -l .
 
 ### Linting
 
-The project uses `golangci-lint` with custom configuration (`.golangci.yml`):
+In this repository:
+
+- `task fmt` formats Go source files
+- `task fmt:check` checks whether formatting changes are needed
+- `task lint` is the single lint entrypoint and runs:
+  - formatting checks
+  - static linting via `golangci-lint`
 
 ```bash
-# Run all linters
+# Format source files
+task fmt
+
+# Check formatting without modifying files
+task fmt:check
+
+# Run the full lint workflow
+task lint
+```
+
+Equivalent direct command for the static lint portion:
+
+```bash
 golangci-lint run
-
-# Run specific linters
-golangci-lint run --disable-all --enable=errcheck,govet
-
-# Fix auto-fixable issues
-golangci-lint run --fix
 ```
 
 ### Naming Conventions
@@ -387,15 +476,17 @@ return StepExecutionError.
 3. **Make your changes**
 4. **Add tests**
 5. **Update documentation**
-6. **Run full test suite + linter**
+6. **Run the task-based workflow + static linting**
 7. **Submit PR with clear description**
 
 ### PR Checklist
 
 - [ ] Tests added for new functionality
-- [ ] All tests pass (`go test ./...`)
-- [ ] Race detector passes (`go test ./... -race`)
-- [ ] Linter passes (`golangci-lint run`)
+- [ ] Build passes (`task build`)
+- [ ] Standard test workflow passes (`task test`)
+- [ ] Coverage checks pass when relevant (`task test:coverage`)
+- [ ] Formatting is clean (`task fmt` / `task fmt:check`)
+- [ ] Lint passes (`task lint`)
 - [ ] Documentation updated
 - [ ] Commit messages follow convention
 

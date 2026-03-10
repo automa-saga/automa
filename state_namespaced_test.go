@@ -187,9 +187,7 @@ func TestNamespacedStateBag_Merge(t *testing.T) {
 
 		result, err := ns1.Merge(ns2)
 		require.NoError(t, err)
-
-		// Verify it returns itself
-		assert.Same(t, ns1, result)
+		require.Same(t, ns1, result)
 
 		// Verify local namespace has both keys
 		assert.Equal(t, "value1", ns1.Local().String("key1"))
@@ -206,7 +204,9 @@ func TestNamespacedStateBag_Merge(t *testing.T) {
 		ns2.Global().Set("counter", 5)
 		ns2.Global().Set("new-setting", "enabled")
 
-		ns1.Merge(ns2)
+		result, err := ns1.Merge(ns2)
+		require.NoError(t, err)
+		require.Same(t, ns1, result)
 
 		// Verify global namespace has merged values
 		assert.Equal(t, "production", ns1.Global().String("config"))
@@ -221,7 +221,9 @@ func TestNamespacedStateBag_Merge(t *testing.T) {
 		ns2 := NewNamespacedStateBag(nil, nil)
 		ns2.WithNamespace("ns2").Set("key", "value2")
 
-		ns1.Merge(ns2)
+		result, err := ns1.Merge(ns2)
+		require.NoError(t, err)
+		require.Same(t, ns1, result)
 
 		// Verify both custom namespaces exist
 		assert.Equal(t, "value1", ns1.WithNamespace("ns1").String("key"))
@@ -237,7 +239,9 @@ func TestNamespacedStateBag_Merge(t *testing.T) {
 		ns2.WithNamespace("shared").Set("key2", "value2")
 		ns2.WithNamespace("shared").Set("shared-key", "merged")
 
-		ns1.Merge(ns2)
+		result, err := ns1.Merge(ns2)
+		require.NoError(t, err)
+		require.Same(t, ns1, result)
 
 		// Verify custom namespace has merged values
 		sharedNs := ns1.WithNamespace("shared")
@@ -259,7 +263,9 @@ func TestNamespacedStateBag_Merge(t *testing.T) {
 		ns2.WithNamespace("custom2").Set("c2", "v2")
 		ns2.WithNamespace("shared").Set("s2", "merged")
 
-		ns1.Merge(ns2)
+		result, err := ns1.Merge(ns2)
+		require.NoError(t, err)
+		require.Same(t, ns1, result)
 
 		// Verify local namespace
 		assert.Equal(t, "l1", ns1.Local().String("local1"))
@@ -294,7 +300,9 @@ func TestNamespacedStateBag_Merge(t *testing.T) {
 		ns2 := NewNamespacedStateBag(nil, nil)
 		ns2.Local().Set("key", "value2")
 
-		ns1.Merge(ns2)
+		result, err := ns1.Merge(ns2)
+		require.NoError(t, err)
+		require.Same(t, ns1, result)
 
 		// Modify ns1 after merge
 		ns1.Local().Set("key", "modified")
@@ -309,7 +317,9 @@ func TestNamespacedStateBag_Merge(t *testing.T) {
 		ns2 := NewNamespacedStateBag(nil, nil)
 		ns2.WithNamespace("custom").Set("key", "original")
 
-		ns1.Merge(ns2)
+		result, err := ns1.Merge(ns2)
+		require.NoError(t, err)
+		require.Same(t, ns1, result)
 
 		// Modify ns2's custom namespace after merge
 		ns2.WithNamespace("custom").Set("key", "modified")
@@ -679,9 +689,9 @@ type mockNamespacedStateBag struct{}
 
 func (m *mockNamespacedStateBag) Local() StateBag                    { return &SyncStateBag{} }
 func (m *mockNamespacedStateBag) Global() StateBag                   { return &SyncStateBag{} }
-func (m *mockNamespacedStateBag) WithNamespace(name string) StateBag { return &SyncStateBag{} }
+func (m *mockNamespacedStateBag) WithNamespace(_ string) StateBag    { return &SyncStateBag{} }
 func (m *mockNamespacedStateBag) Clone() (NamespacedStateBag, error) { return m, nil }
-func (m *mockNamespacedStateBag) Merge(other NamespacedStateBag) (NamespacedStateBag, error) {
+func (m *mockNamespacedStateBag) Merge(_ NamespacedStateBag) (NamespacedStateBag, error) {
 	return m, nil
 }
 

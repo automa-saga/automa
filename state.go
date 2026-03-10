@@ -37,8 +37,9 @@ type SyncStateBag struct {
 	m  map[Key]interface{}
 }
 
-// init lazily initialises the internal map. Caller MUST hold the write lock
-// (s.mu.Lock()) when calling init because it mutates `s.m`.
+// init lazily initializes the internal map. It is called at the beginning of
+// any method that modifies the map to ensure it is non-nil. This allows zero-value
+// SyncStateBag to be used without explicit initialization.
 func (s *SyncStateBag) init() {
 	if s.m == nil {
 		s.m = make(map[Key]interface{})
@@ -371,10 +372,13 @@ func normalizeFromState(v interface{}) (interface{}, error) {
 		break
 	}
 
-	// json.Number -> int64 or float64 or string
+	// json.Number -> int64, uint64, float64 or string
 	if jn, ok := v.(json.Number); ok {
 		if i, err := jn.Int64(); err == nil {
 			return i, nil
+		}
+		if u, err := strconv.ParseUint(jn.String(), 10, 64); err == nil {
+			return u, nil
 		}
 		if f, err := jn.Float64(); err == nil {
 			return f, nil
@@ -614,11 +618,6 @@ func toBool(v interface{}) (bool, bool) {
 		}
 	}
 	return false, false
-}
-
-func isString(v interface{}) bool {
-	_, ok := v.(string)
-	return ok
 }
 
 // FromState returns a value of type T from the StateBag, performing normalization
@@ -938,10 +937,15 @@ func toUint64Safe(v interface{}, bitSize int) (uint64, bool) {
 		maxVal = (1 << bitSize) - 1
 	}
 
-	// direct string parse first — handles large uint64 values beyond int64 range
-	// without precision loss through float conversion
+	// direct string/json.Number parse first — handles large uint64 values beyond int64 range
+	// without precision loss through float conversion.
 	if s, ok := v.(string); ok {
 		if u, err := strconv.ParseUint(s, 10, bitSize); err == nil {
+			return u, true
+		}
+	}
+	if n, ok := v.(json.Number); ok {
+		if u, err := strconv.ParseUint(n.String(), 10, bitSize); err == nil {
 			return u, true
 		}
 	}

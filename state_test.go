@@ -21,11 +21,16 @@ func TestNormalizeFromState_PointerDereference(t *testing.T) {
 }
 
 func TestNormalizeFromState_JSONNumber(t *testing.T) {
-	// json.Number should convert to int64 or float64
+	// json.Number should convert to int64, uint64 or float64
 	jn := json.Number("42")
 	n, err := normalizeFromState(jn)
 	require.NoError(t, err)
 	assert.Equal(t, int64(42), n)
+
+	jnUnsigned := json.Number("18446744073709551615")
+	nUnsigned, err := normalizeFromState(jnUnsigned)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(^uint64(0)), nUnsigned)
 
 	jn2 := json.Number("3.14")
 	n2, err := normalizeFromState(jn2)

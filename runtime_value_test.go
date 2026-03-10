@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type runtimeValueTestContextKey string
+
 // Test gob-based cloning produces an independent deep copy for pointer-with-map types.
 func TestNewValue_GobDeepCopyPointerMap(t *testing.T) {
 	type S struct {
@@ -141,9 +143,7 @@ func TestRuntimeValue_UserInputBecomesEffectiveAndCloneDeepCopies(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Effective returned error: %v", err)
 	}
-	if eff == nil {
-		t.Fatalf("Effective returned nil value")
-	}
+	require.NotNil(t, eff)
 	if eff.Get().Val().M["u"] != 2 {
 		t.Fatalf("expected effective user value 2, got %d", eff.Get().Val().M["u"])
 	}
@@ -171,9 +171,7 @@ func TestRuntimeValue_UserInputBecomesEffectiveAndCloneDeepCopies(t *testing.T) 
 	if err != nil {
 		t.Fatalf("cloned Effective returned error: %v", err)
 	}
-	if clonedEff == nil {
-		t.Fatalf("cloned Effective is nil")
-	}
+	require.NotNil(t, clonedEff)
 	if clonedEff.Get().Val().M["u"] != 2 {
 		t.Fatalf("expected cloned effective u==2, got %d", clonedEff.Get().Val().M["u"])
 	}
@@ -583,11 +581,12 @@ func TestRuntimeValue_ClearCache(t *testing.T) {
 // uses the stored context when invoking the EffectiveFunc.
 func TestRuntimeValue_WithContext_EffectiveReceivesContext(t *testing.T) {
 	type S struct{ V int }
+	const testKey runtimeValueTestContextKey = "test-key"
 
 	seen := false
 	effFunc := func(ctx context.Context, _ Value[*S], _ Value[*S]) (*EffectiveValue[*S], bool, error) {
 		// ensure the context value is propagated
-		if ctx.Value("test-key") == "test-val" {
+		if ctx.Value(testKey) == "test-val" {
 			seen = true
 		}
 		val, err := NewValue(&S{V: 123})
@@ -608,7 +607,7 @@ func TestRuntimeValue_WithContext_EffectiveReceivesContext(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, rv)
 
-	ctx := context.WithValue(context.Background(), "test-key", "test-val")
+	ctx := context.WithValue(context.Background(), testKey, "test-val")
 	rv = rv.WithContext(ctx)
 
 	ev, err := rv.Effective()
@@ -623,6 +622,7 @@ func TestRuntimeValue_ClonePreservesContextAndDeepCopies(t *testing.T) {
 	type S struct {
 		M map[string]int
 	}
+	const cloneKey runtimeValueTestContextKey = "ctx-key"
 
 	origDef := &S{M: map[string]int{"d": 1}}
 	origUser := &S{M: map[string]int{"u": 2}}
@@ -632,7 +632,7 @@ func TestRuntimeValue_ClonePreservesContextAndDeepCopies(t *testing.T) {
 	userVal, err := NewValue[*S](origUser)
 	require.NoError(t, err)
 
-	ctx := context.WithValue(context.Background(), "ctx-key", "ctx-val")
+	ctx := context.WithValue(context.Background(), cloneKey, "ctx-val")
 
 	rv, err := NewRuntimeValue[*S](defVal, WithUserInput[*S](userVal))
 	require.NoError(t, err)
@@ -659,7 +659,7 @@ func TestRuntimeValue_ClonePreservesContextAndDeepCopies(t *testing.T) {
 	// clone should preserve stored context value
 	require.NotNil(t, rv)
 	require.NotNil(t, clone)
-	assert.Equal(t, rv.ctx.Value("ctx-key"), clone.ctx.Value("ctx-key"))
+	assert.Equal(t, rv.ctx.Value(cloneKey), clone.ctx.Value(cloneKey))
 }
 
 // Test that Clone on a nil *RuntimeValue returns an error.
