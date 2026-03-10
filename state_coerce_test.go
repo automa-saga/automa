@@ -60,6 +60,80 @@ func TestFromState_LargeUint64ToInt64Rejected(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// toInt64 — float→int64 bounds: the old code used float64(math.MaxInt64) which
+// rounds UP to 2^63, making the > check wrong. The fixed code uses 2^63 as the
+// exclusive upper bound (>= check). These tests pin that behaviour.
+// ---------------------------------------------------------------------------
+
+func TestToInt64_FloatBoundsExact(t *testing.T) {
+	// 2^63 as float64 — exactly 9223372036854775808.0.
+	// float64(math.MaxInt64) rounds UP to this same value, which is why the old
+	// `tr > float64(math.MaxInt64)` check was broken: it was `tr > 2^63` and
+	// never fired for values in (MaxInt64, 2^63]. The fix uses `tr >= 2^63`.
+	const pow63 float64 = 9223372036854775808.0 // 2^63, exactly representable
+
+	// 2^63 itself must be rejected (overflows int64)
+	_, ok := toInt64(pow63)
+	assert.False(t, ok, "2^63 as float64 must be rejected")
+
+	// Nextafter gives the largest float64 strictly less than 2^63 — must be accepted
+	justBelow := math.Nextafter(pow63, 0)
+	got, ok := toInt64(justBelow)
+	assert.True(t, ok, "largest float64 < 2^63 must be accepted")
+	assert.Equal(t, int64(justBelow), got)
+
+	// -(2^63) == math.MinInt64 exactly — must be accepted
+	got, ok = toInt64(-pow63)
+	assert.True(t, ok, "-(2^63) must be accepted")
+	assert.Equal(t, int64(math.MinInt64), got)
+
+	// One ULP below -(2^63) must be rejected
+	justBelowMin := math.Nextafter(-pow63, math.Inf(-1))
+	_, ok = toInt64(justBelowMin)
+	assert.False(t, ok, "value below -(2^63) must be rejected")
+}
+
+func TestToInt64_Float32Bounds(t *testing.T) {
+	// float32 max is ~3.4e38, way outside int64 range
+	_, ok := toInt64(float32(math.MaxFloat32))
+	assert.False(t, ok)
+
+	_, ok = toInt64(float32(-math.MaxFloat32))
+	assert.False(t, ok)
+
+	// small float32 should work
+	got, ok := toInt64(float32(42.9))
+	assert.True(t, ok)
+	assert.Equal(t, int64(42), got) // truncation toward zero
+}
+
+func TestToInt64_StringFloatBounds(t *testing.T) {
+	// string representing a value way outside int64 range
+	_, ok := toInt64("1e30")
+	assert.False(t, ok)
+
+	_, ok = toInt64("-1e30")
+	assert.False(t, ok)
+
+	// string float within range
+	got, ok := toInt64("3.9")
+	assert.True(t, ok)
+	assert.Equal(t, int64(3), got)
+}
+
+func TestToInt64_JSONNumberFloatBounds(t *testing.T) {
+	_, ok := toInt64(json.Number("1e30"))
+	assert.False(t, ok)
+
+	_, ok = toInt64(json.Number("-1e30"))
+	assert.False(t, ok)
+
+	got, ok := toInt64(json.Number("7.7"))
+	assert.True(t, ok)
+	assert.Equal(t, int64(7), got)
+}
+
+// ---------------------------------------------------------------------------
 // toUint64Safe
 // ---------------------------------------------------------------------------
 

@@ -37,8 +37,8 @@ type SyncStateBag struct {
 	m  map[Key]interface{}
 }
 
-// init lazily initialises the internal map. Caller must hold at least a read lock;
-// in practice it is called from write paths that hold the write lock.
+// init lazily initialises the internal map. Caller MUST hold the write lock
+// (s.mu.Lock()) when calling init because it mutates `s.m`.
 func (s *SyncStateBag) init() {
 	if s.m == nil {
 		s.m = make(map[Key]interface{})
@@ -465,6 +465,22 @@ func stringify(v interface{}) (string, error) {
 
 const eps = 1e-9
 
+// int64MaxAsFloat64 and int64MinAsFloat64 are the float64 bounds used to
+// range-check float-to-int64 conversions. float64(math.MaxInt64) cannot be
+// represented exactly — it rounds up to 2^63 (= math.MinInt64 reinterpreted),
+// so we use 2^63 as the exclusive upper bound instead.
+//
+//	int64MinAsFloat64 = -2^63 (exactly representable as float64, == math.MinInt64)
+//	int64MaxExclFloat64 = +2^63 (exclusive upper bound; math.MaxInt64+1, also exact)
+//
+// A truncated float tr is safe to cast only when:
+//
+//	int64MinAsFloat64 <= tr && tr < int64MaxExclFloat64
+const (
+	int64MinAsFloat64   = -9223372036854775808.0 // -(1 << 63), exact
+	int64MaxExclFloat64 = 9223372036854775808.0  //  (1 << 63), exclusive upper bound
+)
+
 func floatIsIntegral(f float64) bool {
 	_, frac := math.Modf(f)
 	return math.Abs(frac) < eps
@@ -500,22 +516,38 @@ func toInt64(v interface{}) (int64, bool) {
 		return int64(t), true
 	case float32:
 		f := float64(t)
-		return int64(math.Trunc(f)), true
+		tr := math.Trunc(f)
+		if tr < int64MinAsFloat64 || tr >= int64MaxExclFloat64 {
+			return 0, false
+		}
+		return int64(tr), true
 	case float64:
-		return int64(math.Trunc(t)), true
+		tr := math.Trunc(t)
+		if tr < int64MinAsFloat64 || tr >= int64MaxExclFloat64 {
+			return 0, false
+		}
+		return int64(tr), true
 	case string:
 		if i, err := strconv.ParseInt(t, 10, 64); err == nil {
 			return i, true
 		}
 		if f, err := strconv.ParseFloat(t, 64); err == nil {
-			return int64(math.Trunc(f)), true
+			tr := math.Trunc(f)
+			if tr < int64MinAsFloat64 || tr >= int64MaxExclFloat64 {
+				return 0, false
+			}
+			return int64(tr), true
 		}
 	case json.Number:
 		if i, err := t.Int64(); err == nil {
 			return i, true
 		}
 		if f, err := t.Float64(); err == nil {
-			return int64(math.Trunc(f)), true
+			tr := math.Trunc(f)
+			if tr < int64MinAsFloat64 || tr >= int64MaxExclFloat64 {
+				return 0, false
+			}
+			return int64(tr), true
 		}
 	}
 	return 0, false
@@ -826,7 +858,7 @@ func toStringSlice(v interface{}) ([]string, bool) {
 	return nil, false
 }
 
-// toStringMapInternal is the actual implementation used by the exported ToStringMap wrapper.
+// toStringMap is the actual implementation used by the exported ToStringMap wrapper.
 func toStringMap(v interface{}) (map[string]string, bool) {
 	if v == nil {
 		return nil, false
