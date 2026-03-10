@@ -2,8 +2,6 @@
 
 This document explains how `automa` safely converts decoded numeric values into integer types.
 
-It is written for readers who are new to engineering and new to floating-point numbers.
-
 ## Why this matters
 
 Values stored in a `StateBag` may come from:

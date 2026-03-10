@@ -50,10 +50,10 @@ golangci-lint --version
 ```
 automa/
 ├── automa.go                    # Core interfaces and types
-├── step_*.go                    # Step implementations
-├── workflow_*.go                # Workflow implementations
-├── state_*.go                   # State management
-├── report_*.go                  # Report types
+├── step_*.go                    # Step implementations and builders
+├── workflow*.go                 # Workflow implementation and builder
+├── state*.go                    # State management
+├── report*.go                   # Report types
 ├── errors.go                    # Error definitions
 ├── type_*.go                    # Type enums (Mode, Status, Action)
 ├── runtime_value.go             # Runtime value types
@@ -71,9 +71,9 @@ automa/
 ├── docs/                        # Documentation
 │   ├── architecture.md
 │   ├── developer-guide.md
-│   ├── usage-examples.md
 │   ├── state-preservation.md
-│   └── thread-safety-tests.md
+│   ├── state-serialization.md
+│   └── state-numeric-boundaries.md
 │
 ├── vendor/                      # Vendored dependencies
 ├── go.mod                       # Go module definition
@@ -180,31 +180,31 @@ Co-locate tests with source files:
 package automa
 
 import (
+    "context"
     "testing"
+
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
 )
 
 func TestWorkflow_Execute_Success(t *testing.T) {
-    // Arrange
-    step := NewStepBuilder().
-        WithId("test-step").
-        WithExecute(func(ctx context.Context, stp Step) *Report {
-            return SuccessReport(stp)
-        }).
-        Build()
-    
-    wf := NewWorkflowBuilder().
+    wf, err := NewWorkflowBuilder().
         WithId("test-workflow").
-        Steps(step).
+        Steps(
+            NewStepBuilder().
+                WithId("test-step").
+                WithExecute(func(ctx context.Context, stp Step) *Report {
+                    return SuccessReport(stp)
+                }),
+        ).
         Build()
-    
-    // Act
+    require.NoError(t, err)
+
     report := wf.Execute(context.Background())
-    
-    // Assert
+
     assert.True(t, report.IsSuccess())
-    assert.Equal(t, "test-workflow", report.WorkflowId)
+    assert.Equal(t, "test-workflow", report.Id)
+    assert.True(t, report.IsWorkflow)
 }
 ```
 
@@ -397,7 +397,6 @@ return StepExecutionError.
 - [ ] Race detector passes (`go test ./... -race`)
 - [ ] Linter passes (`golangci-lint run`)
 - [ ] Documentation updated
-- [ ] CHANGELOG.md updated (if applicable)
 - [ ] Commit messages follow convention
 
 ### Code Review Guidelines
@@ -426,11 +425,11 @@ Follow [Semantic Versioning 2.0.0](https://semver.org/):
 
 ### Creating a Release
 
-1. **Update version**
+1. **Update version notes**
 
    ```bash
    # Update go.mod if needed
-   # Update CHANGELOG.md
+   # Prepare release notes for the GitHub release
    ```
 
 2. **Tag the release**
@@ -444,7 +443,7 @@ Follow [Semantic Versioning 2.0.0](https://semver.org/):
 
    Create GitHub release with:
    - Version number
-   - Changelog excerpt
+   - Summary of major changes
    - Breaking changes (if any)
    - Migration guide (if needed)
 
@@ -465,10 +464,13 @@ import "github.com/rs/zerolog"
 
 logger := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
-wf := NewWorkflowBuilder().
+wf, err := NewWorkflowBuilder().
     WithId("debug-workflow").
     WithLogger(logger).
     Build()
+if err != nil {
+    panic(err)
+}
 ```
 
 ### Common Issues

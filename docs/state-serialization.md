@@ -114,7 +114,7 @@ Snapshot, thread-safety, and marshal behavior
 
   ```go
   v, _ := s.Get("n")
-  v, err = NormalizeValue(v) // normalize decoded shapes
+  v, err := NormalizeValue(v) // normalize decoded shapes
   if err != nil {
       // handle error
   }
@@ -126,7 +126,7 @@ Snapshot, thread-safety, and marshal behavior
 
 Examples: using the exported normalization/coercion helpers
 
-If you need to operate on decoded values directly (for example in custom unmaralling or migrations), use the
+If you need to operate on decoded values directly (for example in custom unmarshalling or migrations), use the
 exported helpers to normalize and coerce values in a stable way.
 
 ```go

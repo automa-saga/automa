@@ -165,3 +165,70 @@ func TestSyncStateBag_PrimitiveOperations(t *testing.T) {
 		assert.Equal(t, 1, s.Int("a"))
 	})
 }
+
+func TestSyncStateBag_Merge(t *testing.T) {
+	t.Run("overwrites existing keys and keeps existing unrelated keys", func(t *testing.T) {
+		dst := &SyncStateBag{}
+		dst.Set("shared", "old")
+		dst.Set("dst-only", 1)
+
+		src := &SyncStateBag{}
+		src.Set("shared", "new")
+		src.Set("src-only", 2)
+
+		merged, err := dst.Merge(src)
+		require.NoError(t, err)
+		require.Same(t, dst, merged)
+
+		assert.Equal(t, "new", dst.String("shared"))
+		assert.Equal(t, 1, dst.Int("dst-only"))
+		assert.Equal(t, 2, dst.Int("src-only"))
+	})
+
+	t.Run("nil other returns same receiver unchanged", func(t *testing.T) {
+		s := &SyncStateBag{}
+		s.Set("k", "v")
+
+		merged, err := s.Merge(nil)
+		require.NoError(t, err)
+		require.Same(t, s, merged)
+		assert.Equal(t, "v", s.String("k"))
+	})
+
+	t.Run("self merge is safe and non-destructive", func(t *testing.T) {
+		s := &SyncStateBag{}
+		s.Set("k1", "v1")
+		s.Set("k2", 2)
+
+		merged, err := s.Merge(s)
+		require.NoError(t, err)
+		require.Same(t, s, merged)
+
+		assert.Equal(t, "v1", s.String("k1"))
+		assert.Equal(t, 2, s.Int("k2"))
+		assert.Equal(t, 2, s.Size())
+	})
+
+	t.Run("post merge source updates do not change receiver key set or overwritten values", func(t *testing.T) {
+		dst := &SyncStateBag{}
+		dst.Set("shared", "old")
+
+		src := &SyncStateBag{}
+		src.Set("shared", "new")
+		src.Set("src-only", 1)
+
+		_, err := dst.Merge(src)
+		require.NoError(t, err)
+
+		// mutate source after merge
+		src.Set("shared", "changed-again")
+		src.Set("new-after-merge", 99)
+		src.Delete("src-only")
+
+		// merged result should stay as it was at merge time
+		assert.Equal(t, "new", dst.String("shared"))
+		assert.Equal(t, 1, dst.Int("src-only"))
+		_, ok := dst.Get("new-after-merge")
+		assert.False(t, ok)
+	})
+}

@@ -11,28 +11,34 @@ wb := automa.NewWorkflowBuilder().WithId("my-workflow")
 // State preservation is enabled by default
 wb.Steps(step1, step2, step3)
 
-wf, _ := wb.Build()
+wf, err := wb.Build()
+if err != nil {
+    panic(err)
+}
 report := wf.Execute(ctx)
 
-// Later: Manual rollback is possible using preserved state snapshots
+// Later: manual rollback can use preserved state snapshots
 wf.Rollback(ctx)
 ```
 
 ## Disabling State Preservation (Memory Optimization)
 
-For workflows that don't need rollback capability or have many steps with large state, you can disable state preservation to reduce memory overhead:
+For workflows that don't need rollback state snapshots or have many steps with large state, you can disable state preservation to reduce memory overhead:
 
 ```go
 wb := automa.NewWorkflowBuilder().
     WithId("my-workflow").
-    WithStatePreservation(false)  // Disable state preservation
-    
+    WithStatePreservation(false) // disable per-step state snapshots
+
 wb.Steps(step1, step2, step3)
 
-wf, _ := wb.Build()
+wf, err := wb.Build()
+if err != nil {
+    panic(err)
+}
 report := wf.Execute(ctx)
 
-// Note: Manual Rollback() will use current workflow state, not per-step snapshots
+// Note: Rollback() will use the current workflow state, not preserved per-step snapshots.
 ```
 
 ## When to Disable State Preservation
@@ -43,7 +49,7 @@ Consider disabling state preservation when:
 2. **Large state**: Each step's state contains multi-MB of data
 3. **Long-running workflows**: Workflow instances remain in memory for hours/days
 4. **No rollback needed**: You never call `Rollback()` manually after execution
-5. **Only automatic rollback**: You rely solely on `RollbackOnError` mode during execution (which still works with preservation disabled, using non-cloned state references)
+5. **Only automatic rollback**: You rely solely on `RollbackOnError` mode during execution and your rollback logic does not require preserved per-step snapshots
 
 ## Memory Impact
 
@@ -72,9 +78,9 @@ Memory = 0 (no state snapshots stored)
 - **Safe**: No risk of rollback operating on stale/mutated state
 
 ### State Preservation Disabled
-- Automatic rollback during execution (via `RollbackOnError`) still works but uses **current state references** (not clones)
-- Manual `Rollback()` calls use the **current workflow state**
-- **Risk**: If state is mutated between execution and rollback, rollback may see inconsistent data
+- Automatic rollback during execution (via `RollbackOnError`) still works, but rollback receives the **current workflow state** rather than preserved per-step snapshots
+- Manual `Rollback()` calls also use the **current workflow state**
+- **Risk**: If state is mutated between execution and rollback, rollback may see different data from what the step saw during execution
 
 ## Recommendations
 
@@ -92,12 +98,15 @@ Memory = 0 (no state snapshots stored)
 
 wb := automa.NewWorkflowBuilder().
     WithId("high-volume-workflow").
-    WithStatePreservation(false).  // Disable to reduce memory
-    WithExecutionMode(automa.StopOnError)  // Don't need rollback anyway
+    WithStatePreservation(false). // Disable to reduce memory
+    WithExecutionMode(automa.StopOnError) // Don't need rollback anyway
     
 // ... add 1000 steps ...
 
-wf, _ := wb.Build()
+wf, err := wb.Build()
+if err != nil {
+    panic(err)
+}
 report := wf.Execute(ctx)
-// No manual rollback needed, so disabled preservation is fine
+// No manual rollback state snapshots are preserved, so disabling preservation is fine here.
 ```
