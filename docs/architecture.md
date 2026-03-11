@@ -146,7 +146,7 @@ Structured execution results with metadata and error information.
 │  + EndTime: time.Time                   │
 │  + Detail: string                       │
 │  + Error: error                         │
-│  + Metadata: map[string]string          │
+│  + Metadata: StringMap          │
 │  + StepReports: []*Report               │
 │  + Rollback: *Report                    │
 │  + ExecutionMode: TypeMode              │
@@ -468,7 +468,7 @@ Use the `Metadata` field in reports to attach custom metadata:
 
 ```go
 report := automa.SuccessReport(step,
-    automa.WithMetadata(map[string]string{
+    automa.WithMetadata(StringMap{
         "custom_metric": "value",
         "trace_id": "abc123",
     }))

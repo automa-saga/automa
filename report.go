@@ -14,7 +14,7 @@ type Report struct {
 	EndTime       time.Time
 	Detail        string
 	Error         error
-	Metadata      map[string]string
+	Metadata      StringMap
 	StepReports   []*Report
 	Rollback      *Report
 	ExecutionMode TypeMode
@@ -22,19 +22,19 @@ type Report struct {
 }
 
 type marshalReport struct {
-	Id            string            `yaml:"id,omitempty" json:"id,omitempty"` // rollback report does not need id
-	IsWorkflow    bool              `yaml:"isWorkflow" json:"isWorkflow"`
-	Action        TypeAction        `yaml:"action,omitempty" json:"action,omitempty"`
-	Status        TypeStatus        `yaml:"status,omitempty" json:"status,omitempty"`
-	StartTime     time.Time         `yaml:"startTime,omitempty" json:"startTime,omitempty"`
-	EndTime       time.Time         `yaml:"endTime,omitempty" json:"endTime,omitempty"`
-	Detail        string            `yaml:"detail,omitempty" json:"detail,omitempty"`
-	Error         string            `yaml:"error,omitempty" json:"error,omitempty"`
-	Metadata      map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
-	StepReports   []*Report         `yaml:"stepReports,omitempty" json:"steps,omitempty"`
-	Rollback      *Report           `yaml:"rollback,omitempty" json:"rollback,omitempty"`
-	ExecutionMode TypeMode          `yaml:"executionMode,omitempty" json:"executionMode,omitempty"`
-	RollbackMode  TypeMode          `yaml:"rollbackMode,omitempty" json:"rollbackMode,omitempty"`
+	Id            string     `yaml:"id,omitempty" json:"id,omitempty"` // rollback report does not need id
+	IsWorkflow    bool       `yaml:"isWorkflow" json:"isWorkflow"`
+	Action        TypeAction `yaml:"action,omitempty" json:"action,omitempty"`
+	Status        TypeStatus `yaml:"status,omitempty" json:"status,omitempty"`
+	StartTime     time.Time  `yaml:"startTime,omitempty" json:"startTime,omitempty"`
+	EndTime       time.Time  `yaml:"endTime,omitempty" json:"endTime,omitempty"`
+	Detail        string     `yaml:"detail,omitempty" json:"detail,omitempty"`
+	Error         string     `yaml:"error,omitempty" json:"error,omitempty"`
+	Metadata      StringMap  `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	StepReports   []*Report  `yaml:"stepReports,omitempty" json:"steps,omitempty"`
+	Rollback      *Report    `yaml:"rollback,omitempty" json:"rollback,omitempty"`
+	ExecutionMode TypeMode   `yaml:"executionMode,omitempty" json:"executionMode,omitempty"`
+	RollbackMode  TypeMode   `yaml:"rollbackMode,omitempty" json:"rollbackMode,omitempty"`
 }
 
 func (r *Report) HasError() bool {
@@ -75,7 +75,7 @@ func (r *Report) Clone() *Report {
 	}
 
 	if r.Metadata != nil {
-		clone.Metadata = make(map[string]string, len(r.Metadata))
+		clone.Metadata = make(StringMap, len(r.Metadata))
 		for k, v := range r.Metadata {
 			clone.Metadata[k] = v
 		}
@@ -112,7 +112,7 @@ func WithRollbackReport(rollback *Report) ReportOption {
 	}
 }
 
-func WithMetadata(metadata map[string]string) ReportOption {
+func WithMetadata(metadata StringMap) ReportOption {
 	return func(sr *Report) {
 		sr.Metadata = metadata
 	}
@@ -179,7 +179,7 @@ func WithReport(report *Report) ReportOption {
 		}
 		if report.Metadata != nil {
 			if sr.Metadata == nil {
-				sr.Metadata = make(map[string]string)
+				sr.Metadata = make(StringMap)
 			}
 			for k, v := range report.Metadata {
 				sr.Metadata[k] = v

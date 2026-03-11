@@ -3,8 +3,9 @@ package automa_steps
 import (
 	"bytes"
 	"context"
-	"github.com/automa-saga/automa"
 	"os/exec"
+
+	"github.com/automa-saga/automa"
 )
 
 // RunBashScript executes a list of bash scripts in the specified working directory.
@@ -51,12 +52,12 @@ func BashScriptStep(id string, scripts []string, workDir string) *automa.StepBui
 		WithExecute(func(ctx context.Context, stp automa.Step) *automa.Report {
 			output, err := RunBashScript(scripts, workDir)
 			if err != nil {
-				return automa.StepFailureReport(id, automa.WithError(err), automa.WithMetadata(map[string]string{
+				return automa.StepFailureReport(id, automa.WithError(err), automa.WithMetadata(automa.StringMap{
 					"output": output,
 				}))
 			}
 
-			return automa.StepSuccessReport(id, automa.WithMetadata(map[string]string{
+			return automa.StepSuccessReport(id, automa.WithMetadata(automa.StringMap{
 				"output": output,
 			}))
 		})

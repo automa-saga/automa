@@ -16,7 +16,7 @@ func TestSyncStateBag_JSONRoundTrip(t *testing.T) {
 	s.Set("str", "hello")
 	s.Set("bool", true)
 	s.Set("num", 42)
-	s.Set("map", map[string]string{"a": "b"})
+	s.Set("map", StringMap{"a": "b"})
 	s.Set("slice", []string{"x", "y"})
 
 	b, err := json.Marshal(s)

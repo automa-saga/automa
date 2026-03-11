@@ -784,7 +784,7 @@ func MapFromState[K comparable, V any](state StateBag, key Key) map[K]V {
 	return map[K]V{}
 }
 
-func StringMapFromState(state StateBag, key Key) map[string]string {
+func StringMapFromState(state StateBag, key Key) StringMap {
 	return MapFromState[string, string](state, key)
 }
 func IntMapFromState(state StateBag, key Key) map[string]int {
@@ -838,9 +838,9 @@ func ToStringSlice(v interface{}) ([]string, bool) {
 	return toStringSlice(v)
 }
 
-// ToStringMap converts common decoded map shapes into map[string]string. Returns (nil,false) if not possible.
-// Example: map[string]interface{} -> map[string]string, map[string]string -> map[string]string
-func ToStringMap(v interface{}) (map[string]string, bool) {
+// ToStringMap converts common decoded map shapes into StringMap. Returns (nil,false) if not possible.
+// Example: map[string]interface{} -> StringMap, StringMap -> StringMap
+func ToStringMap(v interface{}) (StringMap, bool) {
 	return toStringMap(v)
 }
 
@@ -872,15 +872,15 @@ func toStringSlice(v interface{}) ([]string, bool) {
 }
 
 // toStringMap is the actual implementation used by the exported ToStringMap wrapper.
-func toStringMap(v interface{}) (map[string]string, bool) {
+func toStringMap(v interface{}) (StringMap, bool) {
 	if v == nil {
 		return nil, false
 	}
 	switch t := v.(type) {
-	case map[string]string:
+	case StringMap:
 		return t, true
 	case map[string]interface{}:
-		out := make(map[string]string, len(t))
+		out := make(StringMap, len(t))
 		for k, val := range t {
 			out[k] = fmt.Sprint(val)
 		}
@@ -888,7 +888,7 @@ func toStringMap(v interface{}) (map[string]string, bool) {
 	default:
 		rv := reflect.ValueOf(v)
 		if rv.Kind() == reflect.Map {
-			out := make(map[string]string)
+			out := make(StringMap)
 			for _, key := range rv.MapKeys() {
 				ks := fmt.Sprint(key.Interface())
 				val := rv.MapIndex(key).Interface()

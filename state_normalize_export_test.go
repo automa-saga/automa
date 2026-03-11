@@ -32,7 +32,7 @@ func TestExportedNormalizationHelpers_Smoke(t *testing.T) {
 
 	sm, ok := ToStringMap(map[string]interface{}{"x": 1})
 	require.True(t, ok)
-	require.Equal(t, map[string]string{"x": "1"}, sm)
+	require.Equal(t, StringMap{"x": "1"}, sm)
 
 	// Ensure NormalizeValue handles nil gracefully (was previously an error)
 	n, err := NormalizeValue(nil)
