@@ -457,12 +457,25 @@ func stringify(v interface{}) (string, error) {
 		return strconv.FormatUint(uint64(t), 10), nil
 	case uint64:
 		return strconv.FormatUint(t, 10), nil
-	case float32, float64:
-		if f, ok := toFloat64(t); ok {
-			// Always use FormatFloat to avoid int64 overflow for large float values.
-			// Use 'f' format with -1 precision so trailing zeros are omitted.
-			return strconv.FormatFloat(f, 'f', -1, 64), nil
+	case float32:
+		// use 'g' and -1 to get a short, non-excessive representation
+		return strconv.FormatFloat(float64(t), 'g', -1, 32), nil
+	case float64:
+		return strconv.FormatFloat(t, 'g', -1, 64), nil
+	case bool:
+		return strconv.FormatBool(t), nil
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return strconv.FormatInt(i, 10), nil
 		}
+		if u, err := strconv.ParseUint(t.String(), 10, 64); err == nil {
+			return strconv.FormatUint(u, 10), nil
+		}
+		if f, err := t.Float64(); err == nil {
+			return strconv.FormatFloat(f, 'g', -1, 64), nil
+		}
+
+		return t.String(), nil
 	}
 	return "", errorx.IllegalState.New("cannot stringify value of type %T", v)
 }

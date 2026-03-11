@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strconv"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -236,4 +237,41 @@ func TestSyncStateBag_Merge(t *testing.T) {
 		_, ok := dst.Get("new-after-merge")
 		assert.False(t, ok)
 	})
+}
+
+func TestStringify_BasicTypes(t *testing.T) {
+	u64Max := ^uint64(0)
+
+	tests := []struct {
+		name    string
+		in      interface{}
+		want    string
+		wantErr bool
+	}{
+		{"string", "hello", "hello", false},
+		{"bytes", []byte("abc"), "abc", false},
+		{"int", 42, "42", false},
+		{"int64", int64(-7), "-7", false},
+		{"uint64_max", u64Max, strconv.FormatUint(u64Max, 10), false},
+		{"float32", float32(3.14), "3.14", false},
+		{"float64", 1.5, "1.5", false},
+		{"bool", true, "true", false},
+		{"json.Number int", json.Number("12345"), "12345", false},
+		{"json.Number uint64", json.Number("18446744073709551615"), strconv.FormatUint(^uint64(0), 10), false},
+		{"json.Number float", json.Number("3.14"), "3.14", false},
+		{"unsupported", make(chan int), "", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := stringify(tc.in)
+			if tc.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "cannot stringify value of type")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
