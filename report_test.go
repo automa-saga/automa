@@ -20,7 +20,7 @@ func TestNewReport_Defaults(t *testing.T) {
 }
 
 func TestReportOptions(t *testing.T) {
-	meta := map[string]string{"foo": "bar"}
+	meta := StringMap{"foo": "bar"}
 	err := errors.New("fail")
 	start := time.Now().Add(-time.Minute)
 	end := time.Now()
@@ -58,7 +58,7 @@ func TestWithReport_MergesFields(t *testing.T) {
 		WithEndTime(time.Now().Add(-1*time.Minute)),
 		WithStatus(StatusFailed),
 		WithError(errors.New("err")),
-		WithMetadata(map[string]string{"k": "v"}),
+		WithMetadata(StringMap{"k": "v"}),
 		WithStepReports(NewReport("s1")),
 		WithRollbackReport(NewReport("rb")),
 	)
@@ -152,7 +152,7 @@ func TestReport_WithIsWorkflowAndActionType(t *testing.T) {
 }
 
 func TestReport_Clone(t *testing.T) {
-	meta := map[string]string{"foo": "bar"}
+	meta := StringMap{"foo": "bar"}
 	step := NewReport("step1", WithDetail("step detail"))
 	rollback := NewReport("rb", WithDetail("rollback detail"))
 	r := NewReport("id",

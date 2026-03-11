@@ -401,7 +401,8 @@ func TestWorkflow_StepStatePropagation(t *testing.T) {
 			// retrieve state item and verify
 			_, ok := state.Local().Get(stepStateKey)
 			assert.True(t, ok, "step state should contain the key set in prepare")
-			assert.Equal(t, stepStateValue, state.Local().String(stepStateKey))
+			stateVal, _ := state.Local().String(stepStateKey)
+			assert.Equal(t, stepStateValue, stateVal)
 
 			// also verify workflow state item is accessible from global namespace
 			_, ok = state.Global().Get(workflowStateKey)
@@ -677,7 +678,7 @@ func TestWorkflow_SubWorkflow_Isolation(t *testing.T) {
 	subStep := &defaultStep{
 		id: "sub-step",
 		execute: func(ctx context.Context, stp Step) *Report {
-			subSawParent = stp.State().Global().String(Key("parentKey"))
+			subSawParent, _ = stp.State().Global().String(Key("parentKey"))
 			// mutate sub-workflow state (should not affect parent)
 			stp.State().Local().Set(Key("subKey"), "sub-value")
 			return StepSuccessReport("sub-step")
@@ -725,7 +726,7 @@ func TestWorkflow_NonWorkflow_SharedState(t *testing.T) {
 		id: "check",
 		execute: func(ctx context.Context, stp Step) *Report {
 			// Read from global state
-			saw = stp.State().Global().String(Key("shared"))
+			saw, _ = stp.State().Global().String(Key("shared"))
 			return StepSuccessReport("check")
 		},
 	}
@@ -737,7 +738,9 @@ func TestWorkflow_NonWorkflow_SharedState(t *testing.T) {
 	assert.Equal(t, StatusSuccess, report.Status)
 	assert.Equal(t, "val", saw, "subsequent non-workflow step should observe shared mutation")
 	// workflow state should also contain the key in global namespace
-	assert.Equal(t, "val", wf.State().Global().String(Key("shared")))
+	wfShared, ok := wf.State().Global().String(Key("shared"))
+	assert.True(t, ok)
+	assert.Equal(t, "val", wfShared)
 }
 
 func TestWorkflow_ParentMutates_BetweenSubWorkflows(t *testing.T) {
@@ -747,7 +750,7 @@ func TestWorkflow_ParentMutates_BetweenSubWorkflows(t *testing.T) {
 		&defaultStep{
 			id: "s1",
 			execute: func(ctx context.Context, stp Step) *Report {
-				seen1 = stp.State().Global().String(Key("version"))
+				seen1, _ = stp.State().Global().String(Key("version"))
 				return StepSuccessReport("s1")
 			},
 		},
@@ -759,7 +762,7 @@ func TestWorkflow_ParentMutates_BetweenSubWorkflows(t *testing.T) {
 		&defaultStep{
 			id: "s2",
 			execute: func(ctx context.Context, stp Step) *Report {
-				seen2 = stp.State().Global().String(Key("version"))
+				seen2, _ = stp.State().Global().String(Key("version"))
 				return StepSuccessReport("s2")
 			},
 		},

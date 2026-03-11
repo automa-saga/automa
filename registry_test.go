@@ -50,7 +50,8 @@ func TestRegistry_Add_Duplicate(t *testing.T) {
 func TestRegistry_Remove(t *testing.T) {
 	reg := NewRegistry()
 	b1 := &testStepBuilder{id: "step1"}
-	reg.Add(b1)
+	err := reg.Add(b1)
+	assert.NoError(t, err)
 
 	// Remove existing
 	removed := reg.Remove("step1")

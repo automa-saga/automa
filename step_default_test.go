@@ -11,18 +11,21 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type stepDefaultTestContextKey string
+
 func TestDefaultStep_Prepare(t *testing.T) {
+	const key stepDefaultTestContextKey = "k"
 	step := newDefaultStep()
 	called := false
 	step.prepare = func(ctx context.Context, stp Step) (context.Context, error) {
 		called = true
-		return context.WithValue(ctx, "k", "v"), nil
+		return context.WithValue(ctx, key, "v"), nil
 	}
 	ctx := context.Background()
 	newCtx, err := step.Prepare(ctx)
 	assert.NoError(t, err)
 	assert.True(t, called)
-	assert.Equal(t, "v", newCtx.Value("k"))
+	assert.Equal(t, "v", newCtx.Value(key))
 }
 
 func TestDefaultStep_Prepare_Error(t *testing.T) {

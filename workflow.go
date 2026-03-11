@@ -306,7 +306,7 @@ func (w *workflow) State() NamespacedStateBag {
 func (w *workflow) Execute(ctx context.Context) *Report {
 	startTime := time.Now()
 
-	if w.steps == nil || len(w.steps) == 0 {
+	if len(w.steps) == 0 {
 		return FailureReport(w,
 			WithWorkflow(w),
 			WithStartTime(startTime),

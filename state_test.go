@@ -1,345 +1,297 @@
 package automa
 
 import (
-	"context"
+	"encoding/json"
+	"reflect"
+	"sort"
+	"strconv"
 	"testing"
 
-	"github.com/joomcode/errorx"
+	"gopkg.in/yaml.v3"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestSyncStateBag_SetAndGet(t *testing.T) {
-	bag := &SyncStateBag{}
-	bag.Set("foo", 42)
-
-	got, ok := bag.Get("foo")
-	assert.True(t, ok)
-	assert.Equal(t, 42, got)
+func TestNormalizeFromState_PointerDereference(t *testing.T) {
+	v := 123
+	p := &v
+	n, err := normalizeFromState(p)
+	require.NoError(t, err)
+	assert.Equal(t, 123, n)
 }
 
-func TestSyncStateBag_Delete(t *testing.T) {
-	bag := &SyncStateBag{}
-	bag.Set("bar", "baz")
-	bag.Delete("bar")
-	_, ok := bag.Get("bar")
-	assert.False(t, ok)
+func TestNormalizeFromState_JSONNumber(t *testing.T) {
+	// json.Number should convert to int64, uint64 or float64
+	jn := json.Number("42")
+	n, err := normalizeFromState(jn)
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), n)
+
+	jnUnsigned := json.Number("18446744073709551615")
+	nUnsigned, err := normalizeFromState(jnUnsigned)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(^uint64(0)), nUnsigned)
+
+	jn2 := json.Number("3.14")
+	n2, err := normalizeFromState(jn2)
+	require.NoError(t, err)
+	assert.Equal(t, 3.14, n2)
 }
 
-func TestSyncStateBag_Clear(t *testing.T) {
-	bag := &SyncStateBag{}
-	bag.Set("a", 1)
-	bag.Set("b", 2)
-	bag.Clear()
-	assert.Equal(t, 0, bag.Size())
-	assert.Empty(t, bag.Keys())
+func TestNormalizeFromState_YAMLNodeAndMapInterface(t *testing.T) {
+	// create YAML node from a map[string]interface{}
+	src := map[string]interface{}{"a": 1, "b": []interface{}{2, 3}}
+	b, err := yaml.Marshal(src)
+	require.NoError(t, err)
+
+	var node yaml.Node
+	require.NoError(t, yaml.Unmarshal(b, &node))
+
+	n, err := normalizeFromState(&node)
+	require.NoError(t, err)
+	// accept either map[string]interface{} or map[interface{}]interface{}
+	switch m := n.(type) {
+	case map[string]interface{}:
+		// numbers may decode as ints or floats depending on decoder; accept numeric
+		v := m["a"]
+		rv := reflect.ValueOf(v)
+		assert.True(t, rv.Kind() == reflect.Int || rv.Kind() == reflect.Int64 || rv.Kind() == reflect.Float64)
+	case map[interface{}]interface{}:
+		// if still interface-map, check keys and values after normalization
+		v := m["a"]
+		rv := reflect.ValueOf(v)
+		assert.True(t, rv.Kind() == reflect.Int || rv.Kind() == reflect.Int64 || rv.Kind() == reflect.Float64)
+	default:
+		require.Fail(t, "unexpected normalized type", "got %T", n)
+	}
+
+	// test map[interface{}]interface{} conversion
+	mi := map[interface{}]interface{}{"x": 7, 8: "y"}
+	mout, err := normalizeFromState(mi)
+	require.NoError(t, err)
+	mm, ok := mout.(map[string]interface{})
+	require.True(t, ok)
+	// values normalized; numeric 7 may be int or float
+	rv := reflect.ValueOf(mm["x"])
+	assert.True(t, rv.Kind() == reflect.Int || rv.Kind() == reflect.Int64 || rv.Kind() == reflect.Float64)
+	assert.Equal(t, "y", mm["8"]) // non-string key converted to string
 }
 
-func TestSyncStateBag_Keys(t *testing.T) {
-	bag := &SyncStateBag{}
-	bag.Set("x", 100)
-	bag.Set("y", 200)
-	keys := bag.Keys()
-	assert.ElementsMatch(t, []Key{"x", "y"}, keys)
+func TestNormalizeFromState_Slice(t *testing.T) {
+	in := []interface{}{json.Number("1"), 2, "3"}
+	n, err := normalizeFromState(in)
+	require.NoError(t, err)
+	arr, ok := n.([]interface{})
+	require.True(t, ok)
+	// elements should be normalized: first -> int64(1) or numeric, second -> numeric, third -> "3"
+	// Accept either int64 or float64 for numeric normalized values
+	switch arr[0].(type) {
+	case int64, int, float64:
+		// ok
+	default:
+		require.Fail(t, "first element not numeric after normalization")
+	}
+	// arr[2] should remain the string "3"
+	assert.Equal(t, "3", arr[2])
 }
 
-func TestSyncStateBag_Size(t *testing.T) {
-	bag := &SyncStateBag{}
-	assert.Equal(t, 0, bag.Size())
-	bag.Set("one", 1)
-	bag.Set("two", 2)
-	assert.Equal(t, 2, bag.Size())
+func TestStringify_UnsupportedType_ReturnsError(t *testing.T) {
+	ch := make(chan int)
+	defer close(ch)
+	_, err := stringify(ch)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot stringify value of type")
 }
 
-func TestContextWithStateBagAndGetStateBagFromContext(t *testing.T) {
-	bag := &SyncStateBag{}
-	bag.Set("foo", "bar")
+func TestNormalizeFromState_MapWithUnstringableKey_PropagatesError(t *testing.T) {
+	// map with a channel key; stringify should fail for the channel key and return an error
+	mi := map[interface{}]interface{}{}
+	ch := make(chan int)
+	// channels are comparable and can be map keys
+	mi[ch] = 1
 
-	ctx := context.Background()
-	ctxWithBag := ContextWithState(ctx, bag)
-
-	retrieved := StateFromContext(ctxWithBag)
-	val, ok := retrieved.Get("foo")
-	assert.True(t, ok)
-	assert.Equal(t, "bar", val)
-
-	// Test fallback to empty SyncStateBag if not present
-	emptyCtx := context.Background()
-	fallback := StateFromContext(emptyCtx)
-	assert.NotNil(t, fallback)
-	assert.Equal(t, 0, fallback.Size())
+	_, err := normalizeFromState(mi)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot stringify value of type")
 }
 
-func TestSpecializedGettersFromState(t *testing.T) {
-	bag := &SyncStateBag{}
-	bag.Set("str", "hello")
-	bag.Set("int", 123)
-	bag.Set("bool", true)
-	bag.Set("float", 3.14)
-	bag.Set("strSlice", []string{"a", "b"})
-	bag.Set("intSlice", []int{1, 2})
-	bag.Set("boolSlice", []bool{true, false})
-	bag.Set("floatSlice", []float64{1.1, 2.2})
-	bag.Set("strMap", map[string]string{"x": "y"})
-	bag.Set("intMap", map[string]int{"a": 1})
-	bag.Set("boolMap", map[string]bool{"t": true})
-	bag.Set("floatMap", map[string]float64{"pi": 3.14})
+func TestSyncStateBag_PrimitiveOperations(t *testing.T) {
+	t.Run("zero value is usable", func(t *testing.T) {
+		var s SyncStateBag
+		s.Set("k", "v")
+		val, ok := s.Get("k")
+		require.True(t, ok)
+		assert.Equal(t, "v", val)
+		assert.Equal(t, 1, s.Size())
+	})
 
-	assert.Equal(t, "hello", StringFromState(bag, "str"))
-	assert.Equal(t, 123, IntFromState(bag, "int"))
-	assert.Equal(t, true, BoolFromState(bag, "bool"))
-	assert.Equal(t, 3.14, FloatFromState(bag, "float"))
+	t.Run("delete removes key", func(t *testing.T) {
+		s := &SyncStateBag{}
+		s.Set("k1", "v1").Set("k2", "v2")
+		s.Delete("k1")
 
-	assert.ElementsMatch(t, []string{"a", "b"}, StringSliceFromState(bag, "strSlice"))
-	assert.ElementsMatch(t, []int{1, 2}, IntSliceFromState(bag, "intSlice"))
-	assert.ElementsMatch(t, []bool{true, false}, BoolSliceFromState(bag, "boolSlice"))
-	assert.ElementsMatch(t, []float64{1.1, 2.2}, FloatSliceFromState(bag, "floatSlice"))
+		_, ok := s.Get("k1")
+		assert.False(t, ok)
+		val, ok := s.Get("k2")
+		require.True(t, ok)
+		assert.Equal(t, "v2", val)
+		assert.Equal(t, 1, s.Size())
+	})
 
-	assert.Equal(t, map[string]string{"x": "y"}, StringMapFromState(bag, "strMap"))
-	assert.Equal(t, map[string]int{"a": 1}, IntMapFromState(bag, "intMap"))
-	assert.Equal(t, map[string]bool{"t": true}, BoolMapFromState(bag, "boolMap"))
-	assert.Equal(t, map[string]float64{"pi": 3.14}, FloatMapFromState(bag, "floatMap"))
+	t.Run("clear empties bag and bag remains reusable", func(t *testing.T) {
+		s := &SyncStateBag{}
+		s.Set("k1", 1).Set("k2", 2)
+		assert.Equal(t, 2, s.Size())
 
-	// Test default values for missing keys
-	assert.Equal(t, "", StringFromState(bag, "missingStr"))
-	assert.Equal(t, 0, IntFromState(bag, "missingInt"))
-	assert.Equal(t, false, BoolFromState(bag, "missingBool"))
-	assert.Equal(t, 0.0, FloatFromState(bag, "missingFloat"))
-	assert.Empty(t, StringSliceFromState(bag, "missingStrSlice"))
-	assert.Empty(t, IntSliceFromState(bag, "missingIntSlice"))
-	assert.Empty(t, BoolSliceFromState(bag, "missingBoolSlice"))
-	assert.Empty(t, FloatSliceFromState(bag, "missingFloatSlice"))
-	assert.Empty(t, StringMapFromState(bag, "missingStrMap"))
-	assert.Empty(t, IntMapFromState(bag, "missingIntMap"))
-	assert.Empty(t, BoolMapFromState(bag, "missingBoolMap"))
-	assert.Empty(t, FloatMapFromState(bag, "missingFloatMap"))
+		s.Clear()
+		assert.Equal(t, 0, s.Size())
+		assert.Empty(t, s.Keys())
+		assert.Empty(t, s.Items())
+
+		// still reusable after clear
+		s.Set("k3", 3)
+		assert.Equal(t, 1, s.Size())
+		k3, ok := s.Int("k3")
+		assert.True(t, ok)
+		assert.Equal(t, 3, k3)
+	})
+
+	t.Run("keys and items return snapshots", func(t *testing.T) {
+		s := &SyncStateBag{}
+		s.Set("b", 2).Set("a", 1).Set("c", 3)
+
+		keys := s.Keys()
+		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+		assert.Equal(t, []Key{"a", "b", "c"}, keys)
+
+		items := s.Items()
+		assert.Equal(t, map[Key]interface{}{"a": 1, "b": 2, "c": 3}, items)
+
+		// modifying the returned snapshot must not affect the bag
+		items["a"] = 999
+		aVal, ok := s.Int("a")
+		assert.True(t, ok)
+		assert.Equal(t, 1, aVal)
+	})
 }
 
 func TestSyncStateBag_Merge(t *testing.T) {
-	bag1 := &SyncStateBag{}
-	bag1.Set("a", 1)
-	bag1.Set("b", 2)
+	t.Run("overwrites existing keys and keeps existing unrelated keys", func(t *testing.T) {
+		dst := &SyncStateBag{}
+		dst.Set("shared", "old")
+		dst.Set("dst-only", 1)
 
-	bag2 := &SyncStateBag{}
-	bag2.Set("b", 20)
-	bag2.Set("c", 30)
+		src := &SyncStateBag{}
+		src.Set("shared", "new")
+		src.Set("src-only", 2)
 
-	_, err := bag1.Merge(bag2)
-	require.NoError(t, err)
-	assert.Equal(t, 1, IntFromState(bag1, "a"))
-	assert.Equal(t, 20, IntFromState(bag1, "b"))
-	assert.Equal(t, 30, IntFromState(bag1, "c"))
+		merged, err := dst.Merge(src)
+		require.NoError(t, err)
+		require.Same(t, dst, merged)
+
+		sharedVal, ok := dst.String("shared")
+		assert.True(t, ok)
+		assert.Equal(t, "new", sharedVal)
+		dstOnlyVal, ok := dst.Int("dst-only")
+		assert.True(t, ok)
+		assert.Equal(t, 1, dstOnlyVal)
+		srcOnlyVal, ok := dst.Int("src-only")
+		assert.True(t, ok)
+		assert.Equal(t, 2, srcOnlyVal)
+	})
+
+	t.Run("nil other returns same receiver unchanged", func(t *testing.T) {
+		s := &SyncStateBag{}
+		s.Set("k", "v")
+
+		merged, err := s.Merge(nil)
+		require.NoError(t, err)
+		require.Same(t, s, merged)
+		kVal, ok := s.String("k")
+		assert.True(t, ok)
+		assert.Equal(t, "v", kVal)
+	})
+
+	t.Run("self merge is safe and non-destructive", func(t *testing.T) {
+		s := &SyncStateBag{}
+		s.Set("k1", "v1")
+		s.Set("k2", 2)
+
+		merged, err := s.Merge(s)
+		require.NoError(t, err)
+		require.Same(t, s, merged)
+
+		k1Val, ok := s.String("k1")
+		assert.True(t, ok)
+		assert.Equal(t, "v1", k1Val)
+		k2Val, ok := s.Int("k2")
+		assert.True(t, ok)
+		assert.Equal(t, 2, k2Val)
+		assert.Equal(t, 2, s.Size())
+	})
+
+	t.Run("post merge source updates do not change receiver key set or overwritten values", func(t *testing.T) {
+		dst := &SyncStateBag{}
+		dst.Set("shared", "old")
+
+		src := &SyncStateBag{}
+		src.Set("shared", "new")
+		src.Set("src-only", 1)
+
+		_, err := dst.Merge(src)
+		require.NoError(t, err)
+
+		// mutate source after merge
+		src.Set("shared", "changed-again")
+		src.Set("new-after-merge", 99)
+		src.Delete("src-only")
+
+		// merged result should stay as it was at merge time
+		dstShared, ok := dst.String("shared")
+		assert.True(t, ok)
+		assert.Equal(t, "new", dstShared)
+		dstSrcOnly, ok := dst.Int("src-only")
+		assert.True(t, ok)
+		assert.Equal(t, 1, dstSrcOnly)
+		_, ok = dst.Get("new-after-merge")
+		assert.False(t, ok)
+	})
 }
 
-func TestSyncStateBag_Merge_NilOther(t *testing.T) {
-	bag := &SyncStateBag{}
-	bag.Set("x", 100)
-	result, err := bag.Merge(nil)
-	require.NoError(t, err)
-	assert.Equal(t, bag, result)
-	assert.Equal(t, 100, IntFromState(result, "x"))
-}
+func TestStringify_BasicTypes(t *testing.T) {
+	u64Max := ^uint64(0)
 
-func TestGetFromState_TypeSafety(t *testing.T) {
-	bag := &SyncStateBag{}
-	bag.Set("num", "not-an-int")
-	assert.Equal(t, 0, IntFromState(bag, "num"))
-	bag.Set("slice", "not-a-slice")
-	assert.Empty(t, StringSliceFromState(bag, "slice"))
-	bag.Set("map", "not-a-map")
-	assert.Empty(t, StringMapFromState(bag, "map"))
-}
-
-func TestSyncStateBag_Items(t *testing.T) {
-	bag := &SyncStateBag{}
-	bag.Set("foo", 123)
-	bag.Set("bar", "baz")
-	items := bag.Items()
-	assert.Equal(t, 2, len(items))
-	assert.Equal(t, 123, items["foo"])
-	assert.Equal(t, "baz", items["bar"])
-}
-
-func TestSyncStateBag_HelperMethods(t *testing.T) {
-	bag := &SyncStateBag{}
-
-	// Test String
-	bag.Set("str", "hello")
-	assert.Equal(t, "hello", bag.String("str"))
-	assert.Equal(t, "", bag.String("missingStr"))
-
-	// Test Bool
-	bag.Set("bool", true)
-	assert.Equal(t, true, bag.Bool("bool"))
-	assert.Equal(t, false, bag.Bool("missingBool"))
-
-	// Test Int
-	bag.Set("int", 123)
-	assert.Equal(t, 123, bag.Int("int"))
-	assert.Equal(t, 0, bag.Int("missingInt"))
-
-	// Test Int8
-	bag.Set("int8", int8(8))
-	assert.Equal(t, int8(8), bag.Int8("int8"))
-	assert.Equal(t, int8(0), bag.Int8("missingInt8"))
-
-	// Test Int16
-	bag.Set("int16", int16(16))
-	assert.Equal(t, int16(16), bag.Int16("int16"))
-	assert.Equal(t, int16(0), bag.Int16("missingInt16"))
-
-	// Test Int32
-	bag.Set("int32", int32(32))
-	assert.Equal(t, int32(32), bag.Int32("int32"))
-	assert.Equal(t, int32(0), bag.Int32("missingInt32"))
-
-	// Test Int64
-	bag.Set("int64", int64(64))
-	assert.Equal(t, int64(64), bag.Int64("int64"))
-	assert.Equal(t, int64(0), bag.Int64("missingInt64"))
-
-	// Test Float
-	bag.Set("float", 3.14)
-	assert.Equal(t, 3.14, bag.Float("float"))
-	assert.Equal(t, 0.0, bag.Float("missingFloat"))
-
-	// Test Float32
-	bag.Set("float32", float32(3.14))
-	assert.InDelta(t, float32(3.14), bag.Float32("float32"), 0.001)
-	assert.Equal(t, float32(0.0), bag.Float32("missingFloat32"))
-
-	// Test Float64
-	bag.Set("float64", float64(3.14159))
-	assert.Equal(t, 3.14159, bag.Float64("float64"))
-	assert.Equal(t, 0.0, bag.Float64("missingFloat64"))
-}
-
-func TestSyncStateBag_HelperMethods_TypeSafety(t *testing.T) {
-	bag := &SyncStateBag{}
-
-	// Test that wrong types return zero values
-	bag.Set("notAString", 123)
-	assert.Equal(t, "", bag.String("notAString"))
-
-	bag.Set("notAnInt", "hello")
-	assert.Equal(t, 0, bag.Int("notAnInt"))
-
-	bag.Set("notABool", "true")
-	assert.Equal(t, false, bag.Bool("notABool"))
-
-	bag.Set("notAFloat", "3.14")
-	assert.Equal(t, 0.0, bag.Float("notAFloat"))
-}
-
-// testCloner implements the repository's expected Cloner[any] shape used in tests.
-type testCloner struct {
-	Data []int
-}
-
-func (t *testCloner) Clone() interface{} {
-	cp := make([]int, len(t.Data))
-	copy(cp, t.Data)
-	return &testCloner{Data: cp}
-}
-
-type errCloner struct{}
-
-func (e *errCloner) Clone() (interface{}, error) {
-	return nil, errorx.IllegalState.New("clone error")
-}
-
-type simplePtr struct {
-	X int
-}
-
-func TestSyncStateBag_Clone_DeepCloneForCloner(t *testing.T) {
-	type S struct {
-		M map[string]int
+	tests := []struct {
+		name    string
+		in      interface{}
+		want    string
+		wantErr bool
+	}{
+		{"string", "hello", "hello", false},
+		{"bytes", []byte("abc"), "abc", false},
+		{"int", 42, "42", false},
+		{"int64", int64(-7), "-7", false},
+		{"uint64_max", u64Max, strconv.FormatUint(u64Max, 10), false},
+		{"float32", float32(3.14), "3.14", false},
+		{"float64", 1.5, "1.5", false},
+		{"bool", true, "true", false},
+		{"json.Number int", json.Number("12345"), "12345", false},
+		{"json.Number uint64", json.Number("18446744073709551615"), strconv.FormatUint(^uint64(0), 10), false},
+		{"json.Number float", json.Number("3.14"), "3.14", false},
+		{"unsupported", make(chan int), "", true},
 	}
 
-	defVal, err := NewValue[*S](&S{M: map[string]int{"x": 1}})
-	if err != nil {
-		t.Fatalf("NewValue failed: %v", err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := stringify(tc.in)
+			if tc.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "cannot stringify value of type")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
 	}
-
-	rv, err := NewRuntimeValue[*S](defVal)
-	require.NoError(t, err)
-	require.NotNil(t, rv)
-
-	orig := &SyncStateBag{}
-	orig.Set("NIL", nil)
-	orig.Set("clonable", &testCloner{Data: []int{1, 2, 3}})
-	orig.Set("ptr", &simplePtr{X: 1}) // non-clonable: should be shallow-copied
-	orig.Set("runtimeVal", rv)
-
-	cloned, err := orig.Clone()
-	require.NoError(t, err)
-	require.NotNil(t, cloned)
-
-	// verify clonable deep-copy
-	clonedVal, ok := cloned.Get("clonable")
-	require.True(t, ok)
-	clonedTC, ok := clonedVal.(*testCloner)
-	require.True(t, ok)
-
-	_, ok = orig.Get("NIL")
-	require.True(t, ok)
-
-	origVal, ok := orig.Get("clonable")
-	require.True(t, ok)
-
-	_, ok = cloned.Get("NIL")
-	require.True(t, ok)
-
-	clonedVal, ok = cloned.Get("runtimeVal")
-	require.True(t, ok)
-
-	clonedRV, ok := clonedVal.(*RuntimeValue[*S])
-	require.True(t, ok)
-
-	require.True(t, ok)
-	origTC, ok := origVal.(*testCloner)
-	require.True(t, ok)
-
-	// modify clone's data; original should remain unchanged
-	clonedTC.Data[0] = 999
-	clonedRV.Default().Val().M["x"] = 999
-	rv.Default().Val().M["d"] = 2
-	assert.Equal(t, 1, origTC.Data[0], "original should not be affected by clone modification")
-	assert.Equal(t, 999, clonedTC.Data[0], "clone should reflect modification")
-	assert.Equal(t, 1, rv.Default().Val().M["x"], "Runtime value should not reflect modification")
-	assert.Equal(t, 0, clonedRV.Default().Val().M["d"], "Cloned runtime value should not reflect modification in the original")
-
-	// verify non-clonable is shallow-copied (same pointer)
-	clonedPtrVal, ok := cloned.Get("ptr")
-	require.True(t, ok)
-	clonedPtr, ok := clonedPtrVal.(*simplePtr)
-	require.True(t, ok)
-
-	origPtrVal, ok := orig.Get("ptr")
-	require.True(t, ok)
-	origPtr, ok := origPtrVal.(*simplePtr)
-	require.True(t, ok)
-
-	// pointers should be identical (shallow copy)
-	assert.Equal(t, origPtr, clonedPtr)
-	clonedPtr.X = 42
-	assert.Equal(t, 42, origPtr.X, "modifying shallow-copied value should reflect in original")
-}
-
-func TestSyncStateBag_Clone_FailsWhenClonerReturnsError(t *testing.T) {
-	orig := &SyncStateBag{}
-	orig.Set("bad", &errCloner{})
-
-	clone, err := orig.Clone()
-	assert.Nil(t, clone)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to clone", "error should indicate failure to clone value")
-}
-
-func TestSyncStateBag_Clone_NilReceiver(t *testing.T) {
-	var nilBag *SyncStateBag
-	clone, err := nilBag.Clone()
-	assert.Nil(t, clone)
-	require.Error(t, err)
 }

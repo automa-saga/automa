@@ -6,9 +6,9 @@ Welcome to the automa workflow orchestration framework documentation.
 
 - [Architecture](architecture.md) - Framework design and components
 - [Developer Guide](developer-guide.md) - Development, testing, and contribution guidelines  
-- [Usage Examples](usage-examples.md) - Practical examples and best practices
 - [State Preservation](state-preservation.md) - Memory optimization and configuration
-- [Thread Safety Tests](thread-safety-tests.md) - Concurrency testing details
+- [State Serialization](state-serialization.md) - JSON/YAML format and guidance for storing serializable values
+- [State Numeric Boundaries](state-numeric-boundaries.md) - Safe integer/float conversion and overflow handling
 
 ## Quick Start
 
@@ -26,28 +26,27 @@ package main
 import (
     "context"
     "fmt"
+
     "github.com/automa-saga/automa"
 )
 
 func main() {
-    // Define a simple step
-    step := automa.NewStepBuilder().
-        WithId("hello-step").
-        WithExecute(func(ctx context.Context, stp automa.Step) *automa.Report {
-            fmt.Println("Hello from automa!")
-            return automa.SuccessReport(stp)
-        }).
-        Build()
-
-    // Build a workflow
-    wf, _ := automa.NewWorkflowBuilder().
+    wf, err := automa.NewWorkflowBuilder().
         WithId("hello-workflow").
-        Steps(step).
+        Steps(
+            automa.NewStepBuilder().
+                WithId("hello-step").
+                WithExecute(func(ctx context.Context, stp automa.Step) *automa.Report {
+                    fmt.Println("Hello from automa!")
+                    return automa.SuccessReport(stp)
+                }),
+        ).
         Build()
+    if err != nil {
+        panic(err)
+    }
 
-    // Execute the workflow
     report := wf.Execute(context.Background())
-    
     if report.IsSuccess() {
         fmt.Println("Workflow completed successfully!")
     }
@@ -60,19 +59,27 @@ func main() {
 
 Start here if you want to use automa in your projects:
 
-1. **[Usage Examples](usage-examples.md)** - Learn by example
-   - Basic workflows
-   - Error handling modes
-   - State management
-   - Rollback scenarios
-   - Real-world examples
+1. **Examples in `examples/`** - Learn by example
+   - `examples/setup_local/` for a larger workflow example
+   - Add your own small examples locally when exploring the API
 
 2. **[State Preservation](state-preservation.md)** - Optimize memory usage
    - When to enable/disable state preservation
    - Memory impact analysis
    - Configuration guide
 
-3. **[Architecture](architecture.md)** - Understand how it works
+3. **[State Serialization](state-serialization.md)** - Understand JSON/YAML round-trips
+   - Decoder shape changes
+   - Typed accessor normalization
+   - Serialization-safe storage guidance
+
+4. **[State Numeric Boundaries](state-numeric-boundaries.md)** - Understand safe numeric conversion
+   - Why `float64` is tricky near integer limits
+   - Why `2^63` is rejected for `int64`
+   - Why `2^64` is rejected for `uint64`
+   - Truncation toward zero and exactness checks
+
+5. **[Architecture](architecture.md)** - Understand how it works
    - Core components
    - Execution modes
    - State management design
@@ -93,10 +100,9 @@ Start here if you want to contribute to automa:
    - Extension points
    - Performance characteristics
 
-3. **[Thread Safety Tests](thread-safety-tests.md)** - Concurrency testing
-   - Test strategy
-   - Race conditions found and fixed
-   - Running concurrency tests
+3. **Race and concurrency tests**
+   - Run `go test -race ./...` to validate concurrent access paths
+   - See `state_namespaced_concurrency_test.go` for examples of concurrency coverage
 
 ## Core Concepts
 
@@ -169,7 +175,6 @@ Step1 ✓ → Step2 ✗ → Step3 ✓ → [COMPLETE]
 ✅ **Observable** - Structured reports with rich metadata  
 ✅ **Testable** - Clean interfaces and dependency injection  
 ✅ **Memory-efficient** - Optional state preservation  
-✅ **Well-documented** - Comprehensive documentation and examples  
 
 ## Common Use Cases
 

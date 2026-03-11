@@ -99,10 +99,10 @@ Automa uses a **namespaced state bag** design for flexible state management.
 │  - global: StateBag                             │
 │  - custom: map[string]StateBag                  │
 │  - mu: sync.RWMutex                             │
-│  - localOnce: sync.Once                         │
 ├─────────────────────────────────────────────────┤
 │  Thread-safe implementation                     │
-│  Lazy initialization of local namespace         │
+│  Zero value is usable                           │
+│  Missing namespaces are initialized lazily      │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -139,17 +139,18 @@ Structured execution results with metadata and error information.
 │              Report                     │
 ├─────────────────────────────────────────┤
 │  + Id: string                           │
-│  + Status: TypeStatus                   │
+│  + IsWorkflow: bool                     │
 │  + Action: TypeAction                   │
+│  + Status: TypeStatus                   │
 │  + StartTime: time.Time                 │
 │  + EndTime: time.Time                   │
-│  + Duration: time.Duration              │
-│  + Err: error                           │
-│  + Meta: StateBag                       │
-│  + Steps: []*Report                     │
+│  + Detail: string                       │
+│  + Error: error                         │
+│  + Metadata: StringMap          │
+│  + StepReports: []*Report               │
 │  + Rollback: *Report                    │
-│  + WorkflowId: string                   │
-│  + StepId: string                       │
+│  + ExecutionMode: TypeMode              │
+│  + RollbackMode: TypeMode               │
 └─────────────────────────────────────────┘
 ```
 
@@ -185,20 +186,21 @@ Continues executing remaining steps even if one fails.
 Step1 ✓ → Step2 ✗ → Step3 ✓ → Step4 ✗ → [COMPLETE]
 ```
 
-### RollbackOnError (Default)
+### RollbackOnError
 
-Rolls back all previously executed steps when a step fails, then stops. This mode must be explicitly configured; the default execution mode is **StopOnError**.
+Rolls back the failed step and all previously executed steps when a step fails, then stops.
+This mode must be explicitly configured; the default execution mode is **StopOnError**.
 
 ```
 Step1 ✓ → Step2 ✓ → Step3 ✗ → [ROLLBACK]
                                ↓
-Step2 Rollback ✓ ← Step1 Rollback ✓
+Step3 Rollback ✓ ← Step2 Rollback ✓ ← Step1 Rollback ✓
 ```
 
 **Rollback includes failed step:**
 - Failed step's `Rollback()` is called to clean up partial work
 - All successfully executed steps are rolled back in reverse order
-- Each step receives its state snapshot from execution time
+- Each step receives its state snapshot from execution time when preservation is enabled
 
 ## State Snapshot Design
 
@@ -234,9 +236,9 @@ Step2.Execute() → [no snapshot]
 Step3.Execute() → [no snapshot]
 
 Rollback Phase:
-Step3.WithState(currentWorkflowState) → Step3.Rollback()
-Step2.WithState(currentWorkflowState) → Step2.Rollback()
-Step1.WithState(currentWorkflowState) → Step1.Rollback()
+Step3.WithState(workflow.State()) → Step3.Rollback()
+Step2.WithState(workflow.State()) → Step2.Rollback()
+Step1.WithState(workflow.State()) → Step1.Rollback()
 ```
 
 **Benefits:**
@@ -244,8 +246,8 @@ Step1.WithState(currentWorkflowState) → Step1.Rollback()
 - No clone CPU cost
 
 **Tradeoffs:**
-- Rollback uses current state (may have been mutated)
-- Less deterministic for complex workflows
+- Rollback uses the current workflow state rather than preserved per-step snapshots
+- Less deterministic for workflows that mutate state between execution and rollback
 
 ## Thread Safety
 
@@ -253,10 +255,10 @@ Step1.WithState(currentWorkflowState) → Step1.Rollback()
 
 Thread-safe via `sync.RWMutex`:
 
-- **Read operations** (`Local()`, `Global()`, `WithNamespace()`): `RLock`
-- **Write operations** (`Merge()`, custom namespace creation): `Lock`
-- **Clone operations**: `RLock` (reads all fields atomically)
-- **Lazy initialization**: `sync.Once` (ensures single init)
+- `Local()` / `Global()` use a fast-path read lock and initialize lazily on first access
+- `WithNamespace()` acquires a write lock to create missing custom namespaces
+- `Clone()`, `MarshalJSON()`, and `MarshalYAML()` snapshot namespace references under lock
+- Inner `StateBag` instances (`SyncStateBag`) protect their own contents independently
 
 ### Workflow Execution
 
@@ -273,19 +275,17 @@ Thread-safe via `sync.RWMutex`:
 Automa uses builders for fluent API construction:
 
 ```go
-// StepBuilder
+// Step builders are passed directly to WorkflowBuilder.Steps(...)
 step := automa.NewStepBuilder().
     WithId("my-step").
     WithExecute(executeFunc).
-    WithRollback(rollbackFunc).
-    Build()
+    WithRollback(rollbackFunc)
 
-// WorkflowBuilder
-wf := automa.NewWorkflowBuilder().
+wf, err := automa.NewWorkflowBuilder().
     WithId("my-workflow").
     WithExecutionMode(automa.RollbackOnError).
     WithStatePreservation(true).
-    Steps(step1, step2, step3).
+    Steps(step).
     Build()
 ```
 
@@ -317,11 +317,11 @@ var (
 ### Error Propagation
 
 ```
-Step Error → Report.Err → Workflow Report.Err
-                        ↓
-                  OnFailure Callback
-                        ↓
-                  Return to Caller
+Step Error → Report.Error → Workflow Report.Error
+                          ↓
+                    OnFailure Callback
+                          ↓
+                    Return to Caller
 ```
 
 ## Design Principles
@@ -331,8 +331,14 @@ Step Error → Report.Err → Workflow Report.Err
 Workflows are steps, enabling nested composition:
 
 ```go
-subWorkflow := NewWorkflowBuilder().Steps(s1, s2).Build()
-mainWorkflow := NewWorkflowBuilder().Steps(s3, subWorkflow, s4).Build()
+subWorkflowBuilder := automa.NewWorkflowBuilder().
+    WithId("sub-workflow").
+    Steps(s1, s2)
+
+mainWorkflow, err := automa.NewWorkflowBuilder().
+    WithId("main-workflow").
+    Steps(s3, subWorkflowBuilder, s4).
+    Build()
 ```
 
 ### 2. Explicit State Management
@@ -346,8 +352,8 @@ State is explicitly passed and managed:
 ### 3. Fail-Safe Defaults
 
 - State preservation: **enabled** (safer)
-- Execution mode: **RollbackOnError** (safer)
-- Rollback mode: **ContinueOnError** (complete rollback)
+- Execution mode: **StopOnError** (explicit rollback only when requested)
+- Rollback mode: **ContinueOnError** (complete rollback attempts)
 
 ### 4. Extensibility
 
@@ -458,11 +464,11 @@ func (s *MyStateBag) Get(key Key) (interface{}, bool) { /* ... */ }
 
 ### Custom Reporters
 
-Use `Meta` field in reports to attach custom metadata:
+Use the `Metadata` field in reports to attach custom metadata:
 
 ```go
 report := automa.SuccessReport(step,
-    automa.WithMetadata(map[string]string{
+    automa.WithMetadata(StringMap{
         "custom_metric": "value",
         "trace_id": "abc123",
     }))
