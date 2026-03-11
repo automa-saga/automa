@@ -169,9 +169,15 @@ func TestSyncNamespacedStateBag_Concurrent_Clone(t *testing.T) {
 			clones[id] = cloned
 
 			// Verify cloned data
-			assert.Equal(t, "local-value", cloned.Local().String("local-key"))
-			assert.Equal(t, "global-value", cloned.Global().String("global-key"))
-			assert.Equal(t, "custom-value", cloned.WithNamespace("custom").String("custom-key"))
+			localStr, lok := cloned.Local().String("local-key")
+			assert.True(t, lok)
+			assert.Equal(t, "local-value", localStr)
+			globalStr, gok := cloned.Global().String("global-key")
+			assert.True(t, gok)
+			assert.Equal(t, "global-value", globalStr)
+			customStr, cok := cloned.WithNamespace("custom").String("custom-key")
+			assert.True(t, cok)
+			assert.Equal(t, "custom-value", customStr)
 		}(i)
 	}
 
@@ -219,8 +225,12 @@ func TestSyncNamespacedStateBag_Concurrent_Merge(t *testing.T) {
 	wg.Wait()
 
 	// Verify merged data contains original keys
-	assert.Equal(t, "value1", ns1.Local().String("key1"))
-	assert.Equal(t, "gvalue1", ns1.Global().String("global1"))
+	key1Val, ok1 := ns1.Local().String("key1")
+	assert.True(t, ok1)
+	assert.Equal(t, "value1", key1Val)
+	gvalVal, ok2 := ns1.Global().String("global1")
+	assert.True(t, ok2)
+	assert.Equal(t, "gvalue1", gvalVal)
 }
 
 // TestSyncNamespacedStateBag_Concurrent_MixedOperations verifies thread-safety with mixed operations
@@ -352,5 +362,7 @@ func TestSyncNamespacedStateBag_Concurrent_MergeMultipleSources(t *testing.T) {
 	wg.Wait()
 
 	// Verify target still has original key
-	assert.Equal(t, "target-value", target.Local().String("target-key"))
+	targetVal, targetOk := target.Local().String("target-key")
+	assert.True(t, targetOk)
+	assert.Equal(t, "target-value", targetVal)
 }

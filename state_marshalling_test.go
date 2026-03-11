@@ -26,8 +26,12 @@ func TestSyncStateBag_JSONRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(b, &s2))
 
 	// strings and bools unmarshaled as expected
-	assert.Equal(t, "hello", s2.String("str"))
-	assert.Equal(t, true, s2.Bool("bool"))
+	gotStr, ok := s2.String("str")
+	assert.True(t, ok)
+	assert.Equal(t, "hello", gotStr)
+	gotBool, ok := s2.Bool("bool")
+	assert.True(t, ok)
+	assert.Equal(t, true, gotBool)
 
 	// numeric values in JSON decode to float64
 	val, ok := s2.Get("num")
@@ -62,7 +66,9 @@ func TestSyncStateBag_YAMLRoundTrip(t *testing.T) {
 	var s2 SyncStateBag
 	require.NoError(t, yaml.Unmarshal(b, &s2))
 
-	assert.Equal(t, "hello-yaml", s2.String("str"))
+	gotStr, ok := s2.String("str")
+	assert.True(t, ok)
+	assert.Equal(t, "hello-yaml", gotStr)
 
 	// YAML unmarshals numbers as int when possible (yaml.v3 preserves types), so we accept float64/int
 	val, ok := s2.Get("num")
@@ -142,21 +148,44 @@ func TestFromState_JSONTypedAccessors(t *testing.T) {
 	assert.Equal(t, 5.0, val.(float64))
 
 	// typed accessors should coerce correctly
-	assert.Equal(t, 5, s2.Int("int"))
-	assert.Equal(t, int64(5), s2.Int64("int"))
-	assert.Equal(t, 5.0, s2.Float64("int"))
+	gotInt, ok := s2.Int("int")
+	assert.True(t, ok)
+	assert.Equal(t, 5, gotInt)
+
+	gotI64, ok := s2.Int64("int")
+	assert.True(t, ok)
+	assert.Equal(t, int64(5), gotI64)
+
+	gotF64, ok := s2.Float64("int")
+	assert.True(t, ok)
+	assert.Equal(t, 5.0, gotF64)
 
 	// float -> Int truncates toward zero
-	assert.Equal(t, 3, s2.Int("float"))
-	assert.InDelta(t, 3.14, s2.Float64("float"), 1e-9)
+	gotInt, ok = s2.Int("float")
+	assert.True(t, ok)
+	assert.Equal(t, 3, gotInt)
+
+	gotF64, ok = s2.Float64("float")
+	assert.True(t, ok)
+	assert.InDelta(t, 3.14, gotF64, 1e-9)
 
 	// string boolean should coerce to bool
-	assert.Equal(t, true, s2.Bool("boolStr"))
+	gotBool, ok := s2.Bool("boolStr")
+	assert.True(t, ok)
+	assert.Equal(t, true, gotBool)
 
 	// numeric string coercion
-	assert.Equal(t, 123, s2.Int("numStr"))
-	assert.Equal(t, 123.0, s2.Float64("numStr"))
-	assert.Equal(t, "123", s2.String("numStr"))
+	gotInt, ok = s2.Int("numStr")
+	assert.True(t, ok)
+	assert.Equal(t, 123, gotInt)
+
+	gotF64, ok = s2.Float64("numStr")
+	assert.True(t, ok)
+	assert.Equal(t, 123.0, gotF64)
+
+	gotStr, ok := s2.String("numStr")
+	assert.True(t, ok)
+	assert.Equal(t, "123", gotStr)
 }
 
 func TestFromState_YAMLTypedAccessors(t *testing.T) {
@@ -174,19 +203,40 @@ func TestFromState_YAMLTypedAccessors(t *testing.T) {
 
 	// numeric value may be int/int64/float64 depending on YAML decoding;
 	// typed accessors should return expected numeric values regardless.
-	assert.Equal(t, 42, s2.Int("int"))
-	assert.Equal(t, int64(42), s2.Int64("int"))
-	assert.Equal(t, 42.0, s2.Float64("int"))
 
-	assert.Equal(t, 7, s2.Int("floatInt"))
-	assert.InDelta(t, 7.0, s2.Float64("floatInt"), 1e-9)
+	gotInt, ok := s2.Int("int")
+	assert.True(t, ok)
+	assert.Equal(t, 42, gotInt)
+
+	gotI64, ok := s2.Int64("int")
+	assert.True(t, ok)
+	assert.Equal(t, int64(42), gotI64)
+
+	gotF64, ok := s2.Float64("int")
+	assert.True(t, ok)
+	assert.Equal(t, 42.0, gotF64)
+
+	gotIntFloat, ok := s2.Int("floatInt")
+	assert.True(t, ok)
+	assert.Equal(t, 7, gotIntFloat)
+
+	gotF64Float, ok := s2.Float64("floatInt")
+	assert.True(t, ok)
+	assert.InDelta(t, 7.0, gotF64Float, 1e-9)
 
 	// boolean preserved
-	assert.Equal(t, true, s2.Bool("bool"))
+	gotBool, ok := s2.Bool("bool")
+	assert.True(t, ok)
+	assert.Equal(t, true, gotBool)
 
 	// numeric string coercion on YAML
-	assert.Equal(t, 99, s2.Int("numStr"))
-	assert.Equal(t, "99", s2.String("numStr"))
+	gotIntStr, ok := s2.Int("numStr")
+	assert.True(t, ok)
+	assert.Equal(t, 99, gotIntStr)
+
+	gotStr, ok := s2.String("numStr")
+	assert.True(t, ok)
+	assert.Equal(t, "99", gotStr)
 }
 
 func TestFromState_SliceAndMapAfterRoundTrip(t *testing.T) {

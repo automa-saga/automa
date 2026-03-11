@@ -50,13 +50,20 @@ func TestToInt64_SmallUnsignedTypesAlwaysFit(t *testing.T) {
 func TestFromState_LargeUint64ToInt64Rejected(t *testing.T) {
 	s := &SyncStateBag{}
 
-	// Large uint64 that overflows int64 should return zero when requesting int/int64
+	// Large uint64 that overflows int64 should return zero + false when requesting int/int64
 	s.Set("big", uint64(math.MaxUint64))
-	assert.Equal(t, 0, FromState[int](s, "big", 0))
-	assert.Equal(t, int64(0), FromState[int64](s, "big", 0))
+	gotInt, ok := FromState[int](s, "big", 0)
+	assert.False(t, ok)
+	assert.Equal(t, 0, gotInt)
 
-	// But should work for uint64 target
-	assert.Equal(t, uint64(math.MaxUint64), FromState[uint64](s, "big", 0))
+	gotInt64, ok := FromState[int64](s, "big", 0)
+	assert.False(t, ok)
+	assert.Equal(t, int64(0), gotInt64)
+
+	// Should work for uint64 target — returns value + true
+	gotU64, ok := FromState[uint64](s, "big", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(math.MaxUint64), gotU64)
 }
 
 // ---------------------------------------------------------------------------
@@ -432,7 +439,8 @@ func TestFromState_ExactTypeMatch(t *testing.T) {
 	// Pointer type preserved via exact match before normalization
 	v := 42
 	s.Set("ptr", &v)
-	got := FromState[*int](s, "ptr", nil)
+	got, ok := FromState[*int](s, "ptr", nil)
+	assert.True(t, ok)
 	require.NotNil(t, got)
 	assert.Equal(t, 42, *got)
 }
@@ -440,47 +448,70 @@ func TestFromState_ExactTypeMatch(t *testing.T) {
 func TestFromState_StringCoercion(t *testing.T) {
 	s := &SyncStateBag{}
 
-	// numeric to string
 	s.Set("int", 42)
-	assert.Equal(t, "42", FromState[string](s, "int", ""))
+	got, ok := FromState[string](s, "int", "")
+	assert.True(t, ok)
+	assert.Equal(t, "42", got)
 
 	s.Set("float", 3.14)
-	assert.Equal(t, "3.14", FromState[string](s, "float", ""))
+	got, ok = FromState[string](s, "float", "")
+	assert.True(t, ok)
+	assert.Equal(t, "3.14", got)
 
 	s.Set("floatIntegral", 7.0)
-	assert.Equal(t, "7", FromState[string](s, "floatIntegral", ""))
+	got, ok = FromState[string](s, "floatIntegral", "")
+	assert.True(t, ok)
+	assert.Equal(t, "7", got)
 
 	s.Set("bool", true)
-	assert.Equal(t, "true", FromState[string](s, "bool", ""))
+	got, ok = FromState[string](s, "bool", "")
+	assert.True(t, ok)
+	assert.Equal(t, "true", got)
 
 	s.Set("uint64", uint64(999))
-	assert.Equal(t, "999", FromState[string](s, "uint64", ""))
+	got, ok = FromState[string](s, "uint64", "")
+	assert.True(t, ok)
+	assert.Equal(t, "999", got)
 
 	// string passthrough
 	s.Set("str", "hello")
-	assert.Equal(t, "hello", FromState[string](s, "str", ""))
+	got, ok = FromState[string](s, "str", "")
+	assert.True(t, ok)
+	assert.Equal(t, "hello", got)
 }
 
 func TestFromState_BoolCoercion(t *testing.T) {
 	s := &SyncStateBag{}
 
 	s.Set("boolStr", "true")
-	assert.Equal(t, true, FromState[bool](s, "boolStr", false))
+	gotBool, ok := FromState[bool](s, "boolStr", false)
+	assert.True(t, ok)
+	assert.Equal(t, true, gotBool)
 
 	s.Set("boolStrFalse", "false")
-	assert.Equal(t, false, FromState[bool](s, "boolStrFalse", true))
+	gotBool, ok = FromState[bool](s, "boolStrFalse", true)
+	assert.True(t, ok)
+	assert.Equal(t, false, gotBool)
 
 	s.Set("boolInt1", 1)
-	assert.Equal(t, true, FromState[bool](s, "boolInt1", false))
+	gotBool, ok = FromState[bool](s, "boolInt1", false)
+	assert.True(t, ok)
+	assert.Equal(t, true, gotBool)
 
 	s.Set("boolInt0", 0)
-	assert.Equal(t, false, FromState[bool](s, "boolInt0", true))
+	gotBool, ok = FromState[bool](s, "boolInt0", true)
+	assert.True(t, ok)
+	assert.Equal(t, false, gotBool)
 
 	s.Set("boolFloat", 0.0)
-	assert.Equal(t, false, FromState[bool](s, "boolFloat", true))
+	gotBool, ok = FromState[bool](s, "boolFloat", true)
+	assert.True(t, ok)
+	assert.Equal(t, false, gotBool)
 
 	s.Set("boolNative", true)
-	assert.Equal(t, true, FromState[bool](s, "boolNative", false))
+	gotBool, ok = FromState[bool](s, "boolNative", false)
+	assert.True(t, ok)
+	assert.Equal(t, true, gotBool)
 }
 
 func TestFromState_IntCoercion(t *testing.T) {
@@ -488,85 +519,160 @@ func TestFromState_IntCoercion(t *testing.T) {
 
 	// float64 -> int (truncation)
 	s.Set("f64", float64(3.99))
-	assert.Equal(t, 3, FromState[int](s, "f64", 0))
+	gotInt, ok := FromState[int](s, "f64", 0)
+	assert.True(t, ok)
+	assert.Equal(t, 3, gotInt)
 
 	// string -> int
 	s.Set("str", "123")
-	assert.Equal(t, 123, FromState[int](s, "str", 0))
+	gotInt, ok = FromState[int](s, "str", 0)
+	assert.True(t, ok)
+	assert.Equal(t, 123, gotInt)
 
 	// int64 -> int
 	s.Set("i64", int64(42))
-	assert.Equal(t, 42, FromState[int](s, "i64", 0))
+	gotInt, ok = FromState[int](s, "i64", 0)
+	assert.True(t, ok)
+	assert.Equal(t, 42, gotInt)
 
 	// json.Number -> int
 	s.Set("jn", json.Number("77"))
-	assert.Equal(t, 77, FromState[int](s, "jn", 0))
+	gotInt, ok = FromState[int](s, "jn", 0)
+	assert.True(t, ok)
+	assert.Equal(t, 77, gotInt)
 }
 
 func TestFromState_Int8_Int16_Int32_Int64(t *testing.T) {
 	s := &SyncStateBag{}
 
 	s.Set("val", float64(42))
-	assert.Equal(t, int8(42), FromState[int8](s, "val", 0))
-	assert.Equal(t, int16(42), FromState[int16](s, "val", 0))
-	assert.Equal(t, int32(42), FromState[int32](s, "val", 0))
-	assert.Equal(t, int64(42), FromState[int64](s, "val", 0))
+	gotI8, ok := FromState[int8](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, int8(42), gotI8)
+
+	gotI16, ok := FromState[int16](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, int16(42), gotI16)
+
+	gotI32, ok := FromState[int32](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, int32(42), gotI32)
+
+	gotI64, ok := FromState[int64](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, int64(42), gotI64)
 }
 
 func TestFromState_UintCoercion(t *testing.T) {
 	s := &SyncStateBag{}
 
 	s.Set("val", 42)
-	assert.Equal(t, uint(42), FromState[uint](s, "val", 0))
-	assert.Equal(t, uint8(42), FromState[uint8](s, "val", 0))
-	assert.Equal(t, uint16(42), FromState[uint16](s, "val", 0))
-	assert.Equal(t, uint32(42), FromState[uint32](s, "val", 0))
-	assert.Equal(t, uint64(42), FromState[uint64](s, "val", 0))
+	gotU, ok := FromState[uint](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint(42), gotU)
+
+	gotU8, ok := FromState[uint8](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint8(42), gotU8)
+
+	gotU16, ok := FromState[uint16](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint16(42), gotU16)
+
+	gotU32, ok := FromState[uint32](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint32(42), gotU32)
+
+	gotU64, ok := FromState[uint64](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(42), gotU64)
 }
 
 func TestFromState_UintRejectsNegative(t *testing.T) {
 	s := &SyncStateBag{}
 
 	s.Set("neg", -1)
-	assert.Equal(t, uint(0), FromState[uint](s, "neg", 0))
-	assert.Equal(t, uint8(0), FromState[uint8](s, "neg", 0))
-	assert.Equal(t, uint16(0), FromState[uint16](s, "neg", 0))
-	assert.Equal(t, uint32(0), FromState[uint32](s, "neg", 0))
-	assert.Equal(t, uint64(0), FromState[uint64](s, "neg", 0))
+	gotU, ok := FromState[uint](s, "neg", 0)
+	assert.False(t, ok)
+	assert.Equal(t, uint(0), gotU)
+
+	gotU8, ok := FromState[uint8](s, "neg", 0)
+	assert.False(t, ok)
+	assert.Equal(t, uint8(0), gotU8)
+
+	gotU16, ok := FromState[uint16](s, "neg", 0)
+	assert.False(t, ok)
+	assert.Equal(t, uint16(0), gotU16)
+
+	gotU32, ok := FromState[uint32](s, "neg", 0)
+	assert.False(t, ok)
+	assert.Equal(t, uint32(0), gotU32)
+
+	gotU64, ok := FromState[uint64](s, "neg", 0)
+	assert.False(t, ok)
+	assert.Equal(t, uint64(0), gotU64)
 }
 
 func TestFromState_UintRejectsOverflow(t *testing.T) {
 	s := &SyncStateBag{}
 
 	s.Set("big", 256)
-	assert.Equal(t, uint8(0), FromState[uint8](s, "big", 0))
+	gotU8, ok := FromState[uint8](s, "big", 0)
+	assert.False(t, ok)
+	assert.Equal(t, uint8(0), gotU8)
 
 	s.Set("big16", 65536)
-	assert.Equal(t, uint16(0), FromState[uint16](s, "big16", 0))
+	gotU16, ok := FromState[uint16](s, "big16", 0)
+	assert.False(t, ok)
+	assert.Equal(t, uint16(0), gotU16)
 }
 
 func TestFromState_Float32_Float64(t *testing.T) {
 	s := &SyncStateBag{}
 
 	s.Set("val", "3.14")
-	assert.InDelta(t, float32(3.14), FromState[float32](s, "val", 0), 0.01)
-	assert.InDelta(t, float64(3.14), FromState[float64](s, "val", 0), 1e-9)
+	gotF32, ok := FromState[float32](s, "val", 0)
+	assert.True(t, ok)
+	assert.InDelta(t, float32(3.14), gotF32, 0.01)
+
+	gotF64, ok := FromState[float64](s, "val", 0)
+	assert.True(t, ok)
+	assert.InDelta(t, float64(3.14), gotF64, 1e-9)
 
 	s.Set("intVal", 42)
-	assert.Equal(t, float32(42), FromState[float32](s, "intVal", 0))
-	assert.Equal(t, float64(42), FromState[float64](s, "intVal", 0))
+	gotF32, ok = FromState[float32](s, "intVal", 0)
+	assert.True(t, ok)
+	assert.Equal(t, float32(42), gotF32)
+
+	gotF64, ok = FromState[float64](s, "intVal", 0)
+	assert.True(t, ok)
+	assert.Equal(t, float64(42), gotF64)
 }
 
 func TestFromState_MissingKey(t *testing.T) {
 	s := &SyncStateBag{}
-	assert.Equal(t, 0, FromState[int](s, "missing", 0))
-	assert.Equal(t, "", FromState[string](s, "missing", ""))
-	assert.Equal(t, false, FromState[bool](s, "missing", false))
+
+	gotInt, ok := FromState[int](s, "missing", 0)
+	assert.False(t, ok)
+	assert.Equal(t, 0, gotInt)
+
+	gotStr, ok := FromState[string](s, "missing", "")
+	assert.False(t, ok)
+	assert.Equal(t, "", gotStr)
+
+	gotBool, ok := FromState[bool](s, "missing", false)
+	assert.False(t, ok)
+	assert.Equal(t, false, gotBool)
 }
 
 func TestFromState_NilState(t *testing.T) {
-	assert.Equal(t, 0, FromState[int](nil, "k", 0))
-	assert.Equal(t, "default", FromState[string](nil, "k", "default"))
+	gotInt, ok := FromState[int](nil, "k", 0)
+	assert.False(t, ok)
+	assert.Equal(t, 0, gotInt)
+
+	gotStr, ok := FromState[string](nil, "k", "default")
+	assert.False(t, ok)
+	assert.Equal(t, "default", gotStr)
 }
 
 func TestFromState_ComplexTypeFallback(t *testing.T) {
@@ -574,7 +680,8 @@ func TestFromState_ComplexTypeFallback(t *testing.T) {
 	s := &SyncStateBag{}
 	s.Set("obj", custom{N: 7})
 
-	got := FromState[custom](s, "obj", custom{})
+	got, ok := FromState[custom](s, "obj", custom{})
+	assert.True(t, ok)
 	assert.Equal(t, 7, got.N)
 }
 
@@ -591,9 +698,17 @@ func TestFromState_JSONRoundTrip_UintSafe(t *testing.T) {
 	require.NoError(t, json.Unmarshal(b, &s2))
 
 	// After JSON round-trip, values are float64; accessors should coerce safely
-	assert.Equal(t, uint8(200), FromState[uint8](&s2, "u8", 0))
-	assert.Equal(t, uint16(60000), FromState[uint16](&s2, "u16", 0))
-	assert.Equal(t, uint32(3000000000), FromState[uint32](&s2, "u32", 0))
+	gotU8, ok := FromState[uint8](&s2, "u8", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint8(200), gotU8)
+
+	gotU16, ok := FromState[uint16](&s2, "u16", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint16(60000), gotU16)
+
+	gotU32, ok := FromState[uint32](&s2, "u32", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint32(3000000000), gotU32)
 }
 
 func TestFromState_StringFromNumericAfterJSONRoundTrip(t *testing.T) {
@@ -607,7 +722,9 @@ func TestFromState_StringFromNumericAfterJSONRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(b, &s2))
 
 	// After JSON round-trip n is float64(42); String accessor should format as "42"
-	assert.Equal(t, "42", s2.String("n"))
+	got, ok := s2.String("n")
+	assert.True(t, ok)
+	assert.Equal(t, "42", got)
 }
 
 // ---------------------------------------------------------------------------
@@ -616,32 +733,48 @@ func TestFromState_StringFromNumericAfterJSONRoundTrip(t *testing.T) {
 
 func TestSyncStateBag_StringFormatsNumeric(t *testing.T) {
 	s := &SyncStateBag{}
+
 	s.Set("int", 123)
-	assert.Equal(t, "123", s.String("int"))
+	got, ok := s.String("int")
+	assert.True(t, ok)
+	assert.Equal(t, "123", got)
 
 	s.Set("float", 3.14)
-	assert.Equal(t, "3.14", s.String("float"))
+	got, ok = s.String("float")
+	assert.True(t, ok)
+	assert.Equal(t, "3.14", got)
 
 	s.Set("bool", true)
-	assert.Equal(t, "true", s.String("bool"))
+	got, ok = s.String("bool")
+	assert.True(t, ok)
+	assert.Equal(t, "true", got)
 
 	s.Set("uint", uint64(999))
-	assert.Equal(t, "999", s.String("uint"))
+	got, ok = s.String("uint")
+	assert.True(t, ok)
+	assert.Equal(t, "999", got)
 }
 
 func TestSyncStateBag_IntFromFloat(t *testing.T) {
 	s := &SyncStateBag{}
 	s.Set("f", 3.14)
-	assert.Equal(t, 3, s.Int("f"))
+	gotInt, ok := s.Int("f")
+	assert.True(t, ok)
+	assert.Equal(t, 3, gotInt)
 }
 
 func TestSyncStateBag_BoolFromNumeric(t *testing.T) {
 	s := &SyncStateBag{}
+
 	s.Set("one", 1)
-	assert.Equal(t, true, s.Bool("one"))
+	gotBool, ok := s.Bool("one")
+	assert.True(t, ok)
+	assert.Equal(t, true, gotBool)
 
 	s.Set("zero", 0)
-	assert.Equal(t, false, s.Bool("zero"))
+	gotBool, ok = s.Bool("zero")
+	assert.True(t, ok)
+	assert.Equal(t, false, gotBool)
 }
 
 // ---------------------------------------------------------------------------
@@ -653,57 +786,105 @@ func TestFromState_StringToUintCoercion(t *testing.T) {
 
 	// string -> uint types
 	s.Set("val", "42")
-	assert.Equal(t, uint(42), FromState[uint](s, "val", 0))
-	assert.Equal(t, uint8(42), FromState[uint8](s, "val", 0))
-	assert.Equal(t, uint16(42), FromState[uint16](s, "val", 0))
-	assert.Equal(t, uint32(42), FromState[uint32](s, "val", 0))
-	assert.Equal(t, uint64(42), FromState[uint64](s, "val", 0))
+	gotU, ok := FromState[uint](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint(42), gotU)
 
-	// negative string should return zero for uint
+	gotU8, ok := FromState[uint8](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint8(42), gotU8)
+
+	gotU16, ok := FromState[uint16](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint16(42), gotU16)
+
+	gotU32, ok := FromState[uint32](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint32(42), gotU32)
+
+	gotU64, ok := FromState[uint64](s, "val", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(42), gotU64)
+
+	// negative string should return zero + false for uint
 	s.Set("neg", "-1")
-	assert.Equal(t, uint(0), FromState[uint](s, "neg", 0))
-	assert.Equal(t, uint8(0), FromState[uint8](s, "neg", 0))
+	gotU, ok = FromState[uint](s, "neg", 0)
+	assert.False(t, ok)
+	assert.Equal(t, uint(0), gotU)
 
-	// overflow string should return zero for uint8
+	gotU8, ok = FromState[uint8](s, "neg", 0)
+	assert.False(t, ok)
+	assert.Equal(t, uint8(0), gotU8)
+
+	// overflow string should return zero + false for uint8
 	s.Set("big", "300")
-	assert.Equal(t, uint8(0), FromState[uint8](s, "big", 0))
+	gotU8, ok = FromState[uint8](s, "big", 0)
+	assert.False(t, ok)
+	assert.Equal(t, uint8(0), gotU8)
 }
 
 func TestFromState_JSONNumberForAllTargetTypes(t *testing.T) {
 	s := &SyncStateBag{}
-
 	s.Set("jn", json.Number("42"))
 
-	assert.Equal(t, "42", FromState[string](s, "jn", ""))
-	assert.Equal(t, 42, FromState[int](s, "jn", 0))
-	assert.Equal(t, int64(42), FromState[int64](s, "jn", 0))
-	assert.Equal(t, uint(42), FromState[uint](s, "jn", 0))
-	assert.Equal(t, uint64(42), FromState[uint64](s, "jn", 0))
-	assert.Equal(t, float64(42), FromState[float64](s, "jn", 0))
-	assert.Equal(t, float32(42), FromState[float32](s, "jn", 0))
+	gotStr, ok := FromState[string](s, "jn", "")
+	assert.True(t, ok)
+	assert.Equal(t, "42", gotStr)
+
+	gotInt, ok := FromState[int](s, "jn", 0)
+	assert.True(t, ok)
+	assert.Equal(t, 42, gotInt)
+
+	gotI64, ok := FromState[int64](s, "jn", 0)
+	assert.True(t, ok)
+	assert.Equal(t, int64(42), gotI64)
+
+	gotU, ok := FromState[uint](s, "jn", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint(42), gotU)
+
+	gotU64, ok := FromState[uint64](s, "jn", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(42), gotU64)
+
+	gotF64, ok := FromState[float64](s, "jn", 0)
+	assert.True(t, ok)
+	assert.Equal(t, float64(42), gotF64)
+
+	gotF32, ok := FromState[float32](s, "jn", 0)
+	assert.True(t, ok)
+	assert.Equal(t, float32(42), gotF32)
 }
 
 func TestFromState_JSONNumberFloat(t *testing.T) {
 	s := &SyncStateBag{}
 
 	s.Set("jf", json.Number("3.14"))
-	assert.Equal(t, "3.14", FromState[string](s, "jf", ""))
-	assert.InDelta(t, 3.14, FromState[float64](s, "jf", 0), 1e-9)
-	assert.Equal(t, 3, FromState[int](s, "jf", 0)) // truncation
+
+	gotStr, ok := FromState[string](s, "jf", "")
+	assert.True(t, ok)
+	assert.Equal(t, "3.14", gotStr)
+
+	gotF64, ok := FromState[float64](s, "jf", 0)
+	assert.True(t, ok)
+	assert.InDelta(t, 3.14, gotF64, 1e-9)
+
+	gotInt, ok := FromState[int](s, "jf", 0) // truncation
+	assert.True(t, ok)
+	assert.Equal(t, 3, gotInt)
 }
 
 func TestFromState_NormalizeDoesNotMutateOriginalSlice(t *testing.T) {
 	s := &SyncStateBag{}
 
 	original := []interface{}{json.Number("1"), json.Number("2"), json.Number("3")}
-	// keep a copy to verify original is not mutated
 	originalCopy := make([]interface{}, len(original))
 	copy(originalCopy, original)
 
 	s.Set("slice", original)
 
 	// Access the value which triggers normalization
-	_ = FromState[[]interface{}](s, "slice", nil)
+	_, _ = FromState[[]interface{}](s, "slice", nil)
 
 	// Original slice should NOT be mutated
 	for i, v := range original {
@@ -714,30 +895,55 @@ func TestFromState_NormalizeDoesNotMutateOriginalSlice(t *testing.T) {
 func TestFromState_DefaultZeroReturned(t *testing.T) {
 	s := &SyncStateBag{}
 
-	// unsupported coercion: struct -> int should return zero
+	// unsupported coercion: struct -> int/string/bool should return zero + false
 	s.Set("struct", struct{ X int }{X: 1})
-	assert.Equal(t, 0, FromState[int](s, "struct", 0))
-	assert.Equal(t, "", FromState[string](s, "struct", ""))
-	assert.Equal(t, false, FromState[bool](s, "struct", false))
+
+	gotInt, ok := FromState[int](s, "struct", 0)
+	assert.False(t, ok)
+	assert.Equal(t, 0, gotInt)
+
+	gotStr, ok := FromState[string](s, "struct", "")
+	assert.False(t, ok)
+	assert.Equal(t, "", gotStr)
+
+	gotBool, ok := FromState[bool](s, "struct", false)
+	assert.False(t, ok)
+	assert.Equal(t, false, gotBool)
 }
 
 func TestFromState_CustomZeroValue(t *testing.T) {
 	s := &SyncStateBag{}
 
-	// missing key returns custom zero
-	assert.Equal(t, 99, FromState[int](s, "missing", 99))
-	assert.Equal(t, "fallback", FromState[string](s, "missing", "fallback"))
-	assert.Equal(t, true, FromState[bool](s, "missing", true))
+	// missing key returns custom zero + false
+	gotInt, ok := FromState[int](s, "missing", 99)
+	assert.False(t, ok)
+	assert.Equal(t, 99, gotInt)
+
+	gotStr, ok := FromState[string](s, "missing", "fallback")
+	assert.False(t, ok)
+	assert.Equal(t, "fallback", gotStr)
+
+	gotBool, ok := FromState[bool](s, "missing", true)
+	assert.False(t, ok)
+	assert.Equal(t, true, gotBool)
 }
 
 func TestFromState_NilValueStored(t *testing.T) {
 	s := &SyncStateBag{}
 	s.Set("nil", nil)
 
-	// nil stored: should return zero for primitive types
-	assert.Equal(t, 0, FromState[int](s, "nil", 0))
-	assert.Equal(t, "", FromState[string](s, "nil", ""))
-	assert.Equal(t, false, FromState[bool](s, "nil", false))
+	// nil stored: normalizeFromState returns error → zero + false
+	gotInt, ok := FromState[int](s, "nil", 0)
+	assert.False(t, ok)
+	assert.Equal(t, 0, gotInt)
+
+	gotStr, ok := FromState[string](s, "nil", "")
+	assert.False(t, ok)
+	assert.Equal(t, "", gotStr)
+
+	gotBool, ok := FromState[bool](s, "nil", false)
+	assert.False(t, ok)
+	assert.Equal(t, false, gotBool)
 }
 
 func TestFromState_PointerToPointer(t *testing.T) {
@@ -749,7 +955,8 @@ func TestFromState_PointerToPointer(t *testing.T) {
 	s.Set("pp", pp)
 
 	// exact type match should work for **int
-	got := FromState[**int](s, "pp", nil)
+	got, ok := FromState[**int](s, "pp", nil)
+	assert.True(t, ok)
 	require.NotNil(t, got)
 	require.NotNil(t, *got)
 	assert.Equal(t, 42, **got)
@@ -761,43 +968,60 @@ func TestFromState_PointerToPointer(t *testing.T) {
 
 func TestSyncStateBag_StringFromMissing(t *testing.T) {
 	s := &SyncStateBag{}
-	assert.Equal(t, "", s.String("missing"))
+	got, ok := s.String("missing")
+	assert.False(t, ok)
+	assert.Equal(t, "", got)
 }
 
 func TestSyncStateBag_IntFromString(t *testing.T) {
 	s := &SyncStateBag{}
 	s.Set("n", "42")
-	assert.Equal(t, 42, s.Int("n"))
+	got, ok := s.Int("n")
+	assert.True(t, ok)
+	assert.Equal(t, 42, got)
 }
 
 func TestSyncStateBag_Float64FromInt(t *testing.T) {
 	s := &SyncStateBag{}
 	s.Set("n", 7)
-	assert.Equal(t, float64(7), s.Float64("n"))
+	got, ok := s.Float64("n")
+	assert.True(t, ok)
+	assert.Equal(t, float64(7), got)
 }
 
 func TestSyncStateBag_Float32FromFloat64(t *testing.T) {
 	s := &SyncStateBag{}
 	s.Set("n", float64(2.5))
-	assert.InDelta(t, float32(2.5), s.Float32("n"), 0.01)
+	got, ok := s.Float32("n")
+	assert.True(t, ok)
+	assert.InDelta(t, float32(2.5), got, 0.01)
 }
 
 func TestSyncStateBag_Int64FromFloat64(t *testing.T) {
 	s := &SyncStateBag{}
 	s.Set("n", float64(99.9))
-	assert.Equal(t, int64(99), s.Int64("n")) // truncation
+	got, ok := s.Int64("n")
+	assert.True(t, ok)
+	assert.Equal(t, int64(99), got) // truncation
 }
 
 func TestSyncStateBag_BoolFromString(t *testing.T) {
 	s := &SyncStateBag{}
+
 	s.Set("b", "true")
-	assert.Equal(t, true, s.Bool("b"))
+	got, ok := s.Bool("b")
+	assert.True(t, ok)
+	assert.Equal(t, true, got)
 
 	s.Set("bf", "false")
-	assert.Equal(t, false, s.Bool("bf"))
+	got, ok = s.Bool("bf")
+	assert.True(t, ok)
+	assert.Equal(t, false, got)
 
 	s.Set("invalid", "notabool")
-	assert.Equal(t, false, s.Bool("invalid"))
+	got, ok = s.Bool("invalid")
+	assert.False(t, ok)
+	assert.Equal(t, false, got)
 }
 
 func TestToUint64Safe_Float64UpperBoundExactness(t *testing.T) {
@@ -872,8 +1096,13 @@ func TestFromState_LargeUint64ViaJSONNumber(t *testing.T) {
 	s.Set("big", json.Number("18446744073709551615"))
 	s.Set("small", json.Number("42"))
 
-	assert.Equal(t, uint64(math.MaxUint64), FromState[uint64](s, "big", 0))
-	assert.Equal(t, uint32(42), FromState[uint32](s, "small", 0))
+	gotU64, ok := FromState[uint64](s, "big", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(math.MaxUint64), gotU64)
+
+	gotU32, ok := FromState[uint32](s, "small", 0)
+	assert.True(t, ok)
+	assert.Equal(t, uint32(42), gotU32)
 }
 
 func TestFromState_JSONNumberUintOverflowRejected(t *testing.T) {
@@ -881,6 +1110,11 @@ func TestFromState_JSONNumberUintOverflowRejected(t *testing.T) {
 	s.Set("overflow64", json.Number("18446744073709551616"))
 	s.Set("overflow8", json.Number("256"))
 
-	assert.Equal(t, uint64(0), FromState[uint64](s, "overflow64", 0))
-	assert.Equal(t, uint8(0), FromState[uint8](s, "overflow8", 0))
+	gotU64, ok := FromState[uint64](s, "overflow64", 0)
+	assert.False(t, ok)
+	assert.Equal(t, uint64(0), gotU64)
+
+	gotU8, ok := FromState[uint8](s, "overflow8", 0)
+	assert.False(t, ok)
+	assert.Equal(t, uint8(0), gotU8)
 }

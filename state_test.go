@@ -152,7 +152,9 @@ func TestSyncStateBag_PrimitiveOperations(t *testing.T) {
 		// still reusable after clear
 		s.Set("k3", 3)
 		assert.Equal(t, 1, s.Size())
-		assert.Equal(t, 3, s.Int("k3"))
+		k3, ok := s.Int("k3")
+		assert.True(t, ok)
+		assert.Equal(t, 3, k3)
 	})
 
 	t.Run("keys and items return snapshots", func(t *testing.T) {
@@ -168,7 +170,9 @@ func TestSyncStateBag_PrimitiveOperations(t *testing.T) {
 
 		// modifying the returned snapshot must not affect the bag
 		items["a"] = 999
-		assert.Equal(t, 1, s.Int("a"))
+		aVal, ok := s.Int("a")
+		assert.True(t, ok)
+		assert.Equal(t, 1, aVal)
 	})
 }
 
@@ -186,9 +190,15 @@ func TestSyncStateBag_Merge(t *testing.T) {
 		require.NoError(t, err)
 		require.Same(t, dst, merged)
 
-		assert.Equal(t, "new", dst.String("shared"))
-		assert.Equal(t, 1, dst.Int("dst-only"))
-		assert.Equal(t, 2, dst.Int("src-only"))
+		sharedVal, ok := dst.String("shared")
+		assert.True(t, ok)
+		assert.Equal(t, "new", sharedVal)
+		dstOnlyVal, ok := dst.Int("dst-only")
+		assert.True(t, ok)
+		assert.Equal(t, 1, dstOnlyVal)
+		srcOnlyVal, ok := dst.Int("src-only")
+		assert.True(t, ok)
+		assert.Equal(t, 2, srcOnlyVal)
 	})
 
 	t.Run("nil other returns same receiver unchanged", func(t *testing.T) {
@@ -198,7 +208,9 @@ func TestSyncStateBag_Merge(t *testing.T) {
 		merged, err := s.Merge(nil)
 		require.NoError(t, err)
 		require.Same(t, s, merged)
-		assert.Equal(t, "v", s.String("k"))
+		kVal, ok := s.String("k")
+		assert.True(t, ok)
+		assert.Equal(t, "v", kVal)
 	})
 
 	t.Run("self merge is safe and non-destructive", func(t *testing.T) {
@@ -210,8 +222,12 @@ func TestSyncStateBag_Merge(t *testing.T) {
 		require.NoError(t, err)
 		require.Same(t, s, merged)
 
-		assert.Equal(t, "v1", s.String("k1"))
-		assert.Equal(t, 2, s.Int("k2"))
+		k1Val, ok := s.String("k1")
+		assert.True(t, ok)
+		assert.Equal(t, "v1", k1Val)
+		k2Val, ok := s.Int("k2")
+		assert.True(t, ok)
+		assert.Equal(t, 2, k2Val)
 		assert.Equal(t, 2, s.Size())
 	})
 
@@ -232,9 +248,13 @@ func TestSyncStateBag_Merge(t *testing.T) {
 		src.Delete("src-only")
 
 		// merged result should stay as it was at merge time
-		assert.Equal(t, "new", dst.String("shared"))
-		assert.Equal(t, 1, dst.Int("src-only"))
-		_, ok := dst.Get("new-after-merge")
+		dstShared, ok := dst.String("shared")
+		assert.True(t, ok)
+		assert.Equal(t, "new", dstShared)
+		dstSrcOnly, ok := dst.Int("src-only")
+		assert.True(t, ok)
+		assert.Equal(t, 1, dstSrcOnly)
+		_, ok = dst.Get("new-after-merge")
 		assert.False(t, ok)
 	})
 }
