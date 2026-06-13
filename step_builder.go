@@ -2,9 +2,9 @@ package automa
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/joomcode/errorx"
-	"github.com/rs/zerolog"
 )
 
 // ExecuteFunc is the signature for a step's primary work function.
@@ -86,10 +86,12 @@ func (s *StepBuilder) WithId(id string) *StepBuilder {
 	return s
 }
 
-// WithLogger attaches a structured [zerolog.Logger] to the step. The logger is
-// available inside Execute, Rollback, and Prepare via the Step parameter.
-func (s *StepBuilder) WithLogger(logger zerolog.Logger) *StepBuilder {
-	s.Step.logger = &logger
+// WithLogger attaches a structured [slog.Logger] to the step. The logger is
+// stored on the step for internal use; it is not currently surfaced through the
+// [Step] interface, so step callbacks should close over their own logger if they
+// need one. A nil logger leaves the step without a logger.
+func (s *StepBuilder) WithLogger(logger *slog.Logger) *StepBuilder {
+	s.Step.logger = logger
 	return s
 }
 

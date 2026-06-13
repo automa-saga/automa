@@ -2,8 +2,7 @@ package automa
 
 import (
 	"fmt"
-
-	"github.com/rs/zerolog"
+	"log/slog"
 )
 
 // WorkflowBuilder is a fluent builder for constructing [Workflow] instances.
@@ -193,11 +192,17 @@ func (wb *WorkflowBuilder) WithRegistry(sr Registry) *WorkflowBuilder {
 	return wb
 }
 
-// WithLogger attaches a [zerolog.Logger] to the workflow. The logger is passed
-// to the workflow's internal execution and rollback loops for structured
-// diagnostics.
-func (wb *WorkflowBuilder) WithLogger(logger zerolog.Logger) *WorkflowBuilder {
-	wb.workflow.logger = logger
+// WithLogger attaches a [slog.Logger] to the workflow. The logger is passed to
+// the workflow's internal execution and rollback loops for structured
+// diagnostics. A nil logger is ignored, leaving the silent default in place.
+//
+// To route automa's slog output through zerolog + lumberjack, use logx:
+//
+//	wb.WithLogger(slog.New(logx.NewSlogHandler()))
+func (wb *WorkflowBuilder) WithLogger(logger *slog.Logger) *WorkflowBuilder {
+	if logger != nil {
+		wb.workflow.logger = logger
+	}
 	return wb
 }
 

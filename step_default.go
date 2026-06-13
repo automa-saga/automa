@@ -2,9 +2,8 @@ package automa
 
 import (
 	"context"
+	"log/slog"
 	"time"
-
-	"github.com/rs/zerolog"
 )
 
 // defaultStep is the concrete implementation of [Step] produced by
@@ -21,7 +20,7 @@ type defaultStep struct {
 
 	// logger is an optional structured logger. When nil the step does not emit
 	// log lines of its own; the workflow logger is used at the workflow level.
-	logger *zerolog.Logger
+	logger *slog.Logger
 
 	// prepare is called once before Execute to enrich the context or validate
 	// preconditions. nil means no preparation is needed.

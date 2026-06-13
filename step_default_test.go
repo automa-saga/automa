@@ -3,11 +3,11 @@ package automa
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -163,9 +163,9 @@ func TestDefaultStep_AsyncCallbacks(t *testing.T) {
 
 func TestDefaultStep_Logger(t *testing.T) {
 	step := newDefaultStep()
-	logger := zerolog.Nop()
-	step.logger = &logger
-	assert.Equal(t, &logger, step.logger)
+	logger := slog.New(slog.DiscardHandler)
+	step.logger = logger
+	assert.Equal(t, logger, step.logger)
 }
 
 func TestDefaultStep_State_Singleton(t *testing.T) {

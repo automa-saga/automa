@@ -2,9 +2,8 @@ package automa
 
 import (
 	"context"
+	"log/slog"
 	"time"
-
-	"github.com/rs/zerolog"
 )
 
 // workflow provides orchestration primitives for composing and executing
@@ -45,7 +44,7 @@ import (
 type workflow struct {
 	id                   string
 	state                NamespacedStateBag
-	logger               zerolog.Logger
+	logger               *slog.Logger
 	steps                []Step
 	executionMode        TypeMode
 	rollbackMode         TypeMode
@@ -163,9 +162,15 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int, states map[strin
 		// Update the step's state to the snapshot before calling Rollback
 		step = step.WithState(state)
 
+		w.log().Debug("rolling back step", "workflowId", w.id, "stepId", step.Id(), "index", i)
+
 		rollbackReport := step.Rollback(ctx)
 
 		if rollbackReport == nil {
+			w.log().Warn("step returned nil report from Rollback; treating as failure",
+				"workflowId", w.id,
+				"stepId", step.Id(),
+			)
 			rollbackReport = FailureReport(step,
 				WithWorkflow(w),
 				WithActionType(ActionRollback),
@@ -184,6 +189,12 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int, states map[strin
 		stepReports[step.Id()] = rollbackReport
 
 		if rollbackReport.IsFailed() {
+			w.log().Warn("step rollback failed",
+				"workflowId", w.id,
+				"stepId", step.Id(),
+				"index", i,
+				"rollbackMode", w.rollbackMode.String(),
+			)
 			switch w.rollbackMode {
 			case ContinueOnError:
 				continue
@@ -307,12 +318,20 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 	startTime := time.Now()
 
 	if len(w.steps) == 0 {
+		w.log().Error("workflow has no steps to execute", "workflowId", w.id)
 		return FailureReport(w,
 			WithWorkflow(w),
 			WithStartTime(startTime),
 			WithActionType(ActionExecute),
 			WithError(StepExecutionError.New("workflow %s has no steps to execute", w.id)))
 	}
+
+	w.log().Debug("starting workflow execution",
+		"workflowId", w.id,
+		"steps", len(w.steps),
+		"executionMode", w.executionMode.String(),
+		"rollbackMode", w.rollbackMode.String(),
+	)
 
 	var stepReports []*Report
 	var hasFailed bool
@@ -346,6 +365,12 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 						WithProperty(StepIdProperty, step.Id()),
 					))
 
+				w.log().Warn("failed to clone global state for sub-workflow; falling back to empty state",
+					"workflowId", w.id,
+					"stepId", step.Id(),
+					"error", statePrepError,
+				)
+
 				// Fall back to empty state for consistency since we always assume there is a state attached to the step
 				// when calling Prepare and Execute, even though sub-workflow won't have access to parent's global state
 				// in this case.
@@ -366,8 +391,14 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 		// prepare step context
 		if statePrepError == nil {
+			w.log().Debug("executing step", "workflowId", w.id, "stepId", step.Id(), "index", index)
 			stepCtx, ctxPrepError = step.Prepare(ctx)
 			if ctxPrepError != nil {
+				w.log().Warn("step preparation failed",
+					"workflowId", w.id,
+					"stepId", step.Id(),
+					"error", ctxPrepError,
+				)
 				report = FailureReport(step,
 					WithWorkflow(w),
 					WithStartTime(stepStart),
@@ -383,6 +414,10 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		if statePrepError == nil && ctxPrepError == nil {
 			report = step.Execute(stepCtx)
 			if report == nil {
+				w.log().Warn("step returned nil report from Execute; treating as failure",
+					"workflowId", w.id,
+					"stepId", step.Id(),
+				)
 				report = FailureReport(step,
 					WithWorkflow(w),
 					WithStartTime(stepStart),
@@ -404,11 +439,12 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 				if err != nil {
 					// State cloning failed; log warning and store non-cloned reference
 					// Do NOT fail the step - this would prevent rollback and leave state inconsistent
-					w.logger.Warn().
-						Err(err).
-						Str("workflowId", w.id).
-						Str("stepId", step.Id()).
-						Msg("failed to clone state for rollback snapshot; using current state reference (may be mutated by later steps before rollback)")
+					w.log().Warn(
+						"failed to clone state for rollback snapshot; using current state reference (may be mutated by later steps before rollback)",
+						"error", err,
+						"workflowId", w.id,
+						"stepId", step.Id(),
+					)
 
 					// Store non-cloned state for rollback
 					stepStates[step.Id()] = state
@@ -425,9 +461,23 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		if report.IsFailed() {
 			hasFailed = true
 
+			w.log().Warn("step failed",
+				"workflowId", w.id,
+				"stepId", step.Id(),
+				"index", index,
+				"executionMode", w.executionMode.String(),
+			)
+
 			if w.executionMode == StopOnError {
 				break
 			} else if w.executionMode == RollbackOnError {
+				w.log().Info("initiating rollback after step failure",
+					"workflowId", w.id,
+					"fromStepId", step.Id(),
+					"fromIndex", index,
+					"rollbackMode", w.rollbackMode.String(),
+				)
+
 				// Perform rollback using recorded per-step states
 				// Rollback from index (include the failed step for cleanup)
 				rollbackReports := w.rollbackFrom(stepCtx, index, stepStates)
@@ -459,6 +509,12 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			}
 		}
 
+		w.log().Error("workflow execution failed",
+			"workflowId", w.id,
+			"failedSteps", failedStepIDs,
+			"durationMs", time.Since(startTime).Milliseconds(),
+		)
+
 		workflowReport := FailureReport(w,
 			WithWorkflow(w),
 			WithStartTime(startTime),
@@ -473,6 +529,12 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 		return workflowReport
 	}
+
+	w.log().Info("workflow execution completed",
+		"workflowId", w.id,
+		"steps", len(stepReports),
+		"durationMs", time.Since(startTime).Milliseconds(),
+	)
 
 	workflowReport := SuccessReport(w,
 		WithWorkflow(w),
@@ -527,6 +589,8 @@ func (w *workflow) Rollback(ctx context.Context) *Report {
 	}
 
 	startTime := time.Now()
+
+	w.log().Info("starting workflow rollback", "workflowId", w.id, "steps", len(w.steps))
 
 	// Use preserved states from last execution, fall back to nil if none available
 	rollbackReports := w.rollbackFrom(ctx, len(w.steps)-1, w.lastExecutionStates)
@@ -586,7 +650,22 @@ func newDefaultWorkflow() *workflow {
 	return &workflow{
 		executionMode:             StopOnError,
 		rollbackMode:              ContinueOnError,
-		logger:                    zerolog.Nop(),
+		logger:                    discardLogger,
 		preserveStatesForRollback: true, // default: enabled for backward compatibility
 	}
+}
+
+// discardLogger is the shared no-op logger used when no logger has been
+// configured. slog.DiscardHandler drops every record, so logging stays silent
+// and allocation-free until the caller supplies a real logger via WithLogger.
+var discardLogger = slog.New(slog.DiscardHandler)
+
+// log returns the workflow's logger, falling back to discardLogger when none was
+// configured (e.g. for hand-constructed workflows that bypass newDefaultWorkflow).
+// Internal log call sites use this so they never have to nil-check w.logger.
+func (w *workflow) log() *slog.Logger {
+	if w.logger == nil {
+		return discardLogger
+	}
+	return w.logger
 }
