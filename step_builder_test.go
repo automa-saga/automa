@@ -2,9 +2,9 @@ package automa
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,7 +15,7 @@ func dummyOnCompletion(ctx context.Context, stp Step, report *Report)     {}
 func dummyOnFailure(ctx context.Context, stp Step, report *Report)        {}
 
 func TestStepBuilder_WithMethods(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := slog.New(slog.DiscardHandler)
 	builder := NewStepBuilder().
 		WithId("step1").
 		WithLogger(logger).

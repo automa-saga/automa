@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"testing"
 
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -75,7 +75,7 @@ func TestWorkflowBuilder_WithId_WithLogger_WithRollbackMode(t *testing.T) {
 	wb.WithId("wf-id")
 	assert.Equal(t, "wf-id", wb.Id())
 
-	logger := zerolog.Nop()
+	logger := slog.New(slog.DiscardHandler)
 	wb.WithLogger(logger)
 	assert.Equal(t, logger, wb.workflow.logger)
 
@@ -204,7 +204,7 @@ func TestWorkflowBuilder_MethodChaining(t *testing.T) {
 		WithRollbackMode(StopOnError).
 		WithAsyncCallbacks(true).
 		WithState(NewNamespacedStateBag(nil, nil)).
-		WithLogger(zerolog.Nop())
+		WithLogger(slog.New(slog.DiscardHandler))
 	assert.Equal(t, "chain", wb.Id())
 	assert.Equal(t, StopOnError, wb.workflow.rollbackMode)
 	assert.True(t, wb.workflow.enableAsyncCallbacks)

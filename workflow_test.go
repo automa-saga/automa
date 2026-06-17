@@ -1,12 +1,13 @@
 package automa
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,6 +17,7 @@ func newTestWorkflow(id string, steps []Step) *workflow {
 		steps:         steps,
 		executionMode: StopOnError,
 		rollbackMode:  ContinueOnError,
+		logger:        slog.New(slog.DiscardHandler),
 	}
 }
 
@@ -81,9 +83,56 @@ func TestWorkflow_RollbackModeStopOnError(t *testing.T) {
 }
 
 func TestWorkflow_WithLogger(t *testing.T) {
-	logger := zerolog.Nop()
+	logger := slog.New(slog.DiscardHandler)
 	wf := &workflow{id: "wf", logger: logger}
 	assert.Equal(t, logger, wf.logger)
+}
+
+func TestWorkflow_Logging_EmitsLifecycleRecords(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	s1 := &defaultStep{id: "ok", execute: func(ctx context.Context, stp Step) *Report {
+		return StepSuccessReport("ok")
+	}}
+	s2 := &defaultStep{id: "boom", execute: func(ctx context.Context, stp Step) *Report {
+		return StepFailureReport("boom", WithError(errors.New("kaboom")))
+	}}
+
+	wf := newTestWorkflow("wf", []Step{s1, s2})
+	wf.executionMode = RollbackOnError
+	wf.logger = logger
+
+	report := wf.Execute(context.Background())
+	assert.Equal(t, StatusFailed, report.Status)
+
+	out := buf.String()
+	assert.Contains(t, out, "starting workflow execution")
+	assert.Contains(t, out, "step failed")
+	assert.Contains(t, out, "initiating rollback after step failure")
+	assert.Contains(t, out, "workflow execution failed")
+	assert.Contains(t, out, `"workflowId":"wf"`)
+	assert.Contains(t, out, `"stepId":"boom"`)
+}
+
+func TestWorkflow_Logging_NilLoggerIsSafe(t *testing.T) {
+	// A workflow constructed directly (bypassing newDefaultWorkflow) has a nil
+	// logger; the internal log() helper must keep every call site panic-free.
+	wf := &workflow{
+		id:            "wf",
+		executionMode: RollbackOnError,
+		rollbackMode:  ContinueOnError,
+		steps: []Step{
+			&defaultStep{id: "boom", execute: func(ctx context.Context, stp Step) *Report {
+				return StepFailureReport("boom", WithError(errors.New("kaboom")))
+			}},
+		},
+	}
+
+	assert.NotPanics(t, func() {
+		wf.Execute(context.Background())
+		wf.Rollback(context.Background())
+	})
 }
 
 func TestWorkflow_Id(t *testing.T) {

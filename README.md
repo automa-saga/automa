@@ -23,6 +23,37 @@ go get -u github.com/automa-saga/automa
 
 See an [example](https://github.com/automa-saga/automa/blob/master/examples) in the examples directory. 
 
+## Logging
+
+Automa logs through the standard library's [`log/slog`](https://pkg.go.dev/log/slog) and stays
+logging-backend agnostic — it has no logging dependency of its own. Attach a `*slog.Logger` to a
+workflow via `WithLogger` for the engine's own diagnostics (e.g. rollback-snapshot warnings):
+
+```go
+wf := automa.NewWorkflowBuilder().
+    WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil))).
+    // ...
+    Build()
+```
+
+If no logger is provided, automa stays silent (it uses `slog.DiscardHandler`).
+
+We recommend [`logx`](https://github.com/automa-saga/logx) so you get `zerolog` + `lumberjack`
+(console writer, rolling files, level, etc.) while still driving automa through the `slog` API:
+
+```go
+logx.Initialize(logx.LoggingConfig{
+    Level: "info", ConsoleLogging: true,
+    FileLogging: true, Directory: "/var/log/myapp", Filename: "daemon.log",
+    MaxSize: 50, MaxBackups: 3, MaxAge: 30, Compress: true,
+})
+
+wf := automa.NewWorkflowBuilder().
+    WithLogger(slog.New(logx.NewSlogHandler())).
+    // ...
+    Build()
+```
+
 ## Development
  - `task test` runs the tests (install `task` tool: https://taskfile.dev/installation/).
  - In order to build example, do `cd docs/examples && go build`. Then the example can be then run using `./example`.
