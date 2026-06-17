@@ -291,26 +291,47 @@ A **namespaced state bag** partitions state into:
 | Namespace | Visibility |
 |-----------|-----------|
 | **Local** | Private to one step. Never visible to any other step. |
-| **Global** | Shared across all steps in a workflow. Writes by one step are visible to subsequent steps. |
-| **Custom (named)** | An isolated, explicitly named partition, created on first access. Isolated from Local, Global, and other custom namespaces. |
+| **Global** | The default shared room: shared across all steps in a workflow. Writes by one step are visible to subsequent steps. |
+| **Custom (named)** | A **named shared room**: shared across all steps in the workflow under an explicit name, created on first access. A sibling of Global, not a child of it. Isolated from Local and from *other* named rooms, but **not** isolated between steps. |
+
+#### 7.2.1 Custom namespaces are shared, named rooms
+
+- Global and the custom namespaces together form the workflow's **shared state
+  space**. Global is the default unnamed room; `WithNamespace(name)` is a named
+  room. Both are shared across all steps in the workflow.
+- A step that writes to `WithNamespace("database-primary")` publishes data that
+  any later step reading the same named room observes. This is the intended use:
+  a reusable step instance publishes under a distinct name (e.g.
+  `"database-primary"` vs `"database-replica"`) so a consuming step can read the
+  right instance's data without the flat-Global key collisions that would
+  otherwise occur.
+- **Collisions within a named room are by design, not prevented.** Multiple steps
+  writing the same key in the same named room overwrite each other, exactly as in
+  Global. Authors SHOULD use a key convention (e.g. a prefix) to avoid accidental
+  collisions, and MAY deliberately overwrite to let a set of cooperating steps
+  reuse values written by another step. The engine does not arbitrate.
+- Named rooms are isolated **from each other** and from Local; they are not
+  isolated **between steps** (that is the whole point — they are shared).
 
 ### 7.3 State injection (per step)
 
 Before a step's Prepare, the engine MUST attach a namespaced state bag built as
-follows:
+follows. "Shared state space" means **Global plus all named rooms** (§7.2.1):
 
-- **Ordinary step:** fresh empty **Local**; **Global** is the *same shared*
-  global bag as the workflow's (mutations are visible to later steps).
-- **Sub-workflow step:** fresh empty **Local**; **Global** is a *deep clone* of
-  the workflow's global bag (isolation, per §6).
+- **Ordinary step:** fresh empty **Local**; the *same shared* state space as the
+  workflow's — both Global and the named rooms are shared by reference, so writes
+  to either are visible to later steps.
+- **Sub-workflow step:** fresh empty **Local**; a *deep clone* of the workflow's
+  entire shared state space — both Global and every named room are cloned, so the
+  sub-workflow inherits the parent's shared state but its mutations (to Global or
+  any named room) MUST NOT propagate back to the parent (isolation, per §6).
 
-Custom namespaces are created on demand within a step's own bag and are scoped to
-that step's bag (they are not shared across steps).
-
-> **Note (portability hazard, not yet a decision).** The current model does not
-> propagate custom namespaces from the workflow to a step's injected bag, nor
-> across steps. This is intentional today, but cross-language implementations
-> MUST agree on it. It is captured as an open question in §10.
+> **Resolved (was an open question).** Custom namespaces are workflow-scoped
+> shared named rooms, propagated to every step's injected bag by reference and
+> deep-cloned for sub-workflows alongside Global. This realizes the
+> `"database-primary"` use case the model was designed for. The previous
+> step-private behavior (review issue #83) is to be changed; the Go
+> implementation MUST be adapted (§11, D8).
 
 ### 7.4 Execution-time snapshots
 
@@ -336,10 +357,18 @@ normative:
 - After a JSON round-trip, numeric values MAY be decoded as floating point.
   Implementations MUST provide **coercing typed accessors** (integer, float,
   bool, string) that recover the intended type from the round-tripped value.
-- Implementations MUST agree on numeric range/precision behavior so that a state
-  bag written by one language loads losslessly in another. The boundary rules
-  (e.g. large 64-bit integers vs. float64 mantissa) MUST be specified and shared
-  as conformance fixtures (§7.6 references `state-numeric-boundaries.md`).
+- **Numeric precision policy (normative).** JSON has a single number type, and a
+  round-trip through floating point can represent integers exactly only up to
+  2^53. Values beyond that range (e.g. large 64-bit IDs) CANNOT be guaranteed to
+  survive a round-trip as numbers across languages.
+  - For values that must round-trip losslessly and exceed the safe integer
+    range, authors SHOULD store them as **strings** (e.g. a 64-bit ID as
+    `"9007199254740993"`), and use the string accessor to read them back.
+  - Implementations MUST document this limitation prominently. An author who
+    stores a large value as a JSON *number* accepts the precision risk; the
+    engine does not silently widen or arbitrate.
+  - The exact safe-integer boundary and the recommended string convention MUST be
+    shared as conformance fixtures so every language agrees on the cutoff.
 - `null` / nil values MUST be storable and MUST be distinguishable from an absent
   key.
 
@@ -363,7 +392,7 @@ a cross-language contract.
 | `isWorkflow` | bool | True if produced by a workflow. |
 | `action` | string | Phase that produced it: `prepare` / `execute` / `rollback`. |
 | `status` | string | `success` / `failed` / `skipped`. |
-| `startTime`, `endTime` | timestamp | Phase wall-clock bounds. |
+| `startTime`, `endTime` | RFC 3339 string (ms precision, tz designator) | Phase wall-clock bounds, e.g. `2026-06-17T10:30:00.123Z` (§10.4). |
 | `detail` | string, optional | Human-readable context. |
 | `error` | string, optional | Failure message (the error rendered as a string). |
 | `metadata` | object, optional | String→string structured diagnostics. |
@@ -414,21 +443,26 @@ a cross-language contract.
 
 ## 10. Open questions
 
-These MUST be resolved before core model v1 is frozen, because they affect
-cross-language behavior:
+**Resolved (folded into the spec):**
 
-1. **Custom namespace propagation (§7.3).** Should custom namespaces ever be
-   shared across steps or inherited by sub-workflows, or remain strictly
-   step-scoped? Current behavior is strictly step-scoped.
-2. **Numeric precision boundaries (§7.5).** The exact rule for 64-bit integers
-   that exceed float64's exact-integer range, across languages that lack a
-   distinct integer type after JSON decode.
-3. **Timestamp format.** `startTime`/`endTime` wire format (RFC 3339 string vs.
-   epoch) and required precision, for cross-language report exchange.
-4. **Metadata value typing.** Metadata is currently string→string. Should values
-   be allowed to be arbitrary JSON, or remain strings for portability?
-5. **Sub-workflow rollback report shape (§8.2).** Pin the exact nesting for a
-   compensated child workflow before claiming nested durability.
+1. **Custom namespace propagation (§7.2.1, §7.3).** *Resolved:* workflow-scoped
+   shared named rooms, deep-cloned for sub-workflows. (D8.)
+2. **Numeric precision boundaries (§7.5).** *Resolved:* document the 2^53
+   boundary; recommend string-typed numerics for values beyond it; authors using
+   JSON numbers accept the risk.
+3. **Metadata value typing (§8.1).** *Resolved:* `string → string` (matches
+   solo-provisioner usage; maximizes portability).
+4. **Timestamp format (§8.1).** *Resolved:* `startTime`/`endTime` serialize as
+   **RFC 3339 / ISO 8601 strings with millisecond precision and a timezone
+   designator** (e.g. `2026-06-17T10:30:00.123Z`).
+5. **Sub-workflow rollback report shape (§8.2).** *Resolved:* a compensated child
+   workflow's rollback report nests **inline** under the parent step's `rollback`
+   field, recursively — a child's rollback is itself a workflow-shaped report.
+
+**Still open:**
+
+- None blocking core v1. (Conformance fixtures must encode the numeric boundary
+  and the timestamp format precisely; see §12.)
 
 ## 11. Consolidated spec decisions (Go to be adapted)
 
@@ -442,6 +476,7 @@ implementation is to be adapted (or the decision confirmed before freezing):
 | D4 | `rollback_mode` restricted to `{ continue, stop }`; reject `rollback`. | 5.2 |
 | D5 | Compensation MUST skip non-executed (`skipped`/`pending`) steps. | 5.3 |
 | D7 | Report enums (`action`, `status`) MUST fail on unknown values on decode, like `mode`. | 8.1 |
+| D8 | Custom namespaces become **workflow-scoped shared named rooms** (propagated by reference to steps, deep-cloned for sub-workflows), replacing the current step-private behavior. | 7.2.1, 7.3 |
 
 **Resolved to match current behavior (no code change to logic; docs only):**
 

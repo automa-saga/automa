@@ -52,9 +52,30 @@ interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 | [Durability](durability-spec.md) | proposed | **Extends Core.** Journal format, execution state machine, persistence ordering, and resume/recovery semantics for crash-recoverable sequential sagas. |
 
 Specs layer: **Core** is the foundation; **Durability** is an extension built on
-top of it. Future features (timeouts, retries, backoff, parallelism) are expected
-to be additional extensions, each with its own spec and conformance fixtures, so
-the core stays small and stable.
+top of it. Future features are additional extensions, each with its own spec and
+conformance fixtures, so the core stays small and stable.
+
+### Extension roadmap and ordering
+
+Extensions are added **only after core v1 and durability v1 are frozen** and the
+Go reference implementation passes their conformance fixtures. Planned order, by
+increasing risk to the core model:
+
+1. **Timeout** — per-step / per-workflow deadline. Orthogonal: a timed-out step
+   is simply a failure and flows through the existing mode/rollback machinery.
+2. **Retry / backoff** — execution-layer extension. Its main interaction is the
+   idempotency contract already defined by durability (a retried step has the
+   same obligation as a resumed one).
+3. **Branching / looping** — **deferred until there is concrete demand.** These
+   make topology conditional/dynamic, which conflicts with durability's core
+   constraint that topology is a static, reconstructible, ordered list. They MUST
+   NOT be added without a topology-model revision that durability can survive
+   (e.g. journaling the branch taken / iteration index). The target use cases
+   (CLI, provisioning, migration) are overwhelmingly linear, so this is low
+   priority.
+
+Parallel/concurrent step execution is likewise a post-v1 extension, not a core
+v1 concern.
 
 ## Relationship to design docs
 

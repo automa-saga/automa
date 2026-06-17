@@ -83,7 +83,9 @@ These are out of scope for journal schema v1.
   "rollback_mode":  "StopOnError",    // string; one of the rollback modes (§4.3)
   "phase":  "forward",                // string; workflow phase (§4.1)
   "cursor": 1,                        // integer; index of the step currently worked on
-  "global": { /* state bag */ },      // object; shared (global) state, serialized
+  "shared": { /* namespaced bag */ }, // object; the workflow's shared state space:
+                                       //   Global + all named rooms (§ core 7.2.1).
+                                       //   Excludes per-step Local (captured per step).
   "steps": [                          // array; one entry per step, in topology order
     {
       "id": "create-network",         // string; step ID (MUST match topology)
@@ -104,10 +106,12 @@ Field requirements:
 - `snapshot` and `report` are **OPTIONAL** per step and MAY be omitted when not
   yet produced (e.g. a `pending` step). `snapshot`, when present, is the state
   captured for use during compensation.
-- `global` MAY be an empty object but the key SHOULD be present.
-- The serialization of `global`, `snapshot`, and `report` is governed by their
-  own (existing) language-neutral schemas (state bag, report tree). This spec
-  treats them as opaque nested objects and constrains only their placement.
+- `shared` MAY be an empty object but the key SHOULD be present. It captures the
+  workflow's shared state space (Global + all named rooms, per core spec §7.2.1).
+- The serialization of `shared`, `snapshot`, and `report` is governed by their
+  own (existing) language-neutral schemas (namespaced state bag, report tree).
+  This spec treats them as opaque nested objects and constrains only their
+  placement.
 
 ### 3.4 Cursor
 
@@ -144,6 +148,63 @@ The REQUIRED procedure is:
 Implementations on POSIX filesystems MUST use `rename(2)` (atomic). Implementations
 on platforms without an atomic same-volume rename MUST use the closest equivalent
 that preserves the all-or-nothing guarantee.
+
+### 3.7 Identity, lifecycle, and retention
+
+#### 3.7.1 runID identifies one execution
+
+- `workflow_id` identifies a workflow **definition**; a **runID** identifies a
+  single **execution** of it.
+- The journal path is `<dir>/<workflowID>-<runID>.journal`, where `<dir>` is the
+  journal directory configured on the workflow. For v1 the runID is
+  **caller-supplied** (engine-generated run IDs are a later addition).
+- **To start a fresh execution, use a fresh runID.** Re-running "the same
+  workflow" is a new execution and MUST use a new runID, which yields a new
+  journal — so a prior run's journal can never be mistaken for the new run.
+- **Reusing a runID means "resume that specific execution."** This is the only
+  way a prior journal is consulted; it is intentional, never accidental, when the
+  runID convention above is followed.
+
+#### 3.7.2 Resume of a terminal journal is a safe no-op
+
+- A resume against a journal already in `phase: done` MUST return the recorded
+  final result and MUST execute and compensate **nothing** (§6.5). Therefore a
+  stale terminal journal can never cause double-execution; at worst it causes a
+  surprising no-op, which the retention policy and the fresh-runID rule prevent.
+- Corollary: **the journal is a recovery record, not a result cache.** Callers
+  obtain a run's result from that run's return value. An implementation MUST NOT
+  require a retained journal in order to surface a completed run's result.
+
+#### 3.7.3 Retention policy (configurable per workflow)
+
+Retention is configured on the workflow. The policy governs what happens to the
+journal when a run reaches a **terminal** outcome (completed successfully,
+fully compensated, or terminally failed):
+
+| Policy | On terminal outcome |
+|--------|---------------------|
+| `retain` (**default**) | Keep the journal for **all** terminal outcomes, including success. Provides a full audit trail. The caller prunes explicitly (§3.7.4). |
+| `delete_on_success` | Delete the journal on **successful** completion; retain it on failure or rollback (the cases worth inspecting/retrying). |
+| `delete_on_done` | Delete the journal on **any** terminal outcome. |
+
+- The default is `retain` — provisioning, migration, and installer tools commonly
+  want a durable record of even successful runs.
+- Any delete performed by a policy MUST be **crash-safe**: `done` is terminal and
+  idempotent, so a crash between the final commit and the delete leaves a valid
+  `done` journal that a later resume returns and MAY re-delete. Deletion MUST
+  occur only after the `done` state is durably persisted.
+
+#### 3.7.4 Pruning retained journals
+
+- Because the caller owns the journal directory, pruning is **explicit**, not
+  background magic. An implementation SHOULD offer a prune utility, e.g.
+  `PruneJournals(dir, policy)`, supporting at least:
+  - by **age** (older than a given duration), and
+  - by **status** (e.g. only `done`, or only successfully-completed).
+- A caller MAY equivalently delete journal files directly; each journal is a
+  self-contained file.
+- Implementations MUST document that journals accumulate under `retain` until
+  pruned, so operators size storage accordingly.
 
 ## 4. State machine
 
@@ -216,7 +277,7 @@ F3. run the step's execute  (THE SIDE EFFECT happens here)
 F4. steps[i].state   = "completed" | "failed"
     steps[i].snapshot = <execution-time state>          (when completed, for rollback)
     steps[i].report   = <step report>
-    global            = <current global state>
+    shared            = <current shared state space: Global + named rooms>
                                                PERSIST   ← commit point, AFTER side effect
 F5. on failure with execution_mode = RollbackOnError:
     phase = "compensating"; cursor = i;        PERSIST
@@ -233,7 +294,7 @@ C3. steps[i].state = "compensated"; cursor = i;   PERSIST   ← per-compensation
 On completion:
 
 ```
-D1. phase = "done";                                PERSIST   (the journal MAY then be deleted, §6.5)
+D1. phase = "done";                                PERSIST   (then apply retention policy, §3.7.3)
 ```
 
 Requirements:
@@ -259,7 +320,7 @@ A resume:
 
 1. Loads the journal (§6.2).
 2. Validates topology and modes against the supplied definition (§6.2).
-3. Rehydrates `global` onto the workflow.
+3. Rehydrates `shared` (Global + named rooms) onto the workflow.
 4. Dispatches on `phase` (§6.3, §6.4, §6.5).
 
 ### 6.2 Loading and validation
@@ -298,11 +359,11 @@ A resume:
 ### 6.5 Done (`phase == "done"`)
 
 - The run is terminal. Resume MUST return the recorded final result and MUST NOT
-  execute or compensate any step.
-- An implementation MAY delete the journal on reaching `done` (D1). If it does,
-  a subsequent resume sees a missing journal and treats it as a fresh run (§6.2);
-  implementations that rely on idempotent steps tolerate this, but implementations
-  SHOULD document their journal-retention choice.
+  execute or compensate any step (§3.7.2).
+- On reaching `done`, the configured **retention policy** (§3.7.3) is applied:
+  under the default `retain`, the journal is kept; under a delete policy it may be
+  removed, in which case a subsequent resume of the same runID sees a missing
+  journal and treats it as a fresh run (§6.2).
 
 ## 7. Workflow-author contract
 
@@ -373,13 +434,24 @@ addition, but none is required for crash recovery of sequential sagas:
 
 ## 10. Open questions
 
-- **Run-ID namespacing.** How is the journal path namespaced per run
-  (workflow ID + generated run ID)? Affects concurrent runs of the same workflow.
-- **Storage backend.** v1 is a single JSON file. Should an embedded KV store be
-  offered as an alternative for many concurrent runs, behind the same semantics?
-- **Report nesting for sub-workflows.** A step MAY itself be a workflow. How is a
+**Resolved (folded into the spec):**
+
+- **Run-ID namespacing.** *Resolved:* a workflow is made durable by supplying a
+  journal **directory**; the engine writes `<dir>/<workflowID>-<runID>.journal`.
+  For v1 the `runID` is **caller-supplied** (so concurrent runs of the same
+  workflow coexist); engine-generated run IDs are a later addition.
+- **Storage backend.** *Resolved for v1:* a single JSON file. An embedded KV
+  backend is deferred; the `Resume` API and journal semantics are backend-neutral
+  so it can be added later without breaking the contract.
+- **State-bag numeric/precision portability.** *Resolved:* governed by the core
+  spec's numeric policy (core §7.5) — document the 2^53 boundary, recommend
+  string-typed numerics beyond it. The shared state space serialized in the
+  journal follows the same rule.
+
+**Still open:**
+
+- **Sub-workflow journal nesting.** A step MAY itself be a workflow. How is a
   nested run's journal represented — inline under the parent step, or as a linked
-  child journal? (Must be pinned before sub-workflow durability is claimed.)
-- **State-bag numeric/precision portability.** Cross-language number handling for
-  the serialized state bag (see `docs/state-numeric-boundaries.md`) MUST be
-  reconciled so a journal written by one language loads losslessly in another.
+  child journal? This MUST be pinned before sub-workflow durability is claimed,
+  and depends on the core spec's resolved sub-workflow rollback-report shape
+  (core §8.2). Tracked in the durability spec issue (#91).
