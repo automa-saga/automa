@@ -2,6 +2,7 @@ package automa
 
 import (
 	"encoding/json"
+	"errors"
 
 	"gopkg.in/yaml.v3"
 )
@@ -56,8 +57,9 @@ func (s TypeStatus) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON implements json.Unmarshaler. It accepts the string names
-// "success", "failed", and "skipped". Unrecognised values are silently mapped
-// to 0 (zero/uninitialised) rather than returning an error.
+// "success", "failed", and "skipped". Because the report is a cross-language
+// wire contract, an unrecognised value returns an error rather than silently
+// defaulting, so that format drift is surfaced instead of hidden.
 func (s *TypeStatus) UnmarshalJSON(data []byte) error {
 	var str string
 	if err := json.Unmarshal(data, &str); err != nil {
@@ -71,7 +73,7 @@ func (s *TypeStatus) UnmarshalJSON(data []byte) error {
 	case "skipped":
 		*s = StatusSkipped
 	default:
-		*s = 0
+		return errors.New("unknown TypeStatus")
 	}
 	return nil
 }
@@ -83,7 +85,7 @@ func (s TypeStatus) MarshalYAML() (interface{}, error) {
 }
 
 // UnmarshalYAML implements yaml.Unmarshaler. It accepts the same string names
-// as UnmarshalJSON. Unrecognised values are silently mapped to 0.
+// as UnmarshalJSON and returns an error for unrecognised values.
 func (s *TypeStatus) UnmarshalYAML(value *yaml.Node) error {
 	var str string
 	if err := value.Decode(&str); err != nil {
@@ -97,7 +99,7 @@ func (s *TypeStatus) UnmarshalYAML(value *yaml.Node) error {
 	case "skipped":
 		*s = StatusSkipped
 	default:
-		*s = 0
+		return errors.New("unknown TypeStatus")
 	}
 	return nil
 }
