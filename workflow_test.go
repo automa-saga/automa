@@ -315,6 +315,87 @@ func TestWorkflow_State_LazyInit(t *testing.T) {
 	assert.Equal(t, 0, state.Global().Size())
 }
 
+func TestWorkflow_Execute_InvokesPrepareHook(t *testing.T) {
+	prepared := false
+	step := &defaultStep{id: "s1", execute: func(ctx context.Context, stp Step) *Report {
+		return StepSuccessReport("s1")
+	}}
+	wf := newTestWorkflow("wf", []Step{step})
+	wf.prepare = func(ctx context.Context, stp Step) (context.Context, error) {
+		prepared = true
+		return ctx, nil
+	}
+
+	report := wf.Execute(context.Background())
+
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.True(t, prepared, "prepare hook should be called when Execute is invoked directly")
+}
+
+func TestRunWorkflow_PrepareHookCalledOnce(t *testing.T) {
+	callCount := 0
+	wb := &WorkflowBuilder{
+		workflow: &workflow{
+			id:           "wf",
+			rollbackMode: ContinueOnError,
+			prepare: func(ctx context.Context, stp Step) (context.Context, error) {
+				callCount++
+				return ctx, nil
+			},
+		},
+		stepSequence: []string{"s1"},
+		stepBuilders: map[string]Builder{
+			"s1": NewStepBuilder().WithId("s1").WithExecute(func(ctx context.Context, stp Step) *Report {
+				return StepSuccessReport("s1")
+			}),
+		},
+	}
+
+	report := RunWorkflow(context.Background(), wb)
+
+	assert.Equal(t, StatusSuccess, report.Status)
+	assert.Equal(t, 1, callCount, "prepare hook should be called exactly once even via RunWorkflow")
+}
+
+func TestWorkflow_Execute_PrepareError_ReturnsFailureReport(t *testing.T) {
+	step := &defaultStep{id: "s1", execute: func(ctx context.Context, stp Step) *Report {
+		return StepSuccessReport("s1")
+	}}
+	wf := newTestWorkflow("wf", []Step{step})
+	wf.prepare = func(ctx context.Context, stp Step) (context.Context, error) {
+		return nil, errors.New("prepare failed")
+	}
+
+	report := wf.Execute(context.Background())
+
+	assert.Equal(t, StatusFailed, report.Status)
+	assert.Equal(t, ActionPrepare, report.Action)
+	assert.Contains(t, report.Error.Error(), "prepare failed")
+}
+
+func TestWorkflow_Prepare_DoesNotMarkPreparedOnError(t *testing.T) {
+	callCount := 0
+	wf := &workflow{
+		id:     "wf",
+		logger: slog.New(slog.DiscardHandler),
+		prepare: func(ctx context.Context, stp Step) (context.Context, error) {
+			callCount++
+			if callCount == 1 {
+				return nil, errors.New("transient error")
+			}
+			return ctx, nil
+		},
+	}
+
+	_, err := wf.Prepare(context.Background())
+	assert.Error(t, err)
+	assert.False(t, wf.prepared, "prepared should not be set when hook returns an error")
+
+	_, err = wf.Prepare(context.Background())
+	assert.NoError(t, err)
+	assert.Equal(t, 2, callCount, "prepare hook should be called again after a previous failure")
+}
+
 func TestWorkflow_Prepare_InjectsState(t *testing.T) {
 	wf := &workflow{id: "wf"}
 	ctx := context.Background()
