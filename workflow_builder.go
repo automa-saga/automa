@@ -166,11 +166,14 @@ func (wb *WorkflowBuilder) Validate() error {
 	}
 
 	// D4: rollbackMode only governs what happens when a compensation itself
-	// fails, so it is restricted to {continue, stop}. RollbackOnError
-	// ("rollback") is meaningless as a rollbackMode and must be rejected.
-	if wb.workflow.rollbackMode == RollbackOnError {
+	// fails, so it is restricted to {continue, stop}. Any other value
+	// (including RollbackOnError) is meaningless as a rollbackMode and must be rejected.
+	switch wb.workflow.rollbackMode {
+	case ContinueOnError, StopOnError:
+		// valid
+	default:
 		return IllegalArgument.New("invalid rollback_mode %q: must be one of %q or %q",
-			RollbackOnError, ContinueOnError, StopOnError)
+			wb.workflow.rollbackMode, ContinueOnError, StopOnError)
 	}
 
 	var errs []error

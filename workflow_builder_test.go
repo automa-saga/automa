@@ -198,12 +198,14 @@ func TestWorkflowBuilder_Validate_NoSteps(t *testing.T) {
 	assert.Contains(t, err.Error(), "no steps provided for workflow")
 }
 
-func TestWorkflowBuilder_Validate_RejectsRollbackAsRollbackMode(t *testing.T) {
-	wb := NewWorkflowBuilder().WithId("wf").WithRollbackMode(RollbackOnError)
-	wb.Steps(&mockStepBuilder{id: "step", valid: true})
-	err := wb.Validate()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid rollback_mode")
+func TestWorkflowBuilder_Validate_RejectsInvalidRollbackModes(t *testing.T) {
+	for _, mode := range []TypeMode{RollbackOnError, TypeMode(0), TypeMode(99)} {
+		wb := NewWorkflowBuilder().WithId("wf").WithRollbackMode(mode)
+		wb.Steps(&mockStepBuilder{id: "step", valid: true})
+		err := wb.Validate()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid rollback_mode")
+	}
 }
 
 func TestWorkflowBuilder_Validate_AllowsContinueAndStopRollbackModes(t *testing.T) {

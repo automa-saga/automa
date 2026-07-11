@@ -327,7 +327,8 @@ func TestWorkflow_Prepare_InjectsState(t *testing.T) {
 func TestRunWorkflow_Success(t *testing.T) {
 	wb := &WorkflowBuilder{
 		workflow: &workflow{
-			id: "wf",
+			id:           "wf",
+			rollbackMode: ContinueOnError,
 		},
 		stepSequence: []string{"s1"},
 		stepBuilders: map[string]Builder{
@@ -358,7 +359,8 @@ func TestRunWorkflow_BuildError(t *testing.T) {
 func TestRunWorkflow_PrepareError(t *testing.T) {
 	wb := &WorkflowBuilder{
 		workflow: &workflow{
-			id: "wf",
+			id:           "wf",
+			rollbackMode: ContinueOnError,
 			prepare: func(ctx context.Context, stp Step) (context.Context, error) {
 				return nil, errors.New("prepare failed")
 			},
