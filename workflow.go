@@ -53,6 +53,11 @@ type workflow struct {
 	// preserve step states after execution for potential rollback; keyed by step ID
 	lastExecutionStates map[string]NamespacedStateBag
 
+	// lastExecutedStepIDs tracks which step IDs actually reached Execute (i.e.,
+	// both statePrepError and ctxPrepError were nil). Steps that failed in Prepare
+	// are excluded so rollbackFrom can skip compensating them (spec D5 / §5.3).
+	lastExecutedStepIDs map[string]struct{}
+
 	// preserveStatesForRollback controls whether state snapshots are cloned and preserved
 	// after each step execution. When true (default), enables deterministic rollback but
 	// increases memory usage. When false, skips state cloning to reduce overhead.
@@ -144,12 +149,28 @@ func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 }
 
 // rollbackFrom rollbacks the workflow backward from the given index to the start.
-func (w *workflow) rollbackFrom(ctx context.Context, index int, states map[string]NamespacedStateBag) map[string]*Report {
+// executedIDs restricts compensation to steps that actually ran Execute; nil is treated
+// as empty (nothing executed). Steps absent from executedIDs are skipped (spec D5 / §5.3):
+// compensating a step whose Execute never ran is incorrect because its rollback may assume
+// side-effects that were never produced.
+func (w *workflow) rollbackFrom(ctx context.Context, index int, states map[string]NamespacedStateBag, executedIDs map[string]struct{}) map[string]*Report {
 	stepReports := map[string]*Report{}
 	startTime := time.Now()
 
 	for i := index; i >= 0; i-- {
 		step := w.steps[i]
+
+		// Skip compensation for steps that never executed (spec D5 / §5.3).
+		// nil is treated as empty: no execution context means nothing to compensate.
+		if _, ran := executedIDs[step.Id()]; !ran {
+			w.log().Debug("skipping rollback for non-executed step", "workflowId", w.id, "stepId", step.Id(), "index", i)
+			stepReports[step.Id()] = SkippedReport(step,
+				WithWorkflow(w),
+				WithActionType(ActionRollback),
+				WithStartTime(startTime),
+			)
+			continue
+		}
 
 		// choose snapshot if provided, otherwise use workflow state
 		var state NamespacedStateBag
@@ -364,6 +385,9 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 	// capture per-step state snapshots for rollback
 	stepStates := make(map[string]NamespacedStateBag, len(w.steps))
 
+	// track which steps actually reached Execute (spec D5 / §5.3)
+	executedStepIDs := make(map[string]struct{}, len(w.steps))
+
 	for index, step := range w.steps {
 		var report *Report
 		stepStart := time.Now()
@@ -437,6 +461,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 		// execute step if preparation succeeded
 		if statePrepError == nil && ctxPrepError == nil {
+			executedStepIDs[step.Id()] = struct{}{}
 			report = step.Execute(stepCtx)
 			if report == nil {
 				w.log().Warn("step returned nil report from Execute; treating as failure",
@@ -505,7 +530,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 				// Perform rollback using recorded per-step states
 				// Rollback from index (include the failed step for cleanup)
-				rollbackReports := w.rollbackFrom(stepCtx, index, stepStates)
+				rollbackReports := w.rollbackFrom(stepCtx, index, stepStates, executedStepIDs)
 
 				// Attach rollback reports to corresponding step reports
 				for _, stepReport := range stepReports {
@@ -519,12 +544,15 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		}
 	}
 
-	// Preserve state snapshots for potential manual rollback later
-	// (even if workflow failed, manual Rollback() can use these snapshots)
-	// Only preserve if configured to reduce memory overhead when rollback isn't needed
+	// Preserve state snapshots and executed-step set for potential manual rollback later.
+	// Always clear lastExecutionStates first so stale snapshots from a prior execution
+	// (possibly run with preservation enabled) are never used when preservation is off.
 	if w.preserveStatesForRollback {
 		w.lastExecutionStates = stepStates
+	} else {
+		w.lastExecutionStates = nil
 	}
+	w.lastExecutedStepIDs = executedStepIDs
 
 	if hasFailed {
 		var failedStepIDs []string
@@ -617,8 +645,8 @@ func (w *workflow) Rollback(ctx context.Context) *Report {
 
 	w.log().Info("starting workflow rollback", "workflowId", w.id, "steps", len(w.steps))
 
-	// Use preserved states from last execution, fall back to nil if none available
-	rollbackReports := w.rollbackFrom(ctx, len(w.steps)-1, w.lastExecutionStates)
+	// Use preserved states and executed-step set from last execution.
+	rollbackReports := w.rollbackFrom(ctx, len(w.steps)-1, w.lastExecutionStates, w.lastExecutedStepIDs)
 
 	var stepReports []*Report
 	for _, step := range w.steps {
@@ -677,6 +705,9 @@ func newDefaultWorkflow() *workflow {
 		rollbackMode:              ContinueOnError,
 		logger:                    discardLogger,
 		preserveStatesForRollback: true, // default: enabled for backward compatibility
+		// Empty (not nil) so Rollback() called before Execute() compensates nothing.
+		// nil would bypass the D5 filter; a non-nil empty map correctly skips all steps.
+		lastExecutedStepIDs: make(map[string]struct{}),
 	}
 }
 
