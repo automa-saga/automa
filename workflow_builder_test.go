@@ -198,6 +198,24 @@ func TestWorkflowBuilder_Validate_NoSteps(t *testing.T) {
 	assert.Contains(t, err.Error(), "no steps provided for workflow")
 }
 
+func TestWorkflowBuilder_Validate_RejectsInvalidRollbackModes(t *testing.T) {
+	for _, mode := range []TypeMode{RollbackOnError, TypeMode(0), TypeMode(99)} {
+		wb := NewWorkflowBuilder().WithId("wf").WithRollbackMode(mode)
+		wb.Steps(&mockStepBuilder{id: "step", valid: true})
+		err := wb.Validate()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid rollback_mode")
+	}
+}
+
+func TestWorkflowBuilder_Validate_AllowsContinueAndStopRollbackModes(t *testing.T) {
+	for _, mode := range []TypeMode{ContinueOnError, StopOnError} {
+		wb := NewWorkflowBuilder().WithId("wf").WithRollbackMode(mode)
+		wb.Steps(&mockStepBuilder{id: "step", valid: true})
+		assert.NoError(t, wb.Validate())
+	}
+}
+
 func TestWorkflowBuilder_MethodChaining(t *testing.T) {
 	wb := NewWorkflowBuilder().
 		WithId("chain").
@@ -240,37 +258,42 @@ func TestWorkflowBuilder_NamedSteps_DuplicateIds(t *testing.T) {
 }
 
 func TestWorkflowBuilder_InheritModesForNestedWorkflow_OtherModes(t *testing.T) {
-	modes := []TypeMode{StopOnError, ContinueOnError, RollbackOnError}
+	// executionMode may be any of the three; rollbackMode is restricted to
+	// {continue, stop} per D4, so the two dimensions are exercised separately.
+	executionModes := []TypeMode{StopOnError, ContinueOnError, RollbackOnError}
+	rollbackModes := []TypeMode{ContinueOnError, StopOnError}
 
-	for _, mode := range modes {
-		t.Run(fmt.Sprintf("mode-%d", mode), func(t *testing.T) {
-			// parent workflow with explicit modes
-			wb := NewWorkflowBuilder().WithId("parent").
-				WithExecutionMode(mode).
-				WithRollbackMode(mode)
+	for _, execMode := range executionModes {
+		for _, rbMode := range rollbackModes {
+			t.Run(fmt.Sprintf("exec-%d-rb-%d", execMode, rbMode), func(t *testing.T) {
+				// parent workflow with explicit modes
+				wb := NewWorkflowBuilder().WithId("parent").
+					WithExecutionMode(execMode).
+					WithRollbackMode(rbMode)
 
-			// child workflow with defaults that should be overridden
-			child := newDefaultWorkflow()
-			child.id = "child"
-			child.executionMode = TypeMode(99) // sentinel to ensure override
-			child.rollbackMode = TypeMode(99)  // sentinel to ensure override
+				// child workflow with defaults that should be overridden
+				child := newDefaultWorkflow()
+				child.id = "child"
+				child.executionMode = TypeMode(99) // sentinel to ensure override
+				child.rollbackMode = TypeMode(99)  // sentinel to ensure override
 
-			b := &mockStepBuilder{id: "child", valid: true, buildStep: child}
-			wb.Steps(b)
+				b := &mockStepBuilder{id: "child", valid: true, buildStep: child}
+				wb.Steps(b)
 
-			wf, err := wb.Build()
-			assert.NoError(t, err)
-			assert.NotNil(t, wf)
+				wf, err := wb.Build()
+				assert.NoError(t, err)
+				assert.NotNil(t, wf)
 
-			parent := wf.(*workflow)
-			assert.Len(t, parent.steps, 1)
+				parent := wf.(*workflow)
+				assert.Len(t, parent.steps, 1)
 
-			nested, ok := parent.steps[0].(*workflow)
-			assert.True(t, ok)
+				nested, ok := parent.steps[0].(*workflow)
+				assert.True(t, ok)
 
-			// child should inherit parent's modes
-			assert.Equal(t, mode, nested.executionMode)
-			assert.Equal(t, mode, nested.rollbackMode)
-		})
+				// child should inherit parent's modes
+				assert.Equal(t, execMode, nested.executionMode)
+				assert.Equal(t, rbMode, nested.rollbackMode)
+			})
+		}
 	}
 }

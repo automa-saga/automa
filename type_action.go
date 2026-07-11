@@ -2,6 +2,7 @@ package automa
 
 import (
 	"encoding/json"
+	"errors"
 
 	"gopkg.in/yaml.v3"
 )
@@ -47,8 +48,9 @@ func (a TypeAction) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON implements json.Unmarshaler. It accepts the string names
-// "prepare", "execute", and "rollback". Unrecognised values are silently
-// mapped to 0 (ActionPrepare) rather than returning an error.
+// "prepare", "execute", and "rollback". Because the report is a cross-language
+// wire contract, an unrecognised value returns an error rather than silently
+// defaulting, so that format drift is surfaced instead of hidden.
 func (a *TypeAction) UnmarshalJSON(data []byte) error {
 	var s string
 	if err := json.Unmarshal(data, &s); err != nil {
@@ -62,7 +64,7 @@ func (a *TypeAction) UnmarshalJSON(data []byte) error {
 	case "rollback":
 		*a = ActionRollback
 	default:
-		*a = 0
+		return errors.New("unknown TypeAction")
 	}
 	return nil
 }
@@ -74,7 +76,7 @@ func (a TypeAction) MarshalYAML() (interface{}, error) {
 }
 
 // UnmarshalYAML implements yaml.Unmarshaler. It accepts the same string names
-// as UnmarshalJSON. Unrecognised values are silently mapped to 0 (ActionPrepare).
+// as UnmarshalJSON and returns an error for unrecognised values.
 func (a *TypeAction) UnmarshalYAML(value *yaml.Node) error {
 	var s string
 	if err := value.Decode(&s); err != nil {
@@ -88,7 +90,7 @@ func (a *TypeAction) UnmarshalYAML(value *yaml.Node) error {
 	case "rollback":
 		*a = ActionRollback
 	default:
-		*a = 0
+		return errors.New("unknown TypeAction")
 	}
 	return nil
 }

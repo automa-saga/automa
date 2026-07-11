@@ -36,11 +36,10 @@ func TestTypeStatus_MarshalJSON_UnmarshalJSON(t *testing.T) {
 		assert.Equal(t, tt.status, s)
 	}
 
-	// Unknown value
+	// Unknown values must fail (D7): the report is a cross-language wire contract.
 	var s TypeStatus
 	err := json.Unmarshal([]byte(`"unknown"`), &s)
-	assert.NoError(t, err)
-	assert.Equal(t, TypeStatus(0), s)
+	assert.Error(t, err)
 }
 
 func TestTypeStatus_MarshalYAML_UnmarshalYAML(t *testing.T) {
@@ -64,9 +63,8 @@ func TestTypeStatus_MarshalYAML_UnmarshalYAML(t *testing.T) {
 		assert.Equal(t, tt.status, s)
 	}
 
-	// Unknown value
+	// Unknown values must fail (D7): the report is a cross-language wire contract.
 	var s TypeStatus
 	err := yaml.Unmarshal([]byte("unknown\n"), &s)
-	assert.NoError(t, err)
-	assert.Equal(t, TypeStatus(0), s)
+	assert.Error(t, err)
 }

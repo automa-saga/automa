@@ -165,6 +165,17 @@ func (wb *WorkflowBuilder) Validate() error {
 		return StepNotFound.New("no steps provided for workflow")
 	}
 
+	// D4: rollbackMode only governs what happens when a compensation itself
+	// fails, so it is restricted to {continue, stop}. Any other value
+	// (including RollbackOnError) is meaningless as a rollbackMode and must be rejected.
+	switch wb.workflow.rollbackMode {
+	case ContinueOnError, StopOnError:
+		// valid
+	default:
+		return IllegalArgument.New("invalid rollback_mode %q: must be one of %q or %q",
+			wb.workflow.rollbackMode, ContinueOnError, StopOnError)
+	}
+
 	var errs []error
 	for id, builder := range wb.stepBuilders {
 		if err := builder.Validate(); err != nil {
@@ -230,6 +241,9 @@ func (wb *WorkflowBuilder) WithExecutionMode(mode TypeMode) *WorkflowBuilder {
 //
 // This mode is only relevant when [WithExecutionMode] is [RollbackOnError].
 // The same mode is propagated to nested sub-workflows at Build time.
+//
+// Only [ContinueOnError] and [StopOnError] are valid rollback modes;
+// passing [RollbackOnError] causes [Validate] (and therefore [Build]) to fail.
 func (wb *WorkflowBuilder) WithRollbackMode(mode TypeMode) *WorkflowBuilder {
 	wb.workflow.rollbackMode = mode
 	return wb

@@ -34,11 +34,10 @@ func TestTypeAction_MarshalJSON_UnmarshalJSON(t *testing.T) {
 		assert.Equal(t, tt.action, a)
 	}
 
-	// Test unknown value
+	// Unknown values must fail (D7): the report is a cross-language wire contract.
 	var a TypeAction
 	err := json.Unmarshal([]byte(`"unknown"`), &a)
-	assert.NoError(t, err)
-	assert.Equal(t, TypeAction(0), a)
+	assert.Error(t, err)
 }
 
 func TestTypeAction_MarshalYAML_UnmarshalYAML(t *testing.T) {
@@ -61,11 +60,10 @@ func TestTypeAction_MarshalYAML_UnmarshalYAML(t *testing.T) {
 		assert.Equal(t, tt.action, a)
 	}
 
-	// Test unknown value
+	// Unknown values must fail (D7): the report is a cross-language wire contract.
 	var a TypeAction
 	err := yaml.Unmarshal([]byte("unknown\n"), &a)
-	assert.NoError(t, err)
-	assert.Equal(t, TypeAction(0), a)
+	assert.Error(t, err)
 }
 
 func TestTypeAction_String_Prepare(t *testing.T) {
@@ -75,15 +73,13 @@ func TestTypeAction_String_Prepare(t *testing.T) {
 func TestTypeAction_UnmarshalJSON_Invalid(t *testing.T) {
 	var a TypeAction
 	err := json.Unmarshal([]byte(`"invalid"`), &a)
-	assert.NoError(t, err)
-	assert.Equal(t, TypeAction(0), a)
+	assert.Error(t, err)
 }
 
 func TestTypeAction_UnmarshalYAML_Invalid(t *testing.T) {
 	var a TypeAction
 	err := yaml.Unmarshal([]byte("invalid\n"), &a)
-	assert.NoError(t, err)
-	assert.Equal(t, TypeAction(0), a)
+	assert.Error(t, err)
 }
 
 func TestTypeAction_MarshalYAML_Prepare(t *testing.T) {

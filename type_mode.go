@@ -17,8 +17,8 @@ import (
 //     (only relevant when executionMode is [RollbackOnError]).
 //
 // TypeMode is serialized as a human-readable string in JSON and YAML. Unknown
-// values are treated as errors during unmarshaling (unlike [TypeAction] and
-// [TypeStatus] which default silently).
+// values are treated as errors during unmarshaling, consistent with
+// [TypeAction] and [TypeStatus].
 type TypeMode uint8
 
 const (
