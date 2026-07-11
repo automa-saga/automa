@@ -82,6 +82,10 @@ type workflow struct {
 	//   - Multiple steps might mutate shared state before rollback
 	preserveStatesForRollback bool
 
+	// prepared is set to true after Prepare has been called, preventing double-invocation
+	// when Execute is called via RunWorkflow (which calls Prepare explicitly before Execute).
+	prepared bool
+
 	// callbacks and hooks
 	prepare      PrepareFunc
 	rollback     RollbackFunc // optional user-defined rollback function for the entire workflow
@@ -212,6 +216,10 @@ func (w *workflow) Id() string {
 }
 
 func (w *workflow) Prepare(ctx context.Context) (context.Context, error) {
+	if w.prepared {
+		return ctx, nil
+	}
+
 	preparedCtx := ctx
 	if w.prepare != nil {
 		c, err := w.prepare(preparedCtx, w)
@@ -221,6 +229,7 @@ func (w *workflow) Prepare(ctx context.Context) (context.Context, error) {
 		preparedCtx = c // use the context returned by user prepare function
 	}
 
+	w.prepared = true
 	return preparedCtx, nil
 }
 
@@ -316,6 +325,22 @@ func (w *workflow) State() NamespacedStateBag {
 // - See WithStatePreservation() for detailed tradeoffs
 func (w *workflow) Execute(ctx context.Context) *Report {
 	startTime := time.Now()
+
+	// Reset prepared after Execute completes so that subsequent Execute calls re-run Prepare.
+	defer func() { w.prepared = false }()
+
+	preparedCtx, err := w.Prepare(ctx)
+	if err != nil {
+		return FailureReport(w,
+			WithWorkflow(w),
+			WithActionType(ActionPrepare),
+			WithStartTime(startTime),
+			WithError(StepExecutionError.
+				Wrap(err, "workflow %q preparation failed: %v", w.id, err).
+				WithProperty(StepIdProperty, w.id),
+			))
+	}
+	ctx = preparedCtx
 
 	if len(w.steps) == 0 {
 		w.log().Error("workflow has no steps to execute", "workflowId", w.id)
