@@ -402,7 +402,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 				report = FailureReport(step,
 					WithWorkflow(w),
 					WithStartTime(stepStart),
-					WithActionType(ActionExecute),
+					WithActionType(ActionPrepare),
 					WithError(StepExecutionError.
 						Wrap(ctxPrepError, "workflow %q step %q preparation failed", w.id, step.Id()).
 						WithProperty(StepIdProperty, step.Id()),

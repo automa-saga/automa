@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func newTestWorkflow(id string, steps []Step) *workflow {
@@ -373,6 +374,25 @@ func TestRunWorkflow_PrepareError(t *testing.T) {
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusFailed, report.Status)
 	assert.Contains(t, report.Error.Error(), "prepare failed")
+}
+
+func TestRunWorkflow_StepPrepareError_ReportsPrepareAction(t *testing.T) {
+	wb := NewWorkflowBuilder().WithId("wf").Steps(
+		NewStepBuilder().WithId("s1").
+			WithPrepare(func(ctx context.Context, stp Step) (context.Context, error) {
+				return nil, errors.New("step prepare failed")
+			}).
+			WithExecute(func(ctx context.Context, stp Step) *Report {
+				return StepSuccessReport("s1")
+			}),
+	)
+	report := RunWorkflow(context.Background(), wb)
+	assert.NotNil(t, report)
+	assert.Equal(t, StatusFailed, report.Status)
+	// D3: a Prepare-phase failure must be reported with action "prepare".
+	require.Len(t, report.StepReports, 1)
+	assert.Equal(t, ActionPrepare, report.StepReports[0].Action)
+	assert.Contains(t, report.StepReports[0].Error.Error(), "step prepare failed")
 }
 
 func TestWorkflow_HandleCompletion_Async(t *testing.T) {
