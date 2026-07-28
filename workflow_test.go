@@ -1005,3 +1005,74 @@ func TestWorkflow_RollbackSkipsPrepareFailed(t *testing.T) {
 	require.NotNil(t, s2Rollback, "s2 should have a rollback report")
 	assert.Equal(t, StatusSkipped, s2Rollback.Status)
 }
+
+// TestWorkflow_CustomNamespace_SharedAcrossSteps verifies core-spec §7.3 (D8):
+// a custom named room created/written by one ordinary step is observable by a
+// later ordinary step in the same workflow (rooms are shared by reference).
+func TestWorkflow_CustomNamespace_SharedAcrossSteps(t *testing.T) {
+	var observedHost string
+	var observed bool
+
+	wb := NewWorkflowBuilder().WithId("wf").Steps(
+		NewStepBuilder().WithId("publisher").WithExecute(func(ctx context.Context, stp Step) *Report {
+			stp.State().WithNamespace("db-primary").Set("host", "h1")
+			return StepSuccessReport("publisher")
+		}),
+		NewStepBuilder().WithId("consumer").WithExecute(func(ctx context.Context, stp Step) *Report {
+			observedHost, observed = stp.State().WithNamespace("db-primary").String("host")
+			return StepSuccessReport("consumer")
+		}),
+	)
+
+	report := RunWorkflow(context.Background(), wb)
+	require.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+
+	// The consumer must see the room the publisher created.
+	assert.True(t, observed, "later step should observe the named room written by an earlier step")
+	assert.Equal(t, "h1", observedHost)
+}
+
+// TestWorkflow_CustomNamespace_SubWorkflowIsolated verifies core-spec §7.3 (D8):
+// a sub-workflow receives a deep clone of the parent's shared state space, so it
+// inherits the parent's named rooms but its mutations do not propagate back.
+func TestWorkflow_CustomNamespace_SubWorkflowIsolated(t *testing.T) {
+	var childObservedHost string
+	var childObserved bool
+	var parentHostAfter string
+	var parentObservedAfter bool
+
+	sub := NewWorkflowBuilder().WithId("sub").Steps(
+		NewStepBuilder().WithId("mutator").WithExecute(func(ctx context.Context, stp Step) *Report {
+			// Inherited from the parent via deep clone.
+			childObservedHost, childObserved = stp.State().WithNamespace("db").String("host")
+			// Mutate the cloned room; this MUST NOT propagate back to the parent.
+			stp.State().WithNamespace("db").Set("host", "child")
+			return StepSuccessReport("mutator")
+		}),
+	)
+
+	wb := NewWorkflowBuilder().WithId("parent").Steps(
+		NewStepBuilder().WithId("seed").WithExecute(func(ctx context.Context, stp Step) *Report {
+			stp.State().WithNamespace("db").Set("host", "parent")
+			return StepSuccessReport("seed")
+		}),
+		sub,
+		NewStepBuilder().WithId("checker").WithExecute(func(ctx context.Context, stp Step) *Report {
+			parentHostAfter, parentObservedAfter = stp.State().WithNamespace("db").String("host")
+			return StepSuccessReport("checker")
+		}),
+	)
+
+	report := RunWorkflow(context.Background(), wb)
+	require.NotNil(t, report)
+	assert.Equal(t, StatusSuccess, report.Status)
+
+	// Sub-workflow inherited the parent's named room.
+	assert.True(t, childObserved, "sub-workflow should inherit the parent's named room")
+	assert.Equal(t, "parent", childObservedHost)
+
+	// Sub-workflow mutation did not leak back to the parent.
+	assert.True(t, parentObservedAfter)
+	assert.Equal(t, "parent", parentHostAfter, "sub-workflow mutation must not propagate back to parent")
+}

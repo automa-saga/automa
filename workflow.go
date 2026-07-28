@@ -276,16 +276,18 @@ func (w *workflow) State() NamespacedStateBag {
 //  1. If a workflow-level `prepare` hook is configured it is invoked first with the incoming `ctx` and the
 //     workflow instance. The returned context (if non-nil) is used for step preparation and execution.
 //  2. The workflow exposes a shared `NamespacedStateBag` via `w.State()` that represents workflow-wide state.
+//     Its shared state space is the global namespace plus every custom named room (core-spec §7.2.1).
 //  3. For ordinary steps, a new `NamespacedStateBag` is created with:
 //     a. An empty local namespace (isolated to the step)
-//     b. A shared global namespace (points to the workflow's global state)
+//     b. The workflow's shared global namespace and named rooms, both by reference (so a room
+//     created or written by one step is visible to later steps)
 //  4. For steps that are themselves workflows (detected with `IsWorkflow(step)`), `Execute` creates a new
 //     `NamespacedStateBag` with:
 //     a. An empty local namespace (isolated to the sub-workflow)
-//     b. A cloned global namespace (inherits parent's shared state but prevents mutations from
-//     propagating back to the parent workflow)
-//  5. This ensures sub-workflows have access to parent's global state but cannot mutate it, while
-//     ordinary steps share the global namespace and can mutate it (visible to later steps).
+//     b. A deep clone of the parent's shared state space (global namespace and every named room), so the
+//     sub-workflow inherits parent state but its mutations do not propagate back to the parent workflow
+//  5. This ensures sub-workflows have access to parent's shared state but cannot mutate it, while
+//     ordinary steps share it and can mutate it (visible to later steps).
 //
 // State snapshot and rollback:
 //  1. After each step executes (successfully or not), its state is cloned and stored in `stepStates`
@@ -400,41 +402,60 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		var statePrepError error
 		var ctxPrepError error
 
-		// prepare step state with namespace support
+		// prepare step state with namespace support (core-spec §7.3).
+		// The workflow's shared state space is Global plus every custom named
+		// room; both are propagated to each step's injected bag.
+		shared := w.State()
 		if IsWorkflow(step) {
-			var clonedGlobal StateBag
 			// Sub-workflows get a new NamespacedStateBag with:
 			// - Empty local namespace (isolated to the sub-workflow)
-			// - Cloned global namespace (inherits parent's shared state)
-			clonedGlobal, statePrepError = w.State().Global().Clone()
+			// - A deep clone of the parent's shared state space (Global and every
+			//   named room), so the sub-workflow inherits parent state but its
+			//   mutations do not propagate back to the parent (§6 isolation, §7.3).
+			var clonedGlobal StateBag
+			clonedGlobal, statePrepError = shared.Global().Clone()
+
+			var clonedCustom map[string]StateBag
+			if statePrepError == nil {
+				if s, ok := shared.(*SyncNamespacedStateBag); ok {
+					clonedCustom, statePrepError = s.cloneCustom()
+				}
+			}
+
 			if statePrepError != nil {
 				report = FailureReport(step,
 					WithWorkflow(w),
 					WithStartTime(stepStart),
 					WithActionType(ActionExecute),
 					WithError(StepExecutionError.
-						Wrap(statePrepError, "workflow %q step %q failed to clone global state for sub-workflow execution", w.id, step.Id()).
+						Wrap(statePrepError, "workflow %q step %q failed to clone shared state for sub-workflow execution", w.id, step.Id()).
 						WithProperty(StepIdProperty, step.Id()),
 					))
 
-				w.log().Warn("failed to clone global state for sub-workflow; falling back to empty state",
+				w.log().Warn("failed to clone shared state for sub-workflow; falling back to empty state",
 					"workflowId", w.id,
 					"stepId", step.Id(),
 					"error", statePrepError,
 				)
 
 				// Fall back to empty state for consistency since we always assume there is a state attached to the step
-				// when calling Prepare and Execute, even though sub-workflow won't have access to parent's global state
+				// when calling Prepare and Execute, even though sub-workflow won't have access to parent's shared state
 				// in this case.
 				stepState = NewNamespacedStateBag(nil, nil)
 			} else {
-				stepState = NewNamespacedStateBag(nil, clonedGlobal)
+				stepState = newNamespacedStateBag(nil, clonedGlobal, clonedCustom)
 			}
 		} else {
 			// Ordinary steps get namespaced state with:
 			// - Empty local namespace (isolated to this step)
-			// - Shared global namespace (points to workflow's global state)
-			stepState = NewNamespacedStateBag(nil, w.State().Global())
+			// - The workflow's shared Global bag (by reference)
+			// - The workflow's live named-room map (by reference), so a room
+			//   created or written by one step is visible to later steps (§7.3).
+			var customRooms map[string]StateBag
+			if s, ok := shared.(*SyncNamespacedStateBag); ok {
+				customRooms = s.customMapRef()
+			}
+			stepState = newNamespacedStateBag(nil, shared.Global(), customRooms)
 		}
 
 		// make sure step has its state before calling Prepare so Prepare can access it.

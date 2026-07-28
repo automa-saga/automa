@@ -335,9 +335,9 @@ follows. "Shared state space" means **Global plus all named rooms** (§7.2.1):
 > **Resolved (was an open question).** Custom namespaces are workflow-scoped
 > shared named rooms, propagated to every step's injected bag by reference and
 > deep-cloned for sub-workflows alongside Global. This realizes the
-> `"database-primary"` use case the model was designed for. The previous
-> step-private behavior (review issue #83) is to be changed; the Go
-> implementation MUST be adapted (§11, D8) — tracked in #116.
+> `"database-primary"` use case the model was designed for. The earlier
+> step-private behavior (review issue #83) has been replaced; ✓ the Go reference
+> implementation conforms as of #116 (§11, D8).
 
 ### 7.4 Execution-time snapshots
 
@@ -485,12 +485,9 @@ implementation is (or is being) adapted to match.
 | D5 | Compensation MUST skip non-executed (`skipped`/`pending`) steps. | 5.3 | #84 |
 | D6 | Nested workflows **inherit** the parent's modes (parent overrides); fix the contradicting builder doc comment. | 6.1 | #82 |
 | D7 | Report enums (`action`, `status`) MUST fail on unknown values on decode, like `mode`. | 8.1 | #94 |
+| D8 | Custom namespaces are **workflow-scoped shared named rooms** — propagated to each step's injected bag by reference, deep-cloned for sub-workflows — replacing the earlier step-private behavior. | 7.2.1, 7.3 | #116 |
 
-**Still pending — Go adaptation not yet done:**
-
-| # | Decision | §  |
-|---|----------|----|
-| D8 | Custom namespaces become **workflow-scoped shared named rooms** (propagated by reference to steps, deep-cloned for sub-workflows), replacing the current step-private behavior. The Go engine currently builds per-step state as `NewNamespacedStateBag(nil, global)`, so custom namespaces remain step-private; this MUST be adapted before v1 freeze (tracked in #116). | 7.2.1, 7.3 |
+All spec decisions are now reflected in the Go reference implementation.
 
 ## 12. Conformance
 

@@ -55,18 +55,70 @@ type SyncNamespacedStateBag struct {
 //	global.Set("env", "production")
 //	ns := automa.NewNamespacedStateBag(nil, global)
 func NewNamespacedStateBag(local, global StateBag) *SyncNamespacedStateBag {
+	return newNamespacedStateBag(local, global, nil)
+}
+
+// newNamespacedStateBag is the internal constructor that also accepts an initial
+// custom (named-room) map. The map is stored by reference, not copied: passing a
+// workflow's live custom map lets the engine share named rooms across the
+// workflow's steps exactly as it shares the Global bag (core-spec §7.3). Pass nil
+// to start with an empty, private named-room set. Either local or global may be
+// nil, in which case an empty *SyncStateBag is substituted.
+func newNamespacedStateBag(local, global StateBag, custom map[string]StateBag) *SyncNamespacedStateBag {
 	if global == nil {
 		global = &SyncStateBag{}
 	}
 	if local == nil {
 		local = &SyncStateBag{}
 	}
+	if custom == nil {
+		custom = make(map[string]StateBag)
+	}
 
 	return &SyncNamespacedStateBag{
 		local:  local,
 		global: global,
-		custom: make(map[string]StateBag),
+		custom: custom,
 	}
+}
+
+// customMapRef returns the live named-room map by reference so the engine can
+// share it across a workflow's steps (core-spec §7.3: named rooms are shared by
+// reference for ordinary steps). Because the returned map is shared, structural
+// changes (adding a room via WithNamespace) made through one step's bag become
+// visible to later steps and to the workflow. This is intended for engine use
+// within the sequential execution loop; callers outside that loop MUST treat the
+// map as shared state.
+func (n *SyncNamespacedStateBag) customMapRef() map[string]StateBag {
+	n.mu.Lock()
+	n.initLocked()
+	m := n.custom
+	n.mu.Unlock()
+	return m
+}
+
+// cloneCustom deep-clones every named room into a fresh map so that a
+// sub-workflow inherits the parent's named rooms but its mutations do not
+// propagate back (core-spec §7.3: named rooms are deep-cloned for sub-workflows).
+// The returned map and every bag in it are independent of the receiver.
+func (n *SyncNamespacedStateBag) cloneCustom() (map[string]StateBag, error) {
+	n.mu.Lock()
+	n.initLocked()
+	snapshot := make(map[string]StateBag, len(n.custom))
+	for name, bag := range n.custom {
+		snapshot[name] = bag
+	}
+	n.mu.Unlock()
+
+	clones := make(map[string]StateBag, len(snapshot))
+	for name, bag := range snapshot {
+		clone, err := bag.Clone()
+		if err != nil {
+			return nil, err
+		}
+		clones[name] = clone
+	}
+	return clones, nil
 }
 
 // initLocked lazily allocates nil fields so the zero value is always usable.
