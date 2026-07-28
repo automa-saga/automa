@@ -84,8 +84,10 @@ import (
 // State() returns the [NamespacedStateBag] associated with this step. The
 // workflow provides each step with its own namespaced view so that local writes
 // are isolated while global writes remain visible to subsequent steps.
-// WithState returns a shallow copy of the step with the given bag attached,
-// which is how the workflow injects per-step state before calling Prepare.
+// WithState attaches the given bag to the step in place and returns the same
+// instance, which is how the workflow injects per-step state before calling
+// Prepare. Step instances are single-use within one workflow execution and must
+// not be shared across concurrent executions.
 //
 // # Implementations
 //
@@ -118,9 +120,12 @@ type Step interface {
 	// the workflow; WithNamespace(name) provides an isolated named partition.
 	State() NamespacedStateBag
 
-	// WithState returns a shallow copy of the step with the provided
-	// [NamespacedStateBag] attached. The workflow calls this before Prepare to
-	// inject each step's own namespaced view of the workflow state.
+	// WithState attaches the provided [NamespacedStateBag] to the step in place
+	// and returns the same instance (not a copy). The workflow calls this before
+	// Prepare to inject each step's own namespaced view of the workflow state.
+	// After it returns, State() observes the attached bag. Step instances are
+	// single-use within one workflow execution and must not be shared across
+	// concurrent executions.
 	WithState(s NamespacedStateBag) Step
 }
 

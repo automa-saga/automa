@@ -13,6 +13,21 @@ import (
 
 type stepDefaultTestContextKey string
 
+// TestDefaultStep_WithState_AttachesInPlace pins the D2 contract (core-spec §3.5):
+// WithState attaches the bag in place and returns the same instance (not a copy),
+// and State() then observes the attached bag.
+func TestDefaultStep_WithState_AttachesInPlace(t *testing.T) {
+	step := newDefaultStep()
+	bag := NewNamespacedStateBag(nil, nil)
+
+	returned := step.WithState(bag)
+
+	// same instance is returned, not a copy
+	assert.Same(t, step, returned)
+	// State() observes the attached bag
+	assert.Same(t, bag, returned.State())
+}
+
 func TestDefaultStep_Prepare(t *testing.T) {
 	const key stepDefaultTestContextKey = "k"
 	step := newDefaultStep()

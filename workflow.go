@@ -98,6 +98,9 @@ type workflow struct {
 	onFailure    OnFailureFunc
 }
 
+// WithState attaches the provided [NamespacedStateBag] to the workflow in place
+// and returns the same instance (not a copy), so a workflow can be nested as a
+// step. See [Step.WithState] for the attach-and-observe, single-use contract.
 func (w *workflow) WithState(s NamespacedStateBag) Step {
 	if w.state == s {
 		// avoid redundant assignment when same state is provided
