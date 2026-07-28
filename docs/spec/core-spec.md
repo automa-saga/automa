@@ -15,17 +15,13 @@ Conformance keywords (**MUST**, **SHOULD**, **MAY**, …) are interpreted per
 
 This spec is **derived from** the Go reference implementation but is written to
 be correct in its own right. Where it intentionally departed from the original
-Go behavior, the decision is called out inline as either:
+Go behavior, the decision is called out inline:
 
 > **✓ Spec decision (Go conforms as of #NN).** … adopted by the reference
 > implementation.
 
-or, for the one decision not yet implemented:
-
-> **⚠ Spec decision (differs from current Go implementation).** … The Go
-> implementation is to be adapted to match this spec.
-
-A consolidated list of such decisions, and their adaptation status, is in §11.
+A consolidated list of such decisions is in §11; the Go reference implementation
+now conforms to all of them.
 
 ---
 
@@ -292,59 +288,45 @@ When `execution_mode` is `rollback` and step `i` fails:
 
 ### 7.2 Namespaces
 
-A **namespaced state bag** partitions state into:
+A **namespaced state bag** partitions state into exactly two namespaces:
 
 | Namespace | Visibility |
 |-----------|-----------|
 | **Local** | Private to one step. Never visible to any other step. |
-| **Global** | The default shared room: shared across all steps in a workflow. Writes by one step are visible to subsequent steps. |
-| **Custom (named)** | A **named shared room**: shared across all steps in the workflow under an explicit name, created on first access. A sibling of Global, not a child of it. Isolated from Local and from *other* named rooms, but **not** isolated between steps. |
+| **Global** | Shared across all steps in a workflow. Writes by one step are visible to subsequent steps. |
 
-#### 7.2.1 Custom namespaces are shared, named rooms
+- These two are the whole model: **Local** for step-private scratch, **Global**
+  for intentional cross-step sharing. There is no third, named partition.
+- **Global does not prevent collisions.** Multiple steps writing the same key in
+  Global overwrite each other. Authors SHOULD use distinct keys to publish data
+  for a later step, and MAY deliberately overwrite when a set of cooperating steps
+  intentionally shares a mutable value (e.g. a counter or status). The engine does
+  not arbitrate keys.
 
-- Global and the custom namespaces together form the workflow's **shared state
-  space**. Global is the default unnamed room; `WithNamespace(name)` is a named
-  room. Both are shared across all steps in the workflow.
-- A step that writes to `WithNamespace("database-primary")` publishes data that
-  any later step reading the same named room observes. This is the intended use:
-  a reusable step instance publishes under a distinct name (e.g.
-  `"database-primary"` vs `"database-replica"`) so a consuming step can read the
-  right instance's data without the flat-Global key collisions that would
-  otherwise occur.
-- **Collisions within a named room are by design, not prevented.** Multiple steps
-  writing the same key in the same named room overwrite each other, exactly as in
-  Global. Authors SHOULD use a key convention (e.g. a prefix) to avoid accidental
-  collisions, and MAY deliberately overwrite to let a set of cooperating steps
-  reuse values written by another step. The engine does not arbitrate.
-- Named rooms are isolated **from each other** and from Local; they are not
-  isolated **between steps** (that is the whole point — they are shared).
+> **✓ Spec decision (Go conforms as of #NN).** An earlier revision specified a
+> third "custom named room" namespace (`WithNamespace`). It was removed: a named
+> room provided nothing that Global with a distinct key does not — it did not
+> prevent overwrites *within* the room, so authors needed unique keys either way —
+> and it added a third cross-language concept for no capability gain. Local +
+> Global is the minimal, unambiguous model. (Removes the former decision D8 and
+> resolves review issue #83 by removal.)
 
 ### 7.3 State injection (per step)
 
 Before a step's Prepare, the engine MUST attach a namespaced state bag built as
-follows. "Shared state space" means **Global plus all named rooms** (§7.2.1):
+follows:
 
-- **Ordinary step:** fresh empty **Local**; the *same shared* state space as the
-  workflow's — both Global and the named rooms are shared by reference, so writes
-  to either are visible to later steps.
+- **Ordinary step:** fresh empty **Local**; the workflow's **Global** bag shared
+  by reference, so writes are visible to later steps.
 - **Sub-workflow step:** fresh empty **Local**; a *deep clone* of the workflow's
-  entire shared state space — both Global and every named room are cloned, so the
-  sub-workflow inherits the parent's shared state but its mutations (to Global or
-  any named room) MUST NOT propagate back to the parent (isolation, per §6).
-
-> **Resolved (was an open question).** Custom namespaces are workflow-scoped
-> shared named rooms, propagated to every step's injected bag by reference and
-> deep-cloned for sub-workflows alongside Global. This realizes the
-> `"database-primary"` use case the model was designed for. The previous
-> step-private behavior (review issue #83) is to be changed; the Go
-> implementation MUST be adapted (§11, D8) — tracked in #116.
+  **Global** bag, so the sub-workflow inherits the parent's Global state at entry
+  but its mutations MUST NOT propagate back to the parent (isolation, per §6).
 
 ### 7.4 Execution-time snapshots
 
 - After each step is processed (whether it succeeded or failed), the engine
   SHOULD capture a **deep-cloned snapshot** of that step's state (Local + Global
-  + custom namespaces at that moment), keyed by step ID, for use during
-  compensation (§5.3).
+  at that moment), keyed by step ID, for use during compensation (§5.3).
 - Snapshot capture MAY be disabled as an optimization. When disabled,
   compensation receives the current workflow (global) state instead of a
   per-step snapshot, and per-step Local namespaces are not available during
@@ -450,8 +432,9 @@ a cross-language contract.
 
 **Resolved (folded into the spec):**
 
-1. **Custom namespace propagation (§7.2.1, §7.3).** *Resolved:* workflow-scoped
-   shared named rooms, deep-cloned for sub-workflows. (D8.)
+1. **Custom namespaces (§7.2).** *Resolved:* removed. The state model is Local +
+   Global only; a named partition added no capability over a distinct Global key.
+   (Resolves review issue #83 by removal.)
 2. **Numeric precision boundaries (§7.5).** *Resolved:* document the 2^53
    boundary; recommend string-typed numerics for values beyond it; authors using
    JSON numbers accept the risk.
@@ -485,12 +468,9 @@ implementation is (or is being) adapted to match.
 | D5 | Compensation MUST skip non-executed (`skipped`/`pending`) steps. | 5.3 | #84 |
 | D6 | Nested workflows **inherit** the parent's modes (parent overrides); fix the contradicting builder doc comment. | 6.1 | #82 |
 | D7 | Report enums (`action`, `status`) MUST fail on unknown values on decode, like `mode`. | 8.1 | #94 |
+| D8 | *(withdrawn)* An earlier revision specified custom namespaces as workflow-scoped shared named rooms. The feature was **removed** instead (§7.2): Local + Global is the whole model. | 7.2 | removed |
 
-**Still pending — Go adaptation not yet done:**
-
-| # | Decision | §  |
-|---|----------|----|
-| D8 | Custom namespaces become **workflow-scoped shared named rooms** (propagated by reference to steps, deep-cloned for sub-workflows), replacing the current step-private behavior. The Go engine currently builds per-step state as `NewNamespacedStateBag(nil, global)`, so custom namespaces remain step-private; this MUST be adapted before v1 freeze (tracked in #116). | 7.2.1, 7.3 |
+All spec decisions are now reflected in the Go reference implementation.
 
 ## 12. Conformance
 
@@ -504,4 +484,4 @@ implementation is (or is being) adapted to match.
     implementation MUST load and re-serialize equivalently (§7.5, §8).
 - The **Go** implementation is the first conformant implementation and a
   reference, not the definition. A divergence between Go behavior and this spec
-  is a Go bug (or a §11 item pending adaptation), not a spec amendment.
+  is a Go bug, not a spec amendment.

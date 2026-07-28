@@ -74,76 +74,6 @@ func TestSyncNamespacedStateBag_Concurrent_Global(t *testing.T) {
 	assert.True(t, ok)
 }
 
-// TestSyncNamespacedStateBag_Concurrent_WithNamespace verifies thread-safe access to custom namespaces
-func TestSyncNamespacedStateBag_Concurrent_WithNamespace(t *testing.T) {
-	ns := NewNamespacedStateBag(nil, nil)
-	const goroutines = 100
-	const operations = 100
-
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
-
-	for i := 0; i < goroutines; i++ {
-		go func(id int) {
-			defer wg.Done()
-			for j := 0; j < operations; j++ {
-				// Concurrent access to same custom namespace
-				custom := ns.WithNamespace("shared-ns")
-				custom.Set(Key("custom-key"), id)
-
-				// Concurrent reads
-				_, ok := custom.Get(Key("custom-key"))
-				assert.True(t, ok)
-			}
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Verify custom namespace exists and is accessible
-	custom := ns.WithNamespace("shared-ns")
-	assert.NotNil(t, custom)
-	_, ok := custom.Get(Key("custom-key"))
-	assert.True(t, ok)
-}
-
-// TestSyncNamespacedStateBag_Concurrent_MultipleNamespaces verifies thread-safe creation of multiple custom namespaces
-func TestSyncNamespacedStateBag_Concurrent_MultipleNamespaces(t *testing.T) {
-	ns := NewNamespacedStateBag(nil, nil)
-	const goroutines = 50
-	const namespacesPerGoroutine = 10
-
-	var wg sync.WaitGroup
-	wg.Add(goroutines)
-
-	for i := 0; i < goroutines; i++ {
-		go func(id int) {
-			defer wg.Done()
-			for j := 0; j < namespacesPerGoroutine; j++ {
-				// Create unique namespace per goroutine
-				nsName := Key("ns-" + string(rune(id)) + "-" + string(rune(j)))
-				custom := ns.WithNamespace(string(nsName))
-				custom.Set(Key("data"), id)
-
-				// Verify data
-				val, ok := custom.Get(Key("data"))
-				assert.True(t, ok)
-				assert.Equal(t, id, val)
-			}
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Verify all namespaces were created
-	// We expect goroutines * namespacesPerGoroutine unique namespaces
-	ns.mu.RLock()
-	customCount := len(ns.custom)
-	ns.mu.RUnlock()
-
-	assert.Equal(t, goroutines*namespacesPerGoroutine, customCount)
-}
-
 // TestSyncNamespacedStateBag_Concurrent_Clone verifies thread-safe cloning
 func TestSyncNamespacedStateBag_Concurrent_Clone(t *testing.T) {
 	ns := NewNamespacedStateBag(nil, nil)
@@ -151,7 +81,6 @@ func TestSyncNamespacedStateBag_Concurrent_Clone(t *testing.T) {
 	// Populate with data
 	ns.Local().Set("local-key", "local-value")
 	ns.Global().Set("global-key", "global-value")
-	ns.WithNamespace("custom").Set("custom-key", "custom-value")
 
 	const goroutines = 100
 
@@ -175,9 +104,6 @@ func TestSyncNamespacedStateBag_Concurrent_Clone(t *testing.T) {
 			globalStr, gok := cloned.Global().String("global-key")
 			assert.True(t, gok)
 			assert.Equal(t, "global-value", globalStr)
-			customStr, cok := cloned.WithNamespace("custom").String("custom-key")
-			assert.True(t, cok)
-			assert.Equal(t, "custom-value", customStr)
 		}(i)
 	}
 
@@ -240,7 +166,7 @@ func TestSyncNamespacedStateBag_Concurrent_MixedOperations(t *testing.T) {
 	const operations = 50
 
 	var wg sync.WaitGroup
-	wg.Add(goroutines * 5) // 5 different operation types
+	wg.Add(goroutines * 4) // 4 different operation types
 
 	// Concurrent Local() access
 	for i := 0; i < goroutines; i++ {
@@ -260,17 +186,6 @@ func TestSyncNamespacedStateBag_Concurrent_MixedOperations(t *testing.T) {
 			for j := 0; j < operations; j++ {
 				ns.Global().Set(Key("global"), id)
 				ns.Global().Get(Key("global"))
-			}
-		}(i)
-	}
-
-	// Concurrent WithNamespace() access
-	for i := 0; i < goroutines; i++ {
-		go func(id int) {
-			defer wg.Done()
-			for j := 0; j < operations; j++ {
-				ns.WithNamespace("custom").Set(Key("custom"), id)
-				ns.WithNamespace("custom").Get(Key("custom"))
 			}
 		}(i)
 	}
@@ -302,7 +217,6 @@ func TestSyncNamespacedStateBag_Concurrent_MixedOperations(t *testing.T) {
 	// Verify state is still accessible after concurrent operations
 	assert.NotNil(t, ns.Local())
 	assert.NotNil(t, ns.Global())
-	assert.NotNil(t, ns.WithNamespace("custom"))
 }
 
 // TestSyncNamespacedStateBag_Concurrent_LocalLazyInit verifies thread-safe lazy initialization of Local()
@@ -352,7 +266,6 @@ func TestSyncNamespacedStateBag_Concurrent_MergeMultipleSources(t *testing.T) {
 			source := NewNamespacedStateBag(nil, nil)
 			source.Local().Set(Key("source-"+string(rune(id))), id)
 			source.Global().Set(Key("global-"+string(rune(id))), id)
-			source.WithNamespace("custom").Set(Key("custom-"+string(rune(id))), id)
 
 			_, err := target.Merge(source)
 			require.NoError(t, err)
