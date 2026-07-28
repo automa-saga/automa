@@ -514,7 +514,7 @@ func normalizeFromState(v interface{}) (interface{}, error) {
 		if !rv.IsValid() {
 			return nil, errorx.IllegalArgument.New("invalid value: %v", v)
 		}
-		if rv.Kind() == reflect.Ptr {
+		if rv.Kind() == reflect.Pointer {
 			if rv.IsNil() {
 				return nil, nil
 			}

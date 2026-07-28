@@ -14,11 +14,12 @@ import (
 
 func newTestWorkflow(id string, steps []Step) *workflow {
 	return &workflow{
-		id:            id,
-		steps:         steps,
-		executionMode: StopOnError,
-		rollbackMode:  ContinueOnError,
-		logger:        slog.New(slog.DiscardHandler),
+		id:                  id,
+		steps:               steps,
+		executionMode:       StopOnError,
+		rollbackMode:        ContinueOnError,
+		logger:              slog.New(slog.DiscardHandler),
+		lastExecutedStepIDs: make(map[string]struct{}),
 	}
 }
 
@@ -153,14 +154,16 @@ func TestWorkflow_OnRollback(t *testing.T) {
 	rollbackCalled := make(map[string]bool)
 
 	step1 := &defaultStep{
-		id: "step1",
+		id:      "step1",
+		execute: func(ctx context.Context, stp Step) *Report { return StepSuccessReport("step1") },
 		rollback: func(ctx context.Context, stp Step) *Report {
 			rollbackCalled["step1"] = true
 			return StepSuccessReport("step1")
 		},
 	}
 	step2 := &defaultStep{
-		id: "step2",
+		id:      "step2",
+		execute: func(ctx context.Context, stp Step) *Report { return StepSuccessReport("step2") },
 		rollback: func(ctx context.Context, stp Step) *Report {
 			rollbackCalled["step2"] = true
 			return StepSuccessReport("step2")
@@ -168,6 +171,7 @@ func TestWorkflow_OnRollback(t *testing.T) {
 	}
 
 	wf := newTestWorkflow("wf", []Step{step1, step2})
+	wf.Execute(ctx) // steps must execute before they can be compensated (spec D5)
 	report := wf.Rollback(ctx)
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusSuccess, report.Status)
@@ -221,8 +225,9 @@ func TestWorkflow_RollbackFrom_FailedRollback(t *testing.T) {
 	}
 
 	wf := newTestWorkflow("wf", []Step{step1, step2})
+	allExecuted := map[string]struct{}{"step1": {}, "step2": {}}
 
-	reports := wf.rollbackFrom(ctx, 1, nil)
+	reports := wf.rollbackFrom(ctx, 1, nil, allExecuted)
 	assert.Len(t, reports, 2)
 	assert.Equal(t, StatusFailed, reports["step1"].Status)
 	assert.Equal(t, failErr, reports["step1"].Error)
@@ -247,8 +252,9 @@ func TestWorkflow_RollbackFrom_ContinueOnError(t *testing.T) {
 
 	wf := newTestWorkflow("wf", []Step{step1, step2})
 	wf.rollbackMode = ContinueOnError
+	allExecuted := map[string]struct{}{"step1": {}, "step2": {}}
 
-	reports := wf.rollbackFrom(ctx, 1, nil)
+	reports := wf.rollbackFrom(ctx, 1, nil, allExecuted)
 	assert.Len(t, reports, 2)
 	assert.Equal(t, StatusFailed, reports["step1"].Status)
 	assert.Equal(t, failErr, reports["step1"].Error)
@@ -273,8 +279,9 @@ func TestWorkflow_RollbackFrom_StopOnError(t *testing.T) {
 
 	wf := newTestWorkflow("wf", []Step{step1, step2})
 	wf.rollbackMode = StopOnError
+	allExecuted := map[string]struct{}{"step1": {}, "step2": {}}
 
-	reports := wf.rollbackFrom(ctx, 1, nil)
+	reports := wf.rollbackFrom(ctx, 1, nil, allExecuted)
 	assert.Len(t, reports, 1)
 	assert.Equal(t, StatusFailed, reports["step2"].Status)
 	assert.Equal(t, failErr, reports["step2"].Error)
@@ -299,8 +306,9 @@ func TestWorkflow_RollbackFrom_SkippedStatus(t *testing.T) {
 
 	wf := newTestWorkflow("wf", []Step{step1, step2})
 	wf.rollbackMode = ContinueOnError
+	allExecuted := map[string]struct{}{"step1": {}, "step2": {}}
 
-	reports := wf.rollbackFrom(ctx, 1, nil)
+	reports := wf.rollbackFrom(ctx, 1, nil, allExecuted)
 	assert.Len(t, reports, 2)
 	assert.Equal(t, StatusSkipped, reports["step1"].Status)
 	assert.Equal(t, StatusFailed, reports["step2"].Status)
@@ -588,12 +596,14 @@ func TestWorkflow_Execute_NilReportFromStep(t *testing.T) {
 
 func TestWorkflow_Rollback_NilReportFromStep(t *testing.T) {
 	step := &defaultStep{
-		id: "step",
+		id:      "step",
+		execute: func(ctx context.Context, stp Step) *Report { return StepSuccessReport("step") },
 		rollback: func(ctx context.Context, stp Step) *Report {
 			return nil // Simulate buggy rollback
 		},
 	}
 	wf := newTestWorkflow("wf", []Step{step})
+	wf.Execute(context.Background()) // step must execute before it can be compensated (spec D5)
 	report := wf.Rollback(context.Background())
 	assert.NotNil(t, report)
 	assert.Equal(t, StatusSuccess, report.Status)
@@ -947,4 +957,51 @@ func TestWorkflow_ParentMutates_BetweenSubWorkflows(t *testing.T) {
 	assert.Equal(t, StatusSuccess, report.Status)
 	assert.Equal(t, "v1", seen1, "first sub-workflow should see v1")
 	assert.Equal(t, "v2", seen2, "second sub-workflow should see v2")
+}
+
+// TestWorkflow_RollbackSkipsPrepareFailed verifies spec D5 / §5.3: a step whose Prepare
+// fails (and whose Execute therefore never ran) must NOT have Rollback called.
+func TestWorkflow_RollbackSkipsPrepareFailed(t *testing.T) {
+	ctx := context.Background()
+
+	rollbackCalled := map[string]bool{}
+
+	s1 := &defaultStep{
+		id:      "s1",
+		execute: func(ctx context.Context, stp Step) *Report { return StepSuccessReport("s1") },
+		rollback: func(ctx context.Context, stp Step) *Report {
+			rollbackCalled["s1"] = true
+			return StepSuccessReport("s1")
+		},
+	}
+	// s2 fails in Prepare — Execute never runs
+	s2 := &defaultStep{
+		id: "s2",
+		prepare: func(ctx context.Context, stp Step) (context.Context, error) {
+			return ctx, errors.New("prepare failed")
+		},
+		rollback: func(ctx context.Context, stp Step) *Report {
+			rollbackCalled["s2"] = true
+			return StepSuccessReport("s2")
+		},
+	}
+
+	wf := newTestWorkflow("wf", []Step{s1, s2})
+	wf.executionMode = RollbackOnError
+
+	report := wf.Execute(ctx)
+
+	assert.Equal(t, StatusFailed, report.Status)
+	assert.True(t, rollbackCalled["s1"], "s1 executed and must be rolled back")
+	assert.False(t, rollbackCalled["s2"], "s2 never executed (Prepare failed) and must NOT be rolled back")
+
+	// s2's rollback report must be skipped, not a failure
+	var s2Rollback *Report
+	for _, sr := range report.StepReports {
+		if sr.Id == "s2" && sr.Rollback != nil {
+			s2Rollback = sr.Rollback
+		}
+	}
+	require.NotNil(t, s2Rollback, "s2 should have a rollback report")
+	assert.Equal(t, StatusSkipped, s2Rollback.Status)
 }
