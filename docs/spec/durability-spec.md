@@ -1,6 +1,6 @@
 # automa Durability Specification
 
-> Status: **proposed** — normative spec, under review.
+> Status: **accepted** — ratified normative spec for v1; Go is the reference implementation.
 > Version: **journal schema v1**
 
 This document is the **normative, language-neutral** specification for automa's
@@ -75,23 +75,36 @@ These are out of scope for journal schema v1.
 
 ### 3.3 Schema (journal v1)
 
+A node (the top-level journal or any workflow step) has a stable **header**
+(identity + configuration) plus three run-state siblings: `cursor` (the
+position), `shared` (durable state), and `steps` (structure). Because a workflow
+*is* a step, the structure is **recursive**: a step that is itself a workflow
+carries its own `cursor`/`shared`/`steps` (§3.8). A leaf (ordinary) step carries
+none of the three.
+
 ```jsonc
 {
-  "version": 1,                       // integer; schema version (§3.5)
-  "workflow_id": "setup_local_dev",   // string; identifies the run's workflow
-  "execution_mode": "RollbackOnError",// string; one of the execution modes (§4.3)
-  "rollback_mode":  "StopOnError",    // string; one of the rollback modes (§4.3)
-  "phase":  "forward",                // string; workflow phase (§4.1)
-  "cursor": 1,                        // integer; index of the step currently worked on
-  "shared": { /* namespaced bag */ }, // object; the workflow's shared state space:
-                                       //   Global + all named rooms (§ core 7.2.1).
-                                       //   Excludes per-step Local (captured per step).
-  "steps": [                          // array; one entry per step, in topology order
+  // ── header: stable identity + configuration ──
+  "version": 1,                        // integer; schema version (§3.5)
+  "workflow_id": "setup_local_dev",    // string; identifies the run's workflow
+  "execution_mode": "RollbackOnError", // string; one of the execution modes (§4.3)
+  "rollback_mode":  "StopOnError",     // string; one of the rollback modes (§4.3)
+
+  // ── run state ──
+  "cursor": {                          // object; the execution position (§3.4)
+    "phase": "forward",                //   string; workflow phase (§4.1)
+    "index": 1                         //   integer; index into this node's steps
+  },
+  "shared": { /* namespaced bag */ },  // object; this workflow's shared state space:
+                                        //   Global + all named rooms (§ core 7.2.1).
+                                        //   Excludes per-step Local (captured per step).
+  "steps": [                           // array; one entry per step, in topology order
     {
-      "id": "create-network",         // string; step ID (MUST match topology)
-      "state": "completed",           // string; step state (§4.2)
-      "snapshot": { /* state bag */ },// object, OPTIONAL; per-step execution state for rollback
-      "report":   { /* report */ }    // object, OPTIONAL; the step's report tree
+      "id": "create-network",          // string; step ID (MUST match topology)
+      "state": "completed",            // string; step state (§4.2)
+      "snapshot": { /* state bag */ }, // object, OPTIONAL; leaf-step state for rollback
+      "report":   { /* report */ }     // object, OPTIONAL; the step's report tree
+      // a workflow step instead carries its own "cursor"/"shared"/"steps" (§3.8)
     }
   ]
 }
@@ -99,15 +112,21 @@ These are out of scope for journal schema v1.
 
 Field requirements:
 
-- `version`, `workflow_id`, `execution_mode`, `rollback_mode`, `phase`,
-  `cursor`, and `steps` are **REQUIRED**.
-- `steps` MUST contain exactly one entry per step in the workflow definition,
-  in topology order. `steps[i].id` MUST equal the i-th step ID of the topology.
-- `snapshot` and `report` are **OPTIONAL** per step and MAY be omitted when not
-  yet produced (e.g. a `pending` step). `snapshot`, when present, is the state
-  captured for use during compensation.
-- `shared` MAY be an empty object but the key SHOULD be present. It captures the
-  workflow's shared state space (Global + all named rooms, per core spec §7.2.1).
+- Header: `version`, `workflow_id`, `execution_mode`, `rollback_mode` are
+  **REQUIRED** (at the top level).
+- **Workflow-node invariant.** A node is a workflow **iff** it has `steps`.
+  Whenever `steps` is present, `cursor` (with both `phase` and `index`) and
+  `shared` MUST also be present. A leaf step MUST carry none of `steps`,
+  `cursor`, `shared`. (The top-level journal is always a workflow, so it always
+  has all three.)
+- `steps` MUST contain exactly one entry per step in the workflow definition, in
+  topology order. `steps[i].id` MUST equal the i-th step ID of the topology.
+- Per step entry: `id` and `state` are **REQUIRED**. `snapshot` and `report` are
+  **OPTIONAL** and MAY be omitted when not yet produced (e.g. a `pending` step).
+  `snapshot`, when present, is the leaf-step state captured for compensation.
+- `shared` MAY be an empty object but the key MUST be present on a workflow node.
+  It captures the workflow's shared state space (Global + all named rooms, per
+  core spec §7.2.1).
 - The serialization of `shared`, `snapshot`, and `report` is governed by their
   own (existing) language-neutral schemas (namespaced state bag, report tree).
   This spec treats them as opaque nested objects and constrains only their
@@ -115,11 +134,24 @@ Field requirements:
 
 ### 3.4 Cursor
 
-- `cursor` is the index into `steps` of the step the run is currently working on.
-- In `forward` phase, `cursor` is the index of the most recently `started` step.
-- In `compensating` phase, `cursor` is the index from which compensation
+`cursor` is the **execution position** of a node: `{ phase, index }`. It belongs
+to one node and its `index` addresses **that node's own** `steps` array — never
+across levels. Each workflow node (top level or a nested workflow step) has its
+own `cursor`; the live position of the run is the **cursor path** obtained by
+descending through workflow steps (§3.8, §6).
+
+- `cursor.index` is the index into this node's `steps` of the step it is
+  currently working on; `cursor.phase` is that node's phase (§4.1).
+- In `forward` phase, `cursor.index` is the index of the most recently `started`
+  step.
+- In `compensating` phase, `cursor.index` is the index from which compensation
   proceeds downward (toward 0).
-- In `done` phase, `cursor` is unconstrained and MUST be ignored by readers.
+- In `done` phase, `cursor.index` is unconstrained and MUST be ignored by readers.
+
+A step's **`state`** (how its parent sees it) is distinct from a workflow step's
+own `cursor.phase` (its internal progress); the two are coupled by §3.8 (e.g. a
+workflow step is `completed` only once its own node reaches `phase: done`
+successfully).
 
 ### 3.5 Versioning
 
@@ -206,6 +238,82 @@ fully compensated, or terminally failed):
 - Implementations MUST document that journals accumulate under `retain` until
   pruned, so operators size storage accordingly.
 
+### 3.8 Sub-workflow nesting (inline, recursive)
+
+A step MAY itself be a workflow (core §6). Because a workflow *is* a step, the
+journal is **recursive**: a step that is a workflow carries its own `cursor`,
+`shared`, and `steps` — the same run-state shape the top level has (§3.3) — with
+`steps` nested directly, mirroring the inline recursion of the core report tree
+(core §8.2). There is no separate child-journal file: one top-level runID yields
+exactly one journal file that fully describes the whole tree, atomically written
+(§3.6).
+
+**A step is a workflow iff its entry has a `steps` array** (the workflow-node
+invariant, §3.3): whenever `steps` is present, `cursor` and `shared` are present
+too; a leaf step carries none of the three.
+
+Rules:
+
+- A workflow step entry carries `id`, `state`, an optional `report`, and the
+  run-state trio `cursor`/`shared`/`steps`. It does **not** carry `version`,
+  `workflow_id`, `execution_mode`, or `rollback_mode`: those are **inherited** —
+  `workflow_id` equals the step's own `id`, and the modes are the enclosing
+  workflow's (core §6.1, parent overrides), so recording them per level would
+  only invite inconsistency.
+- A workflow step entry **omits** the leaf `snapshot` field: its compensation is
+  driven by its sub-steps' own snapshots (inside its nested `steps`), not a
+  single snapshot.
+- A workflow step's `steps` MUST satisfy §3.3 recursively: exactly one entry per
+  sub-step, in topology order, and each MAY itself be a workflow to arbitrary
+  depth. The full topology is thus present in the journal recursively.
+- Resume (§6) descends into a workflow step's `steps` using the same
+  phase-dispatch rules applied at the top level (§6.3–§6.5), driven by that
+  node's `cursor`. A workflow step's outward `state` is coupled to its own node:
+  `completed` only once its `cursor.phase` reaches `done` successfully, `failed`
+  when it terminates in failure, and `compensated` when it is fully compensated.
+
+```jsonc
+{
+  "version": 1,
+  "workflow_id": "setup",
+  "execution_mode": "RollbackOnError",
+  "rollback_mode":  "ContinueOnError",
+  "cursor": { "phase": "forward", "index": 0 },   // working on steps[0] = "db"
+  "shared": { /* namespaced bag */ },
+  "steps": [
+    {
+      "id": "db",                                 // workflow step: has "steps"
+      "state": "started",                         //   its state as the parent sees it
+      "cursor": { "phase": "forward", "index": 1 },
+      "shared": { /* deep-cloned from parent at start; then diverges */ },
+      "steps": [
+        { "id": "create-volume", "state": "completed" },     // leaf: none of the trio
+        {
+          "id": "start-postgres", "state": "started",        // nested workflow
+          "cursor": { "phase": "forward", "index": 1 },
+          "shared": { },
+          "steps": [
+            { "id": "pull-image",    "state": "completed" },
+            { "id": "run-container", "state": "started"   }
+          ]
+        }
+      ]
+    },
+    { "id": "app",        "state": "pending" },   // workflow not started yet;
+    { "id": "smoke-test", "state": "pending" }    //   run-state trio added when it starts
+  ]
+}
+```
+
+The live position of the run is the **cursor path** — here
+`db → start-postgres → run-container` — found by descending each workflow step's
+`steps` and applying that node's `cursor` (§3.4, §6).
+
+> A not-yet-started workflow step (e.g. `app`) is leaf-shaped (no `steps`/
+> `cursor`/`shared`) until it is reached; its sub-steps are enumerated when it
+> starts. The authoritative topology is reconstructed from the supplied
+> definition on resume (§6.2); the journal mirrors progress into it.
+
 ## 4. State machine
 
 ### 4.1 Workflow phases
@@ -271,7 +379,8 @@ The following ordering is **normative**. It is what makes recovery decidable.
 Per step at index `i` in `forward` phase:
 
 ```
-F1. steps[i].state = "started"; cursor = i;   PERSIST   ← write-ahead, BEFORE side effect
+F1. steps[i].state = "started"; cursor = {phase:"forward", index:i};
+                                               PERSIST   ← write-ahead, BEFORE side effect
 F2. run the step's prepare (if any)
 F3. run the step's execute  (THE SIDE EFFECT happens here)
 F4. steps[i].state   = "completed" | "failed"
@@ -280,21 +389,21 @@ F4. steps[i].state   = "completed" | "failed"
     shared            = <current shared state space: Global + named rooms>
                                                PERSIST   ← commit point, AFTER side effect
 F5. on failure with execution_mode = RollbackOnError:
-    phase = "compensating"; cursor = i;        PERSIST
+    cursor = {phase:"compensating", index:i};  PERSIST
 ```
 
-Per step at index `i` in `compensating` phase (iterating `cursor → 0`):
+Per step at index `i` in `compensating` phase (iterating `cursor.index → 0`):
 
 ```
 C1. if steps[i].state == "compensated": skip (idempotent resume)
 C2. restore the step's snapshot; run the step's rollback (THE COMPENSATING SIDE EFFECT)
-C3. steps[i].state = "compensated"; cursor = i;   PERSIST   ← per-compensation commit
+C3. steps[i].state = "compensated"; cursor.index = i;   PERSIST   ← per-compensation commit
 ```
 
 On completion:
 
 ```
-D1. phase = "done";                                PERSIST   (then apply retention policy, §3.7.3)
+D1. cursor.phase = "done";                     PERSIST   (then apply retention policy, §3.7.3)
 ```
 
 Requirements:
@@ -307,6 +416,13 @@ Requirements:
 - In `compensating` phase, each step's `compensated` record (C3) MUST be durably
   written before proceeding to the next-lower index, so an interrupted rollback
   resumes without repeating already-compensated steps.
+- **Recursion.** When step `i` is itself a workflow, its F3 (execute) is the
+  recursive run of that sub-workflow, which performs its own F1–D1 against its
+  own node (`steps[i].cursor`/`shared`/`steps`). The parent's F1/F4 still bracket
+  it: the parent records `started` before descending and `completed`/`failed`
+  after the sub-workflow reaches its terminal `cursor.phase`. Each PERSIST writes
+  the whole journal file atomically (§3.6), so a nested transition and its
+  ancestors' bracketing are captured consistently.
 
 ## 6. Resume
 
@@ -321,13 +437,19 @@ A resume:
 1. Loads the journal (§6.2).
 2. Validates topology and modes against the supplied definition (§6.2).
 3. Rehydrates `shared` (Global + named rooms) onto the workflow.
-4. Dispatches on `phase` (§6.3, §6.4, §6.5).
+4. Dispatches on `cursor.phase` (§6.3, §6.4, §6.5), descending recursively into
+   workflow steps (§3.8): a workflow step is resumed by dispatching on its own
+   node's `cursor.phase` against its own `steps`.
 
 ### 6.2 Loading and validation
 
 - **Missing journal** → the implementation MUST treat this as a fresh run: begin
   in `forward` at index 0 and write a new journal. (Resume of a never-started run
   is a normal start.)
+- **Topology validation is recursive** → the supplied definition's ordered step
+  IDs MUST match the journal's `steps[i].id` at every level, descending into each
+  workflow step's own `steps` (§3.8). A structural mismatch at any depth is a
+  mismatch (below).
 - **Corrupt or unreadable journal**, or **unsupported `version`** → the
   implementation MUST fail loudly and MUST NOT resume or restart. Silently
   restarting could re-execute side effects.
@@ -339,7 +461,7 @@ A resume:
   changes (e.g. steps appended after the last completed step), but the default
   MUST be strict refusal.
 
-### 6.3 Forward resume (`phase == "forward"`)
+### 6.3 Forward resume (`cursor.phase == "forward"`)
 
 1. Identify the first step not in state `completed` (the lowest index whose state
    is `pending`, `started`, or `failed`).
@@ -349,14 +471,14 @@ A resume:
 3. Continue executing forward from that index per §5, honoring `execution_mode`.
 4. Steps already in state `completed` MUST NOT be re-executed.
 
-### 6.4 Compensation resume (`phase == "compensating"`)
+### 6.4 Compensation resume (`cursor.phase == "compensating"`)
 
-1. Continue compensating from `cursor` downward toward index 0 per §5 (C1–C3).
+1. Continue compensating from `cursor.index` downward toward index 0 per §5 (C1–C3).
 2. Steps already in state `compensated` MUST be skipped.
 3. Honoring `rollback_mode` governs whether a failed compensation stops the
    rollback or continues to lower indices.
 
-### 6.5 Done (`phase == "done"`)
+### 6.5 Done (`cursor.phase == "done"`)
 
 - The run is terminal. Resume MUST return the recorded final result and MUST NOT
   execute or compensate any step (§3.7.2).
@@ -447,11 +569,13 @@ addition, but none is required for crash recovery of sequential sagas:
   spec's numeric policy (core §7.5) — document the 2^53 boundary, recommend
   string-typed numerics beyond it. The shared state space serialized in the
   journal follows the same rule.
+- **Sub-workflow journal nesting.** *Resolved:* a nested run's journal is
+  represented **inline** under the parent step's entry, recursively (§3.8),
+  mirroring the core spec's inline sub-workflow rollback-report shape (core §8.2).
+  A linked/separate child-journal file was rejected because it adds a second
+  on-disk artifact to version and cross-file resume coordination, for no benefit
+  to the target single-process workload.
 
 **Still open:**
 
-- **Sub-workflow journal nesting.** A step MAY itself be a workflow. How is a
-  nested run's journal represented — inline under the parent step, or as a linked
-  child journal? This MUST be pinned before sub-workflow durability is claimed,
-  and depends on the core spec's resolved sub-workflow rollback-report shape
-  (core §8.2). Tracked in the durability spec issue (#91).
+- None blocking durability v1.

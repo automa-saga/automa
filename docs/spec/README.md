@@ -1,6 +1,6 @@
 # automa Specifications
 
-> Status: **proposed** — spec-first effort, under review.
+> Status: **accepted** — core and durability specs ratified for v1.
 
 automa is intended to exist in more than one language (Go first, then others such
 as Kotlin, Python, and Rust) for the same audience and use cases described in
@@ -48,8 +48,8 @@ interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 
 | Spec | Status | Description |
 |------|--------|-------------|
-| [Core](core-spec.md) | proposed | The saga model: step lifecycle, workflow execution loop, execution/rollback modes, composability, state model, and report tree. The foundation all implementations MUST satisfy. |
-| [Durability](durability-spec.md) | proposed | **Extends Core.** Journal format, execution state machine, persistence ordering, and resume/recovery semantics for crash-recoverable sequential sagas. |
+| [Core](core-spec.md) | accepted | The saga model: step lifecycle, workflow execution loop, execution/rollback modes, composability, state model, and report tree. The foundation all implementations MUST satisfy. |
+| [Durability](durability-spec.md) | accepted | **Extends Core.** Journal format, execution state machine, persistence ordering, and resume/recovery semantics for crash-recoverable sequential sagas. |
 
 Specs layer: **Core** is the foundation; **Durability** is an extension built on
 top of it. Future features are additional extensions, each with its own spec and

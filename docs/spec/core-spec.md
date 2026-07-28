@@ -1,6 +1,6 @@
 # automa Core Specification
 
-> Status: **proposed** — normative spec, under review.
+> Status: **accepted** — ratified normative spec for v1; Go is the reference implementation.
 > Version: **core model v1**
 
 This document is the **normative, language-neutral** specification for automa's
@@ -14,13 +14,18 @@ Conformance keywords (**MUST**, **SHOULD**, **MAY**, …) are interpreted per
 [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119); see [README](README.md).
 
 This spec is **derived from** the Go reference implementation but is written to
-be correct in its own right. Where it intentionally departs from the current Go
-behavior, the divergence is called out inline as:
+be correct in its own right. Where it intentionally departed from the original
+Go behavior, the decision is called out inline as either:
+
+> **✓ Spec decision (Go conforms as of #NN).** … adopted by the reference
+> implementation.
+
+or, for the one decision not yet implemented:
 
 > **⚠ Spec decision (differs from current Go implementation).** … The Go
 > implementation is to be adapted to match this spec.
 
-A consolidated list of such decisions is in §11.
+A consolidated list of such decisions, and their adaptation status, is in §11.
 
 ---
 
@@ -123,14 +128,14 @@ Every phase produces a report with exactly one **status**:
   concurrent executions.
 - The engine attaches a per-step state view to the step before Prepare (§7.3).
 
-  > **⚠ Spec decision (differs from current Go implementation).** The Go `Step`
-  > interface documents `WithState` as returning "a shallow copy of the step,"
+  > **✓ Spec decision (Go conforms as of #81).** The Go `Step` interface
+  > previously documented `WithState` as returning "a shallow copy of the step,"
   > but both concrete implementations mutate in place and return the same
   > instance. This spec does **not** require copy-on-attach; it requires only
   > that, after the engine attaches state to a step, calls to that step's
   > `State()` observe the attached bag, and that step instances are single-use
-  > (above). The misleading "shallow copy" wording MUST be corrected in the Go
-  > implementation to match this contract. *(See review issues #80–#84.)*
+  > (above). The misleading "shallow copy" wording was corrected to match this
+  > contract in #81.
 
 ## 4. Workflow execution
 
@@ -156,10 +161,10 @@ For each step at index `i` in topology order:
    - On Prepare failure → record a **failed** step report (action = **prepare**,
      see decision below) and apply the execution mode (§5) as for any failure.
 
-     > **⚠ Spec decision (differs from current Go implementation).** The Go loop
-     > records a step-Prepare failure with action **execute**. This spec requires
+     > **✓ Spec decision (Go conforms as of #92).** The Go loop previously
+     > recorded a step-Prepare failure with action **execute**. This spec requires
      > action **prepare** for a Prepare-phase failure, so the report faithfully
-     > identifies the phase that failed. Implementations MUST be adapted.
+     > identifies the phase that failed. Adapted in #92.
 3. Run the step's Execute; collect its report. (Execute is always defined, §3.2.1.)
 4. Apply the execution mode based on the report's failed/not-failed status (§5).
 
@@ -208,10 +213,10 @@ itself fails, during a `rollback`-mode compensation pass.
 - The default rollback mode is `continue`.
 - `rollback_mode` is only consulted when `execution_mode` is `rollback`.
 
-  > **⚠ Spec decision (differs from current Go implementation).** Go's
-  > `TypeMode` allows `rollback` as a *rollback_mode* value (the enum is shared).
-  > This spec restricts `rollback_mode` to `{ continue, stop }`; `rollback` as a
-  > rollback_mode is meaningless and MUST be rejected at validation time.
+  > **✓ Spec decision (Go conforms as of #93).** Go's `TypeMode` previously
+  > allowed `rollback` as a *rollback_mode* value (the enum is shared). This spec
+  > restricts `rollback_mode` to `{ continue, stop }`; `rollback` as a
+  > rollback_mode is meaningless and is rejected at validation time. Adapted in #93.
 
 ### 5.3 Compensation pass
 
@@ -224,14 +229,14 @@ When `execution_mode` is `rollback` and step `i` fails:
 3. A step that was **skipped** (never executed) MUST NOT be compensated; its
    Rollback MUST NOT be invoked.
 
-   > **⚠ Spec decision (differs from current Go implementation).** The Go
-   > `rollbackFrom` loop invokes `Rollback` on *every* step from `i` down to `0`
+   > **✓ Spec decision (Go conforms as of #84).** The Go `rollbackFrom` loop
+   > previously invoked `Rollback` on *every* step from `i` down to `0`
    > unconditionally (a no-op Rollback merely returns skipped, but a *defined*
    > Rollback on a step whose Execute never ran would still fire). This spec
    > requires compensation to be limited to steps that actually executed
    > (status `success` or `failed`), never `skipped`/`pending` steps. This is
-   > also required for correct durability resume. Implementations MUST be
-   > adapted to track per-step execution status and skip non-executed steps.
+   > also required for correct durability resume. Adapted in #84: the engine now
+   > tracks per-step execution and skips non-executed steps.
 
 4. Each compensation produces a rollback report; these are attached under the
    corresponding step's report (§8.2).
@@ -266,9 +271,10 @@ When `execution_mode` is `rollback` and step `i` fails:
   advisory: they MAY be set for documentation or for standalone execution of that
   workflow, but when it runs as a child its parent's modes apply.
 
-  > **Note.** The current Go `WorkflowBuilder` doc comment contradicts the actual
-  > overwrite behavior. The behavior (parent overrides) is correct per this spec;
-  > the **doc comment** MUST be corrected to match.
+  > **✓ Spec decision (Go conforms as of #82).** The Go `WorkflowBuilder` doc
+  > comment previously contradicted the actual overwrite behavior. The behavior
+  > (parent overrides) is correct per this spec; the misleading doc comment was
+  > corrected to match in #82.
 
 - **Nested compensation.** When a parent compensates a child-workflow step, the
   child workflow's own compensation logic runs (it rolls back its own steps in
@@ -331,7 +337,7 @@ follows. "Shared state space" means **Global plus all named rooms** (§7.2.1):
 > deep-cloned for sub-workflows alongside Global. This realizes the
 > `"database-primary"` use case the model was designed for. The previous
 > step-private behavior (review issue #83) is to be changed; the Go
-> implementation MUST be adapted (§11, D8).
+> implementation MUST be adapted (§11, D8) — tracked in #116.
 
 ### 7.4 Execution-time snapshots
 
@@ -403,13 +409,12 @@ a cross-language contract.
 - `action`, `status`, `executionMode`, and `rollbackMode` MUST serialize as the
   lowercase string forms defined in this spec, never as numeric ordinals.
 
-  > **⚠ Spec decision (differs from current Go implementation).** Go's
-  > `TypeAction` and `TypeStatus` silently map *unknown* string values to a
-  > default on unmarshal (`action`→`prepare`, etc.), unlike `TypeMode` which
-  > errors. For a cross-language wire contract this is unsafe: an unknown enum
-  > value MUST be a decode error, not a silent default, so format drift is
-  > caught. Implementations MUST be adapted to fail on unknown enum values for
-  > all three enums.
+  > **✓ Spec decision (Go conforms as of #94).** Go's `TypeAction` and
+  > `TypeStatus` previously mapped *unknown* string values to a default on
+  > unmarshal (`action`→`prepare`, etc.), unlike `TypeMode` which errors. For a
+  > cross-language wire contract this is unsafe: an unknown enum value MUST be a
+  > decode error, not a silent default, so format drift is caught. Adapted in #94:
+  > all three enums now fail on unknown values.
 
 ### 8.2 Nesting
 
@@ -464,26 +469,28 @@ a cross-language contract.
 - None blocking core v1. (Conformance fixtures must encode the numeric boundary
   and the timestamp format precisely; see §12.)
 
-## 11. Consolidated spec decisions (Go to be adapted)
+## 11. Consolidated spec decisions
 
 Each is a place where this spec is written "the right way" and the Go reference
-implementation is to be adapted (or the decision confirmed before freezing):
+implementation is (or is being) adapted to match.
+
+**Adapted — Go now conforms:**
+
+| # | Decision | § | Adapted in |
+|---|----------|----|-----------|
+| D1 | A step **MUST** define Execute; a no-execute step is a validation error. | 3.2.1 | already matched (docs only) |
+| D2 | `WithState` contract: attach-and-observe + single-use; fix the misleading "shallow copy" docs. | 3.5 | #81 |
+| D3 | Step **Prepare** failure reports action `prepare`, not `execute`. | 4.3 | #92 |
+| D4 | `rollback_mode` restricted to `{ continue, stop }`; reject `rollback`. | 5.2 | #93 |
+| D5 | Compensation MUST skip non-executed (`skipped`/`pending`) steps. | 5.3 | #84 |
+| D6 | Nested workflows **inherit** the parent's modes (parent overrides); fix the contradicting builder doc comment. | 6.1 | #82 |
+| D7 | Report enums (`action`, `status`) MUST fail on unknown values on decode, like `mode`. | 8.1 | #94 |
+
+**Still pending — Go adaptation not yet done:**
 
 | # | Decision | §  |
 |---|----------|----|
-| D2 | `WithState` contract: attach-and-observe + single-use; fix the misleading "shallow copy" docs. | 3.5 |
-| D3 | Step **Prepare** failure reports action `prepare`, not `execute`. | 4.3 |
-| D4 | `rollback_mode` restricted to `{ continue, stop }`; reject `rollback`. | 5.2 |
-| D5 | Compensation MUST skip non-executed (`skipped`/`pending`) steps. | 5.3 |
-| D7 | Report enums (`action`, `status`) MUST fail on unknown values on decode, like `mode`. | 8.1 |
-| D8 | Custom namespaces become **workflow-scoped shared named rooms** (propagated by reference to steps, deep-cloned for sub-workflows), replacing the current step-private behavior. | 7.2.1, 7.3 |
-
-**Resolved to match current behavior (no code change to logic; docs only):**
-
-| # | Decision | §  |
-|---|----------|----|
-| D1 | A step **MUST** define Execute; a no-execute step is a validation error. | 3.2.1 |
-| D6 | Nested workflows **inherit** the parent's modes (parent overrides). Fix the contradicting builder doc comment. | 6.1 |
+| D8 | Custom namespaces become **workflow-scoped shared named rooms** (propagated by reference to steps, deep-cloned for sub-workflows), replacing the current step-private behavior. The Go engine currently builds per-step state as `NewNamespacedStateBag(nil, global)`, so custom namespaces remain step-private; this MUST be adapted before v1 freeze (tracked in #116). | 7.2.1, 7.3 |
 
 ## 12. Conformance
 
