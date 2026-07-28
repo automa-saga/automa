@@ -56,12 +56,11 @@ func (wb *WorkflowBuilder) Id() string {
 //
 // Nested workflow propagation: if any registered step produces a *workflow
 // (i.e. is itself a sub-workflow), its executionMode and rollbackMode are
-// overwritten with the parent's modes so that all nested workflows follow the
-// same error-handling and rollback strategy as the enclosing workflow — unless
-// those modes have been explicitly set on the nested builder beforehand, in
-// which case they are still overwritten. Use [WorkflowBuilder.WithExecutionMode]
-// and [WorkflowBuilder.WithRollbackMode] on each nested builder before adding
-// it if independent modes are required.
+// always overwritten with the parent's modes so that all nested workflows
+// follow the same error-handling and rollback strategy as the enclosing
+// workflow. This is a deliberate uniformity guarantee (core-spec §6.1, decision
+// D6): a child cannot override its parent's modes. Any modes set on a nested
+// builder apply only when it is built and run as a top-level workflow.
 //
 // After Build returns the internal workflow is reset to a fresh default so the
 // builder can be reused.
