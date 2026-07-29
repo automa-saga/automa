@@ -224,7 +224,7 @@ func (s *StepBuilder) BuildAndCopy() (Step, error) {
 	s.Step.onFailure = finishedStep.onFailure
 	s.Step.enableAsyncCallbacks = finishedStep.enableAsyncCallbacks
 
-	// Clone the NamespacedStateBag (clones local, global, and custom namespaces)
+	// Clone the NamespacedStateBag (clones local and global namespaces)
 	var err error
 	if finishedStep.state != nil {
 		s.Step.state, err = finishedStep.state.Clone()

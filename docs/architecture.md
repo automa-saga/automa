@@ -85,7 +85,6 @@ Automa uses a **namespaced state bag** design for flexible state management.
 ├─────────────────────────────────────────────────┤
 │  + Local() StateBag                             │
 │  + Global() StateBag                            │
-│  + WithNamespace(name) StateBag                 │
 │  + Clone() (NamespacedStateBag, error)          │
 │  + Merge(other) (NamespacedStateBag, error)     │
 └─────────────────────────────────────────────────┘
@@ -97,7 +96,6 @@ Automa uses a **namespaced state bag** design for flexible state management.
 ├─────────────────────────────────────────────────┤
 │  - local: StateBag                              │
 │  - global: StateBag                             │
-│  - custom: map[string]StateBag                  │
 │  - mu: sync.RWMutex                             │
 ├─────────────────────────────────────────────────┤
 │  Thread-safe implementation                     │
@@ -110,7 +108,6 @@ Automa uses a **namespaced state bag** design for flexible state management.
 
 1. **Local**: Step-private state (isolated, not visible to other steps)
 2. **Global**: Workflow-shared state (visible to all steps)
-3. **Custom**: Named namespaces for specific use cases
 
 **State Flow:**
 
@@ -256,7 +253,6 @@ Step1.WithState(workflow.State()) → Step1.Rollback()
 Thread-safe via `sync.RWMutex`:
 
 - `Local()` / `Global()` use a fast-path read lock and initialize lazily on first access
-- `WithNamespace()` acquires a write lock to create missing custom namespaces
 - `Clone()`, `MarshalJSON()`, and `MarshalYAML()` snapshot namespace references under lock
 - Inner `StateBag` instances (`SyncStateBag`) protect their own contents independently
 
@@ -370,8 +366,7 @@ State is explicitly passed and managed:
 Workflow (heap-allocated)
 ├── State: NamespacedStateBag (shared reference)
 │   ├── Local: StateBag (lazy-allocated)
-│   ├── Global: StateBag (heap-allocated)
-│   └── Custom: map[string]StateBag (heap-allocated)
+│   └── Global: StateBag (heap-allocated)
 ├── Steps: []Step (slice of interfaces)
 └── lastExecutionStates: map[string]NamespacedStateBag
     └── [step-id]: NamespacedStateBag (cloned snapshots)
@@ -478,8 +473,7 @@ report := automa.SuccessReport(step,
 
 1. **Use namespaced state wisely**
    - Local for step-private data
-   - Global for shared configuration
-   - Custom for domain-specific isolation
+   - Global for shared configuration (use distinct keys to avoid clobbering)
 
 2. **Enable state preservation for critical workflows**
    - Ensures deterministic rollback

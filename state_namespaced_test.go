@@ -35,28 +35,12 @@ func TestNamespacedStateBag_BasicOperations(t *testing.T) {
 		assert.False(t, ok, "global should not see local-only keys")
 	})
 
-	t.Run("custom namespace isolation", func(t *testing.T) {
-		ns := NewNamespacedStateBag(nil, nil)
-
-		ns.WithNamespace("ns1").Set("key", "value1")
-		ns.WithNamespace("ns2").Set("key", "value2")
-
-		val1, ok1 := ns.WithNamespace("ns1").String("key")
-		val2, ok2 := ns.WithNamespace("ns2").String("key")
-
-		assert.True(t, ok1)
-		assert.True(t, ok2)
-		assert.Equal(t, "value1", val1)
-		assert.Equal(t, "value2", val2)
-	})
-
 	t.Run("clone creates independent copy", func(t *testing.T) {
 		original := NewNamespacedStateBag(nil, nil)
 
-		// Set values in all namespaces
+		// Set values in both namespaces
 		original.Local().Set("local-key", "local-value")
 		original.Global().Set("global-key", "global-value")
-		original.WithNamespace("custom").Set("custom-key", "custom-value")
 
 		// Clone the state
 		cloned, err := original.Clone()
@@ -70,14 +54,10 @@ func TestNamespacedStateBag_BasicOperations(t *testing.T) {
 		clonedGlobalStr, ok := cloned.Global().String("global-key")
 		assert.True(t, ok)
 		assert.Equal(t, "global-value", clonedGlobalStr)
-		clonedCustomStr, ok := cloned.WithNamespace("custom").String("custom-key")
-		assert.True(t, ok)
-		assert.Equal(t, "custom-value", clonedCustomStr)
 
 		// Modify original
 		original.Local().Set("local-key", "modified-local")
 		original.Global().Set("global-key", "modified-global")
-		original.WithNamespace("custom").Set("custom-key", "modified-custom")
 
 		// Verify clone is not affected
 		clonedLocalStr2, ok := cloned.Local().String("local-key")
@@ -86,9 +66,6 @@ func TestNamespacedStateBag_BasicOperations(t *testing.T) {
 		clonedGlobalStr2, ok := cloned.Global().String("global-key")
 		assert.True(t, ok)
 		assert.Equal(t, "global-value", clonedGlobalStr2)
-		clonedCustomStr2, ok := cloned.WithNamespace("custom").String("custom-key")
-		assert.True(t, ok)
-		assert.Equal(t, "custom-value", clonedCustomStr2)
 
 		// Modify clone
 		cloned.Local().Set("new-key", "new-value")
@@ -244,64 +221,14 @@ func TestNamespacedStateBag_Merge(t *testing.T) {
 		assert.Equal(t, "enabled", newSettingVal)
 	})
 
-	t.Run("merge custom namespaces - add new", func(t *testing.T) {
-		ns1 := NewNamespacedStateBag(nil, nil)
-		ns1.WithNamespace("ns1").Set("key", "value1")
-
-		ns2 := NewNamespacedStateBag(nil, nil)
-		ns2.WithNamespace("ns2").Set("key", "value2")
-
-		result, err := ns1.Merge(ns2)
-		require.NoError(t, err)
-		require.Same(t, ns1, result)
-
-		// Verify both custom namespaces exist
-		ns1Val, ok := ns1.WithNamespace("ns1").String("key")
-		assert.True(t, ok)
-		assert.Equal(t, "value1", ns1Val)
-		ns2Val, ok := ns1.WithNamespace("ns2").String("key")
-		assert.True(t, ok)
-		assert.Equal(t, "value2", ns2Val)
-	})
-
-	t.Run("merge custom namespaces - merge existing", func(t *testing.T) {
-		ns1 := NewNamespacedStateBag(nil, nil)
-		ns1.WithNamespace("shared").Set("key1", "value1")
-		ns1.WithNamespace("shared").Set("shared-key", "original")
-
-		ns2 := NewNamespacedStateBag(nil, nil)
-		ns2.WithNamespace("shared").Set("key2", "value2")
-		ns2.WithNamespace("shared").Set("shared-key", "merged")
-
-		result, err := ns1.Merge(ns2)
-		require.NoError(t, err)
-		require.Same(t, ns1, result)
-
-		// Verify custom namespace has merged values
-		sharedNs := ns1.WithNamespace("shared")
-		v1, ok := sharedNs.String("key1")
-		assert.True(t, ok)
-		assert.Equal(t, "value1", v1)
-		v2, ok := sharedNs.String("key2")
-		assert.True(t, ok)
-		assert.Equal(t, "value2", v2)
-		sv, ok := sharedNs.String("shared-key")
-		assert.True(t, ok)
-		assert.Equal(t, "merged", sv)
-	})
-
-	t.Run("merge all namespaces together", func(t *testing.T) {
+	t.Run("merge local and global together", func(t *testing.T) {
 		ns1 := NewNamespacedStateBag(nil, nil)
 		ns1.Local().Set("local1", "l1")
 		ns1.Global().Set("global1", "g1")
-		ns1.WithNamespace("custom1").Set("c1", "v1")
-		ns1.WithNamespace("shared").Set("s1", "original")
 
 		ns2 := NewNamespacedStateBag(nil, nil)
 		ns2.Local().Set("local2", "l2")
 		ns2.Global().Set("global2", "g2")
-		ns2.WithNamespace("custom2").Set("c2", "v2")
-		ns2.WithNamespace("shared").Set("s2", "merged")
 
 		result, err := ns1.Merge(ns2)
 		require.NoError(t, err)
@@ -322,20 +249,6 @@ func TestNamespacedStateBag_Merge(t *testing.T) {
 		g2, ok := ns1.Global().String("global2")
 		assert.True(t, ok)
 		assert.Equal(t, "g2", g2)
-
-		// Verify custom namespaces
-		c1, ok := ns1.WithNamespace("custom1").String("c1")
-		assert.True(t, ok)
-		assert.Equal(t, "v1", c1)
-		c2, ok := ns1.WithNamespace("custom2").String("c2")
-		assert.True(t, ok)
-		assert.Equal(t, "v2", c2)
-		s1, ok := ns1.WithNamespace("shared").String("s1")
-		assert.True(t, ok)
-		assert.Equal(t, "original", s1)
-		s2, ok := ns1.WithNamespace("shared").String("s2")
-		assert.True(t, ok)
-		assert.Equal(t, "merged", s2)
 	})
 
 	t.Run("merge with nil returns self", func(t *testing.T) {
@@ -367,23 +280,6 @@ func TestNamespacedStateBag_Merge(t *testing.T) {
 		ns2Val, ok := ns2.Local().String("key")
 		assert.True(t, ok)
 		assert.Equal(t, "value2", ns2Val)
-	})
-
-	t.Run("merge custom namespaces are cloned not referenced", func(t *testing.T) {
-		ns1 := NewNamespacedStateBag(nil, nil)
-
-		ns2 := NewNamespacedStateBag(nil, nil)
-		ns2.WithNamespace("custom").Set("key", "original")
-
-		result, err := ns1.Merge(ns2)
-		require.NoError(t, err)
-		require.Same(t, ns1, result)
-
-		ns2.WithNamespace("custom").Set("key", "modified")
-
-		ns1CustomVal, ok := ns1.WithNamespace("custom").String("key")
-		assert.True(t, ok)
-		assert.Equal(t, "original", ns1CustomVal)
 	})
 }
 
@@ -487,64 +383,6 @@ func TestNamespacedStateBag_RealWorldScenario_BindMount(t *testing.T) {
 		assert.Equal(t, "/mnt/app1", bindMount1.Target)
 		assert.Equal(t, "/var/sandbox/app2", bindMount2.Source)
 		assert.Equal(t, "/mnt/app2", bindMount2.Target)
-	})
-}
-
-func TestNamespacedStateBag_CustomNamespacePerStep(t *testing.T) {
-	t.Run("steps use custom namespaces for isolation", func(t *testing.T) {
-		wb := NewWorkflowBuilder().WithId("custom-namespace-workflow")
-
-		type Config struct {
-			Host string
-			Port int
-		}
-
-		var config1, config2 Config
-
-		// Step 1 uses custom namespace "database-1"
-		step1 := NewStepBuilder().WithId("setup-db1").
-			WithExecute(func(ctx context.Context, stp Step) *Report {
-				cfg := Config{Host: "db1.example.com", Port: 5432}
-				stp.State().WithNamespace("database-1").Set("config", cfg)
-				return SuccessReport(stp)
-			}).
-			WithRollback(func(ctx context.Context, stp Step) *Report {
-				if val, ok := stp.State().WithNamespace("database-1").Get("config"); ok {
-					config1 = val.(Config)
-				}
-				return SuccessReport(stp)
-			})
-
-		// Step 2 uses custom namespace "database-2"
-		step2 := NewStepBuilder().WithId("setup-db2").
-			WithExecute(func(ctx context.Context, stp Step) *Report {
-				cfg := Config{Host: "db2.example.com", Port: 3306}
-				stp.State().WithNamespace("database-2").Set("config", cfg)
-				return SuccessReport(stp)
-			}).
-			WithRollback(func(ctx context.Context, stp Step) *Report {
-				if val, ok := stp.State().WithNamespace("database-2").Get("config"); ok {
-					config2 = val.(Config)
-				}
-				return SuccessReport(stp)
-			})
-
-		wb.Steps(step1, step2)
-		wf, err := wb.Build()
-		require.NoError(t, err)
-
-		// Execute and rollback
-		executeReport := wf.Execute(context.Background())
-		assert.True(t, executeReport.IsSuccess())
-
-		rollbackReport := wf.Rollback(context.Background())
-		assert.True(t, rollbackReport.IsSuccess())
-
-		// Verify each step accessed its own namespace
-		assert.Equal(t, "db1.example.com", config1.Host)
-		assert.Equal(t, 5432, config1.Port)
-		assert.Equal(t, "db2.example.com", config2.Host)
-		assert.Equal(t, 3306, config2.Port)
 	})
 }
 
@@ -668,36 +506,6 @@ func TestNamespacedStateBag_LocalVsGlobalClearSemantics(t *testing.T) {
 		report := wf.Execute(context.Background())
 		assert.True(t, report.IsSuccess())
 	})
-
-	t.Run("custom namespace independent from local and global", func(t *testing.T) {
-		wb := NewWorkflowBuilder().WithId("custom-independent-workflow")
-
-		step := NewStepBuilder().WithId("test-step").
-			WithExecute(func(ctx context.Context, stp Step) *Report {
-				// Set same key in all three namespace types
-				stp.State().Local().Set("KEY1", "Local-Value")
-				stp.State().Global().Set("KEY1", "Global-Value")
-				stp.State().WithNamespace("custom").Set("KEY1", "Custom-Value")
-
-				// Verify they're all independent
-				localValue, _ := stp.State().Local().String("KEY1")
-				globalValue, _ := stp.State().Global().String("KEY1")
-				customValue, _ := stp.State().WithNamespace("custom").String("KEY1")
-
-				assert.Equal(t, "Local-Value", localValue)
-				assert.Equal(t, "Global-Value", globalValue)
-				assert.Equal(t, "Custom-Value", customValue)
-
-				return SuccessReport(stp)
-			})
-
-		wb.Steps(step)
-		wf, err := wb.Build()
-		require.NoError(t, err)
-
-		report := wf.Execute(context.Background())
-		assert.True(t, report.IsSuccess())
-	})
 }
 
 func TestNamespacedStateBag_RollbackStateIsolation(t *testing.T) {
@@ -747,7 +555,6 @@ type mockNamespacedStateBag struct{}
 
 func (m *mockNamespacedStateBag) Local() StateBag                    { return &SyncStateBag{} }
 func (m *mockNamespacedStateBag) Global() StateBag                   { return &SyncStateBag{} }
-func (m *mockNamespacedStateBag) WithNamespace(_ string) StateBag    { return &SyncStateBag{} }
 func (m *mockNamespacedStateBag) Clone() (NamespacedStateBag, error) { return m, nil }
 func (m *mockNamespacedStateBag) Merge(_ NamespacedStateBag) (NamespacedStateBag, error) {
 	return m, nil
@@ -778,21 +585,11 @@ func TestSyncNamespacedStateBag_ZeroValueUsable(t *testing.T) {
 		assert.Equal(t, "global-value", globalVal)
 	})
 
-	t.Run("with namespace creates custom namespace on zero value", func(t *testing.T) {
-		var ns SyncNamespacedStateBag
-
-		ns.WithNamespace("step1").Set("key", "value")
-		nsVal, ok := ns.WithNamespace("step1").String("key")
-		assert.True(t, ok)
-		assert.Equal(t, "value", nsVal)
-	})
-
 	t.Run("merge works on zero value receiver", func(t *testing.T) {
 		var ns SyncNamespacedStateBag
 		other := NewNamespacedStateBag(nil, nil)
 		other.Local().Set("local-key", "local-value")
 		other.Global().Set("global-key", "global-value")
-		other.WithNamespace("custom").Set("key", "custom-value")
 
 		merged, err := ns.Merge(other)
 		require.NoError(t, err)
@@ -804,16 +601,12 @@ func TestSyncNamespacedStateBag_ZeroValueUsable(t *testing.T) {
 		globalVal, ok := ns.Global().String("global-key")
 		assert.True(t, ok)
 		assert.Equal(t, "global-value", globalVal)
-		customVal, ok := ns.WithNamespace("custom").String("key")
-		assert.True(t, ok)
-		assert.Equal(t, "custom-value", customVal)
 	})
 
 	t.Run("clone works on zero value receiver", func(t *testing.T) {
 		var ns SyncNamespacedStateBag
 		ns.Local().Set("local-key", "local-value")
 		ns.Global().Set("global-key", "global-value")
-		ns.WithNamespace("custom").Set("key", "custom-value")
 
 		cloned, err := ns.Clone()
 		require.NoError(t, err)
@@ -825,8 +618,5 @@ func TestSyncNamespacedStateBag_ZeroValueUsable(t *testing.T) {
 		globalVal, ok := cloned.Global().String("global-key")
 		assert.True(t, ok)
 		assert.Equal(t, "global-value", globalVal)
-		customVal, ok := cloned.WithNamespace("custom").String("key")
-		assert.True(t, ok)
-		assert.Equal(t, "custom-value", customVal)
 	})
 }

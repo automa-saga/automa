@@ -14,7 +14,6 @@ func TestSyncNamespacedStateBag_JSONRoundTrip(t *testing.T) {
 	n := NewNamespacedStateBag(nil, nil)
 	n.Global().Set("g", "gv")
 	n.Local().Set("l", "lv")
-	n.WithNamespace("ns").Set("k", "v")
 
 	b, err := json.Marshal(n)
 	require.NoError(t, err)
@@ -29,16 +28,12 @@ func TestSyncNamespacedStateBag_JSONRoundTrip(t *testing.T) {
 	lv, ok := n2.Local().String("l")
 	assert.True(t, ok)
 	assert.Equal(t, "lv", lv)
-	kv, ok := n2.WithNamespace("ns").String("k")
-	assert.True(t, ok)
-	assert.Equal(t, "v", kv)
 }
 
 func TestSyncNamespacedStateBag_YAMLRoundTrip(t *testing.T) {
 	n := NewNamespacedStateBag(nil, nil)
 	n.Global().Set("g", "gv")
 	n.Local().Set("l", "lv")
-	n.WithNamespace("ns").Set("k", "v")
 
 	b, err := yaml.Marshal(n)
 	require.NoError(t, err)
@@ -53,7 +48,4 @@ func TestSyncNamespacedStateBag_YAMLRoundTrip(t *testing.T) {
 	lv, ok := n2.Local().String("l")
 	assert.True(t, ok)
 	assert.Equal(t, "lv", lv)
-	kv, ok := n2.WithNamespace("ns").String("k")
-	assert.True(t, ok)
-	assert.Equal(t, "v", kv)
 }

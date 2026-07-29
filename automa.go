@@ -17,8 +17,7 @@
 //
 // State is carried through a workflow via [NamespacedStateBag], which isolates
 // each step's private data (Local) from data that is intentionally shared
-// across all steps (Global) while also supporting arbitrary named partitions
-// (WithNamespace).
+// across all steps (Global).
 //
 // # Building workflows
 //
@@ -117,7 +116,7 @@ type Step interface {
 
 	// State returns the [NamespacedStateBag] attached to this step.
 	// Local() is private to this step; Global() is shared across all steps in
-	// the workflow; WithNamespace(name) provides an isolated named partition.
+	// the workflow.
 	State() NamespacedStateBag
 
 	// WithState attaches the provided [NamespacedStateBag] to the step in place
@@ -134,8 +133,8 @@ type Step interface {
 //
 // It is intentionally low-level: it has no notion of local vs. global scope.
 // Callers that need namespace isolation should work through
-// [NamespacedStateBag] and its Local(), Global(), and WithNamespace() methods
-// rather than operating on a StateBag directly.
+// [NamespacedStateBag] and its Local() and Global() methods rather than
+// operating on a StateBag directly.
 //
 // The primary implementation is [SyncStateBag].
 //
@@ -263,15 +262,14 @@ type StateBag interface {
 // two "setup-bind-mount" steps both writing "bind-mount-source" to the same
 // bag will have the second step silently overwrite the first step's value.
 //
-// NamespacedStateBag solves this by providing three distinct partitions:
+// NamespacedStateBag addresses this by separating step-private state from
+// intentionally shared state via two distinct partitions:
 //
 //   - Local — private to one step. The workflow gives each step its own
 //     local bag, so writes are never visible to any other step.
 //   - Global — shared across all steps in the workflow. Use this for
-//     configuration or counters that steps need to publish and consume.
-//   - Custom — an arbitrary named partition (e.g. "database-primary"). Use
-//     this when a reusable step implementation runs multiple times in the same
-//     workflow and each instance needs a collision-free namespace.
+//     configuration or results that steps need to publish and consume; choose
+//     distinct keys to avoid clobbering another step's value.
 //
 // # Usage
 //
@@ -280,12 +278,6 @@ type StateBag interface {
 //
 //	// Read from shared global state set by a previous step
 //	env, ok := stp.State().Global().String("env")
-//
-//	// Named partition for a reusable step
-//	stp.State().WithNamespace("database-primary").Set("conn", conn)
-//
-//	// Read back in Rollback (same namespace, same key)
-//	val, ok := stp.State().WithNamespace("database-primary").Get("conn")
 //
 // # Workflow integration
 //
@@ -308,26 +300,15 @@ type NamespacedStateBag interface {
 	// are immediately visible to subsequent steps that call Global().
 	Global() StateBag
 
-	// WithNamespace returns the StateBag for the named custom namespace,
-	// creating it on first access. The returned bag is stable: repeated calls
-	// with the same name return the same underlying bag.
-	//
-	// Custom namespaces are isolated from Local() and Global() and from each
-	// other. They are useful when a single step implementation is instantiated
-	// multiple times in one workflow.
-	WithNamespace(name string) StateBag
-
 	// Clone returns a fully independent deep copy of this NamespacedStateBag,
-	// including the local bag, the global bag, and all custom namespace bags.
-	// Mutations to the clone do not affect the original, and vice versa.
+	// including the local bag and the global bag. Mutations to the clone do not
+	// affect the original, and vice versa.
 	Clone() (NamespacedStateBag, error)
 
 	// Merge copies every namespace from other into this bag, overwriting
 	// conflicting keys. Each namespace kind is merged independently:
 	//   - Local bags are merged (other's keys overwrite matching keys here).
 	//   - Global bags are merged.
-	//   - Custom namespaces are merged by name: matching namespaces are merged,
-	//     new namespaces in other are deep-cloned and added.
 	//
 	// Returns the receiver and any error. Passing nil is a no-op.
 	Merge(other NamespacedStateBag) (NamespacedStateBag, error)

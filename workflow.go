@@ -64,7 +64,7 @@ type workflow struct {
 	//
 	// When true (default):
 	//   - State is cloned and stored for each step after execution
-	//   - Rollback steps receive their execution-time state snapshots (local + global + custom namespaces)
+	//   - Rollback steps receive their execution-time state snapshots (local + global namespaces)
 	//   - Higher memory usage due to deep state cloning
 	//
 	// When false:
@@ -483,7 +483,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		}
 
 		// Capture state snapshot after step processing (successful or failed)
-		// Clone() creates an immutable snapshot by deep-cloning all namespaces (local, global, custom).
+		// Clone() creates an immutable snapshot by deep-cloning all namespaces (local, global).
 		// This ensures later steps cannot mutate earlier snapshots, enabling deterministic rollback.
 		// State preservation can be disabled via preserveStatesForRollback to reduce memory overhead.
 		if w.preserveStatesForRollback {

@@ -8,26 +8,27 @@ import (
 )
 
 // SyncNamespacedStateBag is a thread-safe implementation of NamespacedStateBag
-// that partitions state into three kinds of namespace:
+// that partitions state into two kinds of namespace:
 //
 //   - Local — private to a single step; each step receives its own local bag
 //     so writes in one step cannot accidentally overwrite another step's data.
 //   - Global — shared across all steps in a workflow; mutations are visible to
 //     every subsequent step that reads from the same global bag.
-//   - Custom — an arbitrary set of named bags (e.g. "database-1", "cache"),
-//     useful when a reusable step implementation needs a stable, collision-free
-//     namespace regardless of how many instances are running.
+//
+// These two are the whole model: Local for step-private scratch, Global for
+// cross-step sharing. A step that wants to publish data for a later step writes
+// to Global under a key it chooses; the engine does not arbitrate keys, so
+// authors SHOULD use distinct keys to avoid clobbering each other.
 //
 // Concurrency model:
-//   - n.mu (sync.RWMutex) protects the three pointer fields (local, global,
-//     custom map) and the custom map itself.
+//   - n.mu (sync.RWMutex) protects the two pointer fields (local, global).
 //   - Read operations on the pointers (Local, Global) use a fast-path RLock
 //     and upgrade to a write lock only when lazy initialization is needed.
-//   - Write operations (WithNamespace, Merge, UnmarshalJSON, UnmarshalYAML,
-//     MarshalJSON, MarshalYAML) acquire the write lock for the duration.
-//   - The individual StateBag instances (local, global, custom entries) are
-//     themselves thread-safe SyncStateBag values; their own internal lock
-//     serialises Set/Get/Delete calls.
+//   - Write operations (Merge, UnmarshalJSON, UnmarshalYAML, MarshalJSON,
+//     MarshalYAML) acquire the write lock for the duration.
+//   - The individual StateBag instances (local, global) are themselves
+//     thread-safe SyncStateBag values; their own internal lock serialises
+//     Set/Get/Delete calls.
 //
 // Zero value: a zero-value SyncNamespacedStateBag is safe to use without
 // explicit construction. All fields are lazily initialized on first access via
@@ -38,15 +39,12 @@ import (
 type SyncNamespacedStateBag struct {
 	local  StateBag
 	global StateBag
-	custom map[string]StateBag
-	mu     sync.RWMutex // protects local, global, and the custom map
+	mu     sync.RWMutex // protects local and global
 }
 
 // NewNamespacedStateBag constructs a SyncNamespacedStateBag with explicit
 // initial local and global bags. Either argument may be nil, in which case an
-// empty *SyncStateBag is substituted. The custom namespace map is always
-// initialized to an empty map so that WithNamespace can write without a nil-map
-// panic.
+// empty *SyncStateBag is substituted.
 //
 // Example:
 //
@@ -65,7 +63,6 @@ func NewNamespacedStateBag(local, global StateBag) *SyncNamespacedStateBag {
 	return &SyncNamespacedStateBag{
 		local:  local,
 		global: global,
-		custom: make(map[string]StateBag),
 	}
 }
 
@@ -78,9 +75,6 @@ func (n *SyncNamespacedStateBag) initLocked() {
 	}
 	if n.global == nil {
 		n.global = &SyncStateBag{}
-	}
-	if n.custom == nil {
-		n.custom = make(map[string]StateBag)
 	}
 }
 
@@ -134,45 +128,15 @@ func (n *SyncNamespacedStateBag) Global() StateBag {
 	return g
 }
 
-// WithNamespace returns the StateBag for the named custom namespace, creating
-// it on demand if it does not already exist.
-//
-// Custom namespaces are useful for step implementations that are instantiated
-// multiple times in the same workflow (e.g. "setup-bind-mount-for-app1" and
-// "setup-bind-mount-for-app2"). By writing to WithNamespace(name) each
-// instance gets an isolated bag without the caller needing to worry about key
-// collisions with other instances.
-//
-// The returned bag is stable: repeated calls with the same name always return
-// the same underlying StateBag pointer.
-//
-// Thread-safety: the write lock is always acquired to guarantee atomic
-// check-then-create semantics.
-func (n *SyncNamespacedStateBag) WithNamespace(name string) StateBag {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.initLocked()
-
-	bag, exists := n.custom[name]
-	if !exists {
-		bag = &SyncStateBag{}
-		n.custom[name] = bag
-	}
-
-	return bag
-}
-
 // Clone returns a fully independent deep copy of the SyncNamespacedStateBag,
-// including all three namespace kinds.
+// including both namespace kinds.
 //
 // Clone strategy:
-//  1. A write lock is acquired to snapshot the field pointers and the custom
-//     map (so the set of namespace names cannot change mid-clone).
+//  1. A write lock is acquired to snapshot the field pointers.
 //  2. The lock is released before cloning individual bags to avoid holding n's
 //     write lock while the inner SyncStateBag Clone() calls acquire their own
 //     locks, which would otherwise risk lock ordering issues.
-//  3. Local, global, and each custom bag are deep-copied in sequence via their
-//     own Clone() methods.
+//  3. Local and global are deep-copied via their own Clone() methods.
 //
 // The returned NamespacedStateBag shares no memory with the original: mutations
 // to the clone do not affect the original, and vice versa.
@@ -188,10 +152,6 @@ func (n *SyncNamespacedStateBag) Clone() (NamespacedStateBag, error) {
 	n.initLocked()
 	local := n.local
 	global := n.global
-	customCopy := make(map[string]StateBag, len(n.custom))
-	for name, bag := range n.custom {
-		customCopy[name] = bag
-	}
 	n.mu.Unlock()
 
 	// Clone each bag outside the lock — Clone() acquires inner locks.
@@ -205,19 +165,9 @@ func (n *SyncNamespacedStateBag) Clone() (NamespacedStateBag, error) {
 		return nil, err
 	}
 
-	clonedCustom := make(map[string]StateBag, len(customCopy))
-	for name, bag := range customCopy {
-		clonedBag, err := bag.Clone()
-		if err != nil {
-			return nil, err
-		}
-		clonedCustom[name] = clonedBag
-	}
-
 	return &SyncNamespacedStateBag{
 		local:  localClone,
 		global: globalClone,
-		custom: clonedCustom,
 	}, nil
 }
 
@@ -228,15 +178,9 @@ func (n *SyncNamespacedStateBag) Clone() (NamespacedStateBag, error) {
 //   - Local: other's local keys are merged into n's local bag (other wins on
 //     key conflicts).
 //   - Global: other's global keys are merged into n's global bag.
-//   - Custom: for each custom namespace in other —
-//   - If the same namespace already exists in n, the two bags are merged
-//     (other wins on key conflicts).
-//   - If the namespace is new to n, other's bag is deep-cloned and added so
-//     that n and other do not share the same StateBag pointer.
 //
 // Type constraint: other must be a *SyncNamespacedStateBag. If a different
-// implementation is passed, an error is returned immediately so that callers
-// are not surprised by silently dropped custom namespaces.
+// implementation is passed, an error is returned immediately.
 //
 // Deadlock prevention: other's field snapshots are read before n's write lock
 // is acquired, following the same snapshot-before-lock pattern used by
@@ -244,7 +188,7 @@ func (n *SyncNamespacedStateBag) Clone() (NamespacedStateBag, error) {
 //
 // Returns (n, nil) on success.
 // Returns (n, nil) unchanged when other is nil.
-// Returns (nil, error) on type mismatch or inner merge/clone failure.
+// Returns (nil, error) on type mismatch or inner merge failure.
 func (n *SyncNamespacedStateBag) Merge(other NamespacedStateBag) (NamespacedStateBag, error) {
 	if other == nil {
 		return n, nil
@@ -261,13 +205,6 @@ func (n *SyncNamespacedStateBag) Merge(other NamespacedStateBag) (NamespacedStat
 	// Local() and Global() handle their own lazy initialization.
 	otherLocal := otherSync.Local()
 	otherGlobal := otherSync.Global()
-
-	otherSync.mu.RLock()
-	otherCustom := make(map[string]StateBag, len(otherSync.custom))
-	for name, bag := range otherSync.custom {
-		otherCustom[name] = bag
-	}
-	otherSync.mu.RUnlock()
 
 	// Now lock n and perform merges
 	n.mu.Lock()
@@ -288,23 +225,6 @@ func (n *SyncNamespacedStateBag) Merge(other NamespacedStateBag) (NamespacedStat
 	}
 	n.global = mergedGlobal
 
-	// Merge custom namespaces
-	for name, otherBag := range otherCustom {
-		if existingBag, exists := n.custom[name]; exists {
-			merged, err := existingBag.Merge(otherBag)
-			if err != nil {
-				return nil, err
-			}
-			n.custom[name] = merged
-		} else {
-			clonedBag, err := otherBag.Clone()
-			if err != nil {
-				return nil, err
-			}
-			n.custom[name] = clonedBag
-		}
-	}
-
 	return n, nil
 }
 
@@ -313,18 +233,16 @@ func (n *SyncNamespacedStateBag) Merge(other NamespacedStateBag) (NamespacedStat
 // map[string]interface{} (keys are the string form of Key, values are
 // whatever encoding/json or gopkg.in/yaml.v3 produces for the stored value).
 type namespacedSnapshot struct {
-	Local  map[string]interface{}            `json:"local" yaml:"local"`
-	Global map[string]interface{}            `json:"global" yaml:"global"`
-	Custom map[string]map[string]interface{} `json:"custom" yaml:"custom"`
+	Local  map[string]interface{} `json:"local" yaml:"local"`
+	Global map[string]interface{} `json:"global" yaml:"global"`
 }
 
-// MarshalJSON implements json.Marshaler. It serializes all three namespace
-// kinds into the namespacedSnapshot wire format:
+// MarshalJSON implements json.Marshaler. It serializes both namespace kinds
+// into the namespacedSnapshot wire format:
 //
 //	{
 //	  "local":  { "key": value, … },
-//	  "global": { "key": value, … },
-//	  "custom": { "ns-name": { "key": value, … }, … }
+//	  "global": { "key": value, … }
 //	}
 //
 // A nil receiver marshals as JSON null.
@@ -343,20 +261,12 @@ func (n *SyncNamespacedStateBag) MarshalJSON() ([]byte, error) {
 	n.initLocked()
 	local := n.local
 	global := n.global
-	customCopy := make(map[string]StateBag, len(n.custom))
-	for name, bag := range n.custom {
-		customCopy[name] = bag
-	}
 	n.mu.Unlock()
 
 	// Build snapshot outside the lock — StateBagToStringMap acquires inner locks.
 	snapshot := namespacedSnapshot{
 		Local:  StateBagToStringMap(local),
 		Global: StateBagToStringMap(global),
-		Custom: make(map[string]map[string]interface{}, len(customCopy)),
-	}
-	for name, bag := range customCopy {
-		snapshot.Custom[name] = StateBagToStringMap(bag)
 	}
 
 	return json.Marshal(snapshot)
@@ -392,34 +302,22 @@ func (n *SyncNamespacedStateBag) UnmarshalJSON(data []byte) error {
 	for k, v := range snapshot.Global {
 		global.Set(Key(k), v)
 	}
-	custom := make(map[string]StateBag)
-	for name, mp := range snapshot.Custom {
-		b := &SyncStateBag{}
-		for k, v := range mp {
-			b.Set(Key(k), v)
-		}
-		custom[name] = b
-	}
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.local = local
 	n.global = global
-	n.custom = custom
 	return nil
 }
 
 // MarshalYAML implements yaml.Marshaler. It returns a namespacedSnapshot
-// struct that the YAML encoder serializes into the same three-section layout
+// struct that the YAML encoder serializes into the same two-section layout
 // as MarshalJSON:
 //
 //	local:
 //	  key: value
 //	global:
 //	  key: value
-//	custom:
-//	  ns-name:
-//	    key: value
 //
 // A nil receiver returns (nil, nil), which the encoder renders as YAML null.
 //
@@ -434,20 +332,12 @@ func (n *SyncNamespacedStateBag) MarshalYAML() (interface{}, error) {
 	n.initLocked()
 	local := n.local
 	global := n.global
-	customCopy := make(map[string]StateBag, len(n.custom))
-	for name, bag := range n.custom {
-		customCopy[name] = bag
-	}
 	n.mu.Unlock()
 
 	// Build snapshot outside the lock — StateBagToStringMap acquires inner locks.
 	snapshot := namespacedSnapshot{
 		Local:  StateBagToStringMap(local),
 		Global: StateBagToStringMap(global),
-		Custom: make(map[string]map[string]interface{}, len(customCopy)),
-	}
-	for name, bag := range customCopy {
-		snapshot.Custom[name] = StateBagToStringMap(bag)
 	}
 
 	return snapshot, nil
@@ -481,19 +371,10 @@ func (n *SyncNamespacedStateBag) UnmarshalYAML(node *yaml.Node) error {
 	for k, v := range snapshot.Global {
 		global.Set(Key(k), v)
 	}
-	custom := make(map[string]StateBag)
-	for name, mp := range snapshot.Custom {
-		b := &SyncStateBag{}
-		for k, v := range mp {
-			b.Set(Key(k), v)
-		}
-		custom[name] = b
-	}
 
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.local = local
 	n.global = global
-	n.custom = custom
 	return nil
 }

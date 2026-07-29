@@ -95,8 +95,8 @@ none of the three.
     "phase": "forward",                //   string; workflow phase (§4.1)
     "index": 1                         //   integer; index into this node's steps
   },
-  "shared": { /* namespaced bag */ },  // object; this workflow's shared state space:
-                                        //   Global + all named rooms (§ core 7.2.1).
+  "shared": { /* namespaced bag */ },  // object; this workflow's shared state:
+                                        //   the Global namespace (§ core 7.2).
                                         //   Excludes per-step Local (captured per step).
   "steps": [                           // array; one entry per step, in topology order
     {
@@ -125,8 +125,7 @@ Field requirements:
   **OPTIONAL** and MAY be omitted when not yet produced (e.g. a `pending` step).
   `snapshot`, when present, is the leaf-step state captured for compensation.
 - `shared` MAY be an empty object but the key MUST be present on a workflow node.
-  It captures the workflow's shared state space (Global + all named rooms, per
-  core spec §7.2.1).
+  It captures the workflow's shared state — the Global namespace (core spec §7.2).
 - The serialization of `shared`, `snapshot`, and `report` is governed by their
   own (existing) language-neutral schemas (namespaced state bag, report tree).
   This spec treats them as opaque nested objects and constrains only their
@@ -386,7 +385,7 @@ F3. run the step's execute  (THE SIDE EFFECT happens here)
 F4. steps[i].state   = "completed" | "failed"
     steps[i].snapshot = <execution-time state>          (when completed, for rollback)
     steps[i].report   = <step report>
-    shared            = <current shared state space: Global + named rooms>
+    shared            = <current shared state: Global>
                                                PERSIST   ← commit point, AFTER side effect
 F5. on failure with execution_mode = RollbackOnError:
     cursor = {phase:"compensating", index:i};  PERSIST
@@ -436,7 +435,7 @@ A resume:
 
 1. Loads the journal (§6.2).
 2. Validates topology and modes against the supplied definition (§6.2).
-3. Rehydrates `shared` (Global + named rooms) onto the workflow.
+3. Rehydrates `shared` (Global) onto the workflow.
 4. Dispatches on `cursor.phase` (§6.3, §6.4, §6.5), descending recursively into
    workflow steps (§3.8): a workflow step is resumed by dispatching on its own
    node's `cursor.phase` against its own `steps`.
