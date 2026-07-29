@@ -1,0 +1,14 @@
+{
+  "name": "statebag_numeric_boundary",
+  "description": "Integers within the 2^53 safe range round-trip as numbers; larger IDs are stored as strings to survive losslessly (core-spec §7.5).",
+  "specRefs": ["§7.5"],
+  "kind": "statebag",
+  "json": {
+    "local": {},
+    "global": {
+      "count": 42,
+      "maxSafeInteger": 9007199254740992,
+      "largeIdAsString": "9007199254740993"
+    }
+  }
+}
