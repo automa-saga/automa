@@ -1,0 +1,37 @@
+{
+  "name": "journal_nested_forward",
+  "description": "A recursive journal (durability-spec §3.8): the top level is working on workflow step 'db', which is itself working on nested workflow step 'start-postgres'. Each workflow node carries its own cursor/shared/steps; leaf steps carry none of the trio. Not-yet-started workflow steps ('app', 'smoke-test') are leaf-shaped until reached. The live position is the cursor path db → start-postgres → run-container.",
+  "specRefs": ["§3.8", "§3.4"],
+  "kind": "roundtrip",
+  "journal": {
+    "version": 1,
+    "workflow_id": "setup",
+    "execution_mode": "rollback",
+    "rollback_mode": "continue",
+    "cursor": { "phase": "forward", "index": 0 },
+    "shared": { "local": {}, "global": {} },
+    "steps": [
+      {
+        "id": "db",
+        "state": "started",
+        "cursor": { "phase": "forward", "index": 1 },
+        "shared": { "local": {}, "global": {} },
+        "steps": [
+          { "id": "create-volume", "state": "completed" },
+          {
+            "id": "start-postgres",
+            "state": "started",
+            "cursor": { "phase": "forward", "index": 1 },
+            "shared": { "local": {}, "global": {} },
+            "steps": [
+              { "id": "pull-image", "state": "completed" },
+              { "id": "run-container", "state": "started" }
+            ]
+          }
+        ]
+      },
+      { "id": "app", "state": "pending" },
+      { "id": "smoke-test", "state": "pending" }
+    ]
+  }
+}

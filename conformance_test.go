@@ -23,6 +23,7 @@ import (
 const (
 	conformanceBehaviorDir      = "docs/spec/conformance/behavior"
 	conformanceSerializationDir = "docs/spec/conformance/serialization"
+	conformanceJournalDir       = "docs/spec/conformance/journal"
 )
 
 // ---------------------------------------------------------------------------
@@ -305,6 +306,46 @@ func TestConformance_Serialization(t *testing.T) {
 				assertJSONEqual(t, fx.JSON, out)
 			default:
 				t.Fatalf("unknown serialization fixture kind %q", fx.Kind)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Journal fixtures (durability-spec §8.1)
+// ---------------------------------------------------------------------------
+
+type journalFixture struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	SpecRefs    []string        `json:"specRefs"`
+	Kind        string          `json:"kind"` // roundtrip
+	Journal     json.RawMessage `json:"journal"`
+}
+
+// TestConformance_Journal verifies journal fixtures. For "roundtrip" fixtures a
+// conformant implementation MUST load the journal document and re-serialize it
+// to a structurally-equivalent document, proving schema agreement (§3, §8.1).
+// Resume-classification fixtures land with the resume story (#88).
+func TestConformance_Journal(t *testing.T) {
+	fixtures := loadFixtures(t, conformanceJournalDir)
+	for path, data := range fixtures {
+		var fx journalFixture
+		require.NoErrorf(t, json.Unmarshal(data, &fx), "decode %s", path)
+		name := fx.Name
+		if name == "" {
+			name = filepath.Base(path)
+		}
+		t.Run(name, func(t *testing.T) {
+			switch fx.Kind {
+			case "roundtrip":
+				var j automa.Journal
+				require.NoError(t, json.Unmarshal(fx.Journal, &j), "load journal")
+				out, err := json.Marshal(&j)
+				require.NoError(t, err, "re-serialize journal")
+				assertJSONEqual(t, fx.Journal, out)
+			default:
+				t.Fatalf("unknown journal fixture kind %q", fx.Kind)
 			}
 		})
 	}

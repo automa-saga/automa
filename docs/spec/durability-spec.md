@@ -87,8 +87,8 @@ none of the three.
   // ── header: stable identity + configuration ──
   "version": 1,                        // integer; schema version (§3.5)
   "workflow_id": "setup_local_dev",    // string; identifies the run's workflow
-  "execution_mode": "RollbackOnError", // string; one of the execution modes (§4.3)
-  "rollback_mode":  "StopOnError",     // string; one of the rollback modes (§4.3)
+  "execution_mode": "rollback",        // string; one of the execution modes (§4.3)
+  "rollback_mode":  "stop",            // string; one of the rollback modes (§4.3)
 
   // ── run state ──
   "cursor": {                          // object; the execution position (§3.4)
@@ -275,8 +275,8 @@ Rules:
 {
   "version": 1,
   "workflow_id": "setup",
-  "execution_mode": "RollbackOnError",
-  "rollback_mode":  "ContinueOnError",
+  "execution_mode": "rollback",
+  "rollback_mode":  "continue",
   "cursor": { "phase": "forward", "index": 0 },   // working on steps[0] = "db"
   "shared": { /* namespaced bag */ },
   "steps": [
@@ -364,13 +364,16 @@ completed ──▶ compensated      (during compensating phase)
 
 The journal records two modes, both as strings:
 
-- `execution_mode` ∈ { `StopOnError`, `ContinueOnError`, `RollbackOnError` }.
-- `rollback_mode` ∈ { `StopOnError`, `ContinueOnError` }.
+- `execution_mode` ∈ { `stop`, `continue`, `rollback` }.
+- `rollback_mode` ∈ { `stop`, `continue` }.
 
-These values MUST be spelled exactly as above (matching automa's existing
-`TypeMode` values). The modes recorded in the journal MUST equal the modes of the
-workflow definition supplied at resume (§6.2 topology validation includes mode
-agreement).
+These values MUST be spelled exactly as above. They are automa's existing
+`TypeMode` JSON encoding — the same short, lowercase strings used by the core
+spec and the report/behavior fixtures (`StopOnError` → `stop`,
+`ContinueOnError` → `continue`, `RollbackOnError` → `rollback`) — because the
+journal reuses `TypeMode` rather than defining a second wire form. The modes
+recorded in the journal MUST equal the modes of the workflow definition supplied
+at resume (§6.2 topology validation includes mode agreement).
 
 ## 5. Persistence ordering
 
