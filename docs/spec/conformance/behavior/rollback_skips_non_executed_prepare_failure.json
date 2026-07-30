@@ -1,0 +1,23 @@
+{
+  "name": "rollback_skips_non_executed_prepare_failure",
+  "description": "A step whose Prepare fails reports action=prepare and is skipped during compensation (never executed); previously executed steps are still rolled back.",
+  "specRefs": ["§4.3", "§5.3"],
+  "workflow": {
+    "id": "wf",
+    "executionMode": "rollback",
+    "rollbackMode": "continue",
+    "steps": [
+      { "id": "s1", "execute": "success" },
+      { "id": "s2", "prepare": "failed", "execute": "success" }
+    ]
+  },
+  "expect": {
+    "workflowStatus": "failed",
+    "executionOrder": ["s1"],
+    "rollbackOrder": ["s1"],
+    "steps": {
+      "s1": { "status": "success", "action": "execute", "rollbackStatus": "success" },
+      "s2": { "status": "failed", "action": "prepare", "rollbackStatus": "skipped" }
+    }
+  }
+}

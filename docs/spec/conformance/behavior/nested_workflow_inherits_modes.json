@@ -1,0 +1,31 @@
+{
+  "name": "nested_workflow_inherits_modes",
+  "description": "A sub-workflow with no explicit modes inherits the parent's (D6). Here the parent is ContinueOnError, so the sub also continues past its own failing step instead of stopping.",
+  "specRefs": ["§6.1"],
+  "workflow": {
+    "id": "parent",
+    "executionMode": "continue",
+    "rollbackMode": "continue",
+    "steps": [
+      {
+        "id": "sub",
+        "steps": [
+          { "id": "a", "execute": "failed" },
+          { "id": "b", "execute": "success" }
+        ]
+      },
+      { "id": "tail", "execute": "success" }
+    ]
+  },
+  "expect": {
+    "workflowStatus": "failed",
+    "executionOrder": ["a", "b", "tail"],
+    "rollbackOrder": [],
+    "steps": {
+      "sub": { "status": "failed", "action": "execute" },
+      "a": { "status": "failed", "action": "execute" },
+      "b": { "status": "success", "action": "execute" },
+      "tail": { "status": "success", "action": "execute" }
+    }
+  }
+}

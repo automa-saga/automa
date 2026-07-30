@@ -1,0 +1,15 @@
+{
+  "name": "statebag_numeric_boundary",
+  "description": "Integers within the IEEE-754 safe range round-trip as JSON numbers; values beyond it are stored as strings to survive losslessly (core-spec §7.5). maxSafeInteger is 2^53-1 (the largest integer with a unique double representation); largestExactInteger is 2^53 (still representable); 2^53+1 is not representable and MUST be a string.",
+  "specRefs": ["§7.5"],
+  "kind": "statebag",
+  "json": {
+    "local": {},
+    "global": {
+      "count": 42,
+      "maxSafeInteger": 9007199254740991,
+      "largestExactInteger": 9007199254740992,
+      "unsafeIdAsString": "9007199254740993"
+    }
+  }
+}

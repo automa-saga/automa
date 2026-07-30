@@ -217,3 +217,89 @@ func TestReport_Clone_PreservesModes(t *testing.T) {
 	assert.Equal(t, r.ExecutionMode, clone.ExecutionMode)
 	assert.Equal(t, r.RollbackMode, clone.RollbackMode)
 }
+
+// TestReport_UnmarshalJSON_RoundTrip verifies a report tree survives a
+// marshal → unmarshal → marshal cycle unchanged, including nested step reports,
+// an inline rollback sub-report, timestamps, and error-as-string.
+func TestReport_UnmarshalJSON_RoundTrip(t *testing.T) {
+	start := time.Date(2026, 6, 17, 10, 30, 0, 123000000, time.UTC)
+	end := time.Date(2026, 6, 17, 10, 30, 1, 456000000, time.UTC)
+
+	original := &Report{
+		Id:            "wf",
+		IsWorkflow:    true,
+		Action:        ActionExecute,
+		Status:        StatusFailed,
+		StartTime:     start,
+		EndTime:       end,
+		Error:         errors.New("boom"),
+		ExecutionMode: RollbackOnError,
+		RollbackMode:  ContinueOnError,
+		StepReports: []*Report{
+			{
+				Id:        "s1",
+				Action:    ActionExecute,
+				Status:    StatusSuccess,
+				StartTime: start,
+				EndTime:   end,
+				Rollback: &Report{
+					Action:    ActionRollback,
+					Status:    StatusSuccess,
+					StartTime: start,
+					EndTime:   end,
+				},
+			},
+		},
+	}
+
+	firstPass, err := json.Marshal(original)
+	assert.NoError(t, err)
+
+	var loaded Report
+	assert.NoError(t, json.Unmarshal(firstPass, &loaded))
+
+	// Error is reconstructed from its string form.
+	assert.Equal(t, "boom", loaded.Error.Error())
+	assert.Equal(t, ActionExecute, loaded.Action)
+	assert.Equal(t, StatusFailed, loaded.Status)
+	assert.True(t, loaded.StartTime.Equal(start))
+	if assert.Len(t, loaded.StepReports, 1) {
+		assert.Equal(t, "s1", loaded.StepReports[0].Id)
+		assert.NotNil(t, loaded.StepReports[0].Rollback)
+	}
+
+	secondPass, err := json.Marshal(&loaded)
+	assert.NoError(t, err)
+	assert.JSONEq(t, string(firstPass), string(secondPass))
+}
+
+// TestReport_UnmarshalYAML_RoundTrip verifies the YAML unmarshaler mirrors the
+// JSON one.
+func TestReport_UnmarshalYAML_RoundTrip(t *testing.T) {
+	original := &Report{
+		Id:        "s1",
+		Action:    ActionExecute,
+		Status:    StatusFailed,
+		StartTime: time.Date(2026, 6, 17, 10, 30, 0, 0, time.UTC),
+		EndTime:   time.Date(2026, 6, 17, 10, 30, 1, 0, time.UTC),
+		Error:     errors.New("kaboom"),
+	}
+
+	firstPass, err := yaml.Marshal(original)
+	assert.NoError(t, err)
+
+	var loaded Report
+	assert.NoError(t, yaml.Unmarshal(firstPass, &loaded))
+	assert.Equal(t, "kaboom", loaded.Error.Error())
+	assert.Equal(t, StatusFailed, loaded.Status)
+
+	secondPass, err := yaml.Marshal(&loaded)
+	assert.NoError(t, err)
+
+	// Compare structurally, not as raw text: YAML has no guaranteed stable
+	// textual form across versions/formatting.
+	var firstV, secondV interface{}
+	assert.NoError(t, yaml.Unmarshal(firstPass, &firstV))
+	assert.NoError(t, yaml.Unmarshal(secondPass, &secondV))
+	assert.Equal(t, firstV, secondV)
+}

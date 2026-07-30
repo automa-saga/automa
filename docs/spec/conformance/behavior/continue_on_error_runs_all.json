@@ -1,0 +1,25 @@
+{
+  "name": "continue_on_error_runs_all",
+  "description": "ContinueOnError runs every step regardless of failures; the workflow still reports failed.",
+  "specRefs": ["§5.1"],
+  "workflow": {
+    "id": "wf",
+    "executionMode": "continue",
+    "rollbackMode": "continue",
+    "steps": [
+      { "id": "s1", "execute": "success" },
+      { "id": "s2", "execute": "failed" },
+      { "id": "s3", "execute": "success" }
+    ]
+  },
+  "expect": {
+    "workflowStatus": "failed",
+    "executionOrder": ["s1", "s2", "s3"],
+    "rollbackOrder": [],
+    "steps": {
+      "s1": { "status": "success", "action": "execute" },
+      "s2": { "status": "failed", "action": "execute" },
+      "s3": { "status": "success", "action": "execute" }
+    }
+  }
+}
