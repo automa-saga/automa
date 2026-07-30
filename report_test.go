@@ -295,5 +295,11 @@ func TestReport_UnmarshalYAML_RoundTrip(t *testing.T) {
 
 	secondPass, err := yaml.Marshal(&loaded)
 	assert.NoError(t, err)
-	assert.Equal(t, string(firstPass), string(secondPass))
+
+	// Compare structurally, not as raw text: YAML has no guaranteed stable
+	// textual form across versions/formatting.
+	var firstV, secondV interface{}
+	assert.NoError(t, yaml.Unmarshal(firstPass, &firstV))
+	assert.NoError(t, yaml.Unmarshal(secondPass, &secondV))
+	assert.Equal(t, firstV, secondV)
 }

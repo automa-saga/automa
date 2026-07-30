@@ -346,8 +346,9 @@ normative:
   Implementations MUST provide **coercing typed accessors** (integer, float,
   bool, string) that recover the intended type from the round-tripped value.
 - **Numeric precision policy (normative).** JSON has a single number type, and a
-  round-trip through floating point can represent integers exactly only up to
-  2^53. Values beyond that range (e.g. large 64-bit IDs) CANNOT be guaranteed to
+  round-trip through floating point represents integers with a unique value only
+  up to 2^53−1 (the max *safe* integer; 2^53 is representable but 2^53+1 is not).
+  Values beyond the safe range (e.g. large 64-bit IDs) CANNOT be guaranteed to
   survive a round-trip as numbers across languages.
   - For values that must round-trip losslessly and exceed the safe integer
     range, authors SHOULD store them as **strings** (e.g. a 64-bit ID as

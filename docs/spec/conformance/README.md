@@ -99,8 +99,10 @@ matter).
     `steps`, an inline `rollback` sub-report, RFC 3339 millisecond timestamps,
     and error-as-string.
 - **Numeric precision (§7.5):** JSON has one number type; a round-trip through
-  floating point is exact only up to 2^53. Values beyond that MUST be stored as
-  strings to survive losslessly. Fixtures encode both the safe-integer case and
-  the string-encoded large-ID case.
+  IEEE-754 double is exact only for integers with magnitude ≤ 2^53−1 (the max
+  *safe* integer — the largest with a unique double representation). 2^53 itself
+  is representable, but 2^53+1 is not, so values beyond the safe range MUST be
+  stored as strings to survive losslessly. Fixtures encode the safe-integer case,
+  the 2^53 boundary, and the string-encoded unsafe-ID case.
 - **Timestamps (§8):** serialize as RFC 3339 with a timezone designator;
   trailing-zero fractional seconds are trimmed (e.g. `...00.5Z`, not `...00.500Z`).

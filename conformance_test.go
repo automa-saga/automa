@@ -82,6 +82,18 @@ type recorder struct {
 	rollbackOrder []string
 }
 
+// assertAllowed fails the test when a fixture declares an outcome outside the
+// permitted set, so a malformed fixture cannot silently pass.
+func assertAllowed(t *testing.T, stepID, field, value string, allowed ...string) {
+	t.Helper()
+	for _, a := range allowed {
+		if value == a {
+			return
+		}
+	}
+	t.Fatalf("fixture step %q: unknown %s outcome %q (allowed: %v)", stepID, field, value, allowed)
+}
+
 func parseMode(t *testing.T, s string) automa.TypeMode {
 	t.Helper()
 	switch s {
@@ -121,10 +133,17 @@ func buildFixtureStep(t *testing.T, rec *recorder, fs fixtureStep) automa.Builde
 	execOutcome := fs.Execute
 	rbOutcome := fs.Rollback
 
+	// Reject unknown declared outcomes up front. Fixtures are authoritative, so a
+	// typo must fail the suite rather than silently fall through to a default.
+	assertAllowed(t, id, "prepare", prepOutcome, "", "failed")
+	assertAllowed(t, id, "execute", execOutcome, "success", "failed", "skipped", "none")
+	assertAllowed(t, id, "rollback", rbOutcome, "", "success", "failed")
+
 	sb := automa.NewStepBuilder().WithId(id)
 	if prepOutcome == "failed" {
 		sb.WithPrepare(func(ctx context.Context, stp automa.Step) (context.Context, error) {
-			return nil, errors.New("fixture: declared prepare failure")
+			// Honor the context contract: return the incoming ctx, not nil, on error.
+			return ctx, errors.New("fixture: declared prepare failure")
 		})
 	}
 
