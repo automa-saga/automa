@@ -297,3 +297,36 @@ func TestWorkflowBuilder_InheritModesForNestedWorkflow_OtherModes(t *testing.T) 
 		}
 	}
 }
+
+// TestWorkflowBuilder_DuplicateStepID_Rejected verifies that registering two
+// steps with the same ID is a build-time failure (core-spec §3.1) rather than a
+// silent first-wins drop.
+func TestWorkflowBuilder_DuplicateStepID_Rejected(t *testing.T) {
+	wb := NewWorkflowBuilder().WithId("wf").Steps(
+		NewStepBuilder().WithId("dup").WithExecute(func(ctx context.Context, stp Step) *Report {
+			return SuccessReport(stp)
+		}),
+		NewStepBuilder().WithId("dup").WithExecute(func(ctx context.Context, stp Step) *Report {
+			return SuccessReport(stp)
+		}),
+	)
+
+	err := wb.Validate()
+	assert.Error(t, err, "duplicate step id must fail validation")
+	assert.Contains(t, err.Error(), "duplicate step id")
+
+	_, buildErr := wb.Build()
+	assert.Error(t, buildErr, "duplicate step id must fail Build")
+
+	// RunWorkflow surfaces the build failure as a prepare-phase failure report.
+	report := RunWorkflow(context.Background(), NewWorkflowBuilder().WithId("wf2").Steps(
+		NewStepBuilder().WithId("dup").WithExecute(func(ctx context.Context, stp Step) *Report {
+			return SuccessReport(stp)
+		}),
+		NewStepBuilder().WithId("dup").WithExecute(func(ctx context.Context, stp Step) *Report {
+			return SuccessReport(stp)
+		}),
+	))
+	assert.Equal(t, StatusFailed, report.Status)
+	assert.Equal(t, ActionPrepare, report.Action)
+}

@@ -1,0 +1,20 @@
+{
+  "name": "validation_duplicate_step_id",
+  "description": "Duplicate step IDs within a workflow are rejected at build time; the workflow reports a prepare-phase failure with no steps run (core-spec §3.1).",
+  "specRefs": ["§3.1", "§4.2"],
+  "workflow": {
+    "id": "wf",
+    "executionMode": "stop",
+    "rollbackMode": "continue",
+    "steps": [
+      { "id": "dup", "execute": "success" },
+      { "id": "dup", "execute": "success" }
+    ]
+  },
+  "expect": {
+    "workflowStatus": "failed",
+    "workflowAction": "prepare",
+    "executionOrder": [],
+    "rollbackOrder": []
+  }
+}

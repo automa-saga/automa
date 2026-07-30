@@ -43,6 +43,12 @@ type WorkflowBuilder struct {
 	// stepBuilders is a map of step ID → Builder, populated by Steps and
 	// NamedSteps. Build iterates stepSequence and looks up each Builder here.
 	stepBuilders map[string]Builder
+
+	// idErrs accumulates step-ID errors detected while adding steps (e.g. a
+	// duplicate ID). Steps/NamedSteps cannot return an error via the fluent API,
+	// so the error is recorded here and surfaced by Validate/Build. Per core-spec
+	// §3.1 a duplicate step ID is a build-time failure, not a silent drop.
+	idErrs []error
 }
 
 // Id returns the workflow ID that has been configured so far.
@@ -105,8 +111,10 @@ func (wb *WorkflowBuilder) Build() (Step, error) {
 }
 
 // Steps registers one or more [Builder] instances in the order they are
-// provided. Each builder is keyed by its ID; if a builder with the same ID has
-// already been registered, the duplicate is silently ignored (first-wins).
+// provided. Each builder is keyed by its ID. Registering a second builder with
+// an ID that already exists is a build-time error (core-spec §3.1): the first
+// builder is kept and the workflow's [Validate]/[Build] subsequently fails with
+// a duplicate-ID error.
 //
 // Steps can be called multiple times to append to the step sequence:
 //
@@ -114,6 +122,11 @@ func (wb *WorkflowBuilder) Build() (Step, error) {
 func (wb *WorkflowBuilder) Steps(steps ...Builder) *WorkflowBuilder {
 	for _, step := range steps {
 		if _, exists := wb.stepBuilders[step.Id()]; exists {
+			// core-spec §3.1: duplicate step IDs are rejected at build time.
+			// Record the error (the fluent API cannot return one) and keep the
+			// first builder; Validate/Build surfaces the failure.
+			wb.idErrs = append(wb.idErrs, IllegalArgument.New(
+				"duplicate step id %q: step ids must be unique within a workflow", step.Id()))
 			continue
 		}
 		wb.stepBuilders[step.Id()] = step
@@ -123,8 +136,9 @@ func (wb *WorkflowBuilder) Steps(steps ...Builder) *WorkflowBuilder {
 }
 
 // NamedSteps looks up step IDs in the configured [Registry] and registers the
-// matching [Builder] instances. IDs that are not found in the registry or that
-// are already registered are silently skipped. The relative order of the
+// matching [Builder] instances. IDs that are not found in the registry are
+// silently skipped; an ID that is already registered is a build-time error
+// (core-spec §3.1), surfaced by Validate/Build. The relative order of the
 // provided IDs is preserved.
 //
 // NamedSteps is a no-op when no registry has been configured via
@@ -139,6 +153,9 @@ func (wb *WorkflowBuilder) NamedSteps(stepIds ...string) *WorkflowBuilder {
 			continue
 		}
 		if _, exists := wb.stepBuilders[id]; exists {
+			// core-spec §3.1: duplicate step IDs are a build-time failure.
+			wb.idErrs = append(wb.idErrs, IllegalArgument.New(
+				"duplicate step id %q: step ids must be unique within a workflow", id))
 			continue
 		}
 		wb.stepBuilders[id] = builder
@@ -158,6 +175,12 @@ func (wb *WorkflowBuilder) NamedSteps(stepIds ...string) *WorkflowBuilder {
 func (wb *WorkflowBuilder) Validate() error {
 	if wb.workflow.id == "" {
 		return IllegalArgument.New("workflow id cannot be empty")
+	}
+
+	// Surface step-ID errors recorded while adding steps (e.g. duplicate IDs,
+	// core-spec §3.1) before any other validation.
+	if len(wb.idErrs) > 0 {
+		return fmt.Errorf("invalid step ids: %v", wb.idErrs)
 	}
 
 	if len(wb.stepBuilders) == 0 {

@@ -469,6 +469,7 @@ implementation is (or is being) adapted to match.
 | D6 | Nested workflows **inherit** the parent's modes (parent overrides); fix the contradicting builder doc comment. | 6.1 | #82 |
 | D7 | Report enums (`action`, `status`) MUST fail on unknown values on decode, like `mode`. | 8.1 | #94 |
 | D8 | *(withdrawn)* An earlier revision specified custom namespaces as workflow-scoped shared named rooms. The feature was **removed** instead (§7.2): Local + Global is the whole model. | 7.2 | removed |
+| D9 | Duplicate step IDs **MUST** be rejected at build time; the original Go builder silently dropped them (first-wins). | 3.1 | #120 |
 
 All spec decisions are now reflected in the Go reference implementation.
 
