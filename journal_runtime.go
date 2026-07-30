@@ -31,10 +31,12 @@ func (w *workflow) initJournalProgress() {
 	w.jStepReports = make([]*Report, n)
 }
 
-// persistJournal writes the whole root journal atomically. A write failure is
-// logged but does not fail the workflow: the journal is a recovery aid, and
-// aborting a run that is otherwise progressing would trade a recoverable state
-// for an unrecoverable one.
+// persistJournal writes the whole root journal atomically, tolerating failure.
+// It is used at the *commit* points (F4/C3/D1), which record an outcome AFTER a
+// side effect has already run: a lost commit record only means resume re-executes
+// (or re-compensates) a step the idempotency contract (§7) already requires to be
+// safe, so aborting an otherwise-progressing run would trade a recoverable state
+// for an unrecoverable one. A write failure is therefore logged, not returned.
 func (w *workflow) persistJournal() {
 	if w.journalPersist == nil {
 		return
@@ -42,6 +44,19 @@ func (w *workflow) persistJournal() {
 	if err := w.journalPersist(); err != nil {
 		w.log().Warn("failed to persist durability journal", "workflowId", w.id, "error", err)
 	}
+}
+
+// persistJournalCritical writes the journal and returns any error. It is used at
+// the *write-ahead* points (F1 started, F5 enter-compensating), where the spec
+// forbids proceeding unless the record is durable (durability-spec §5): running a
+// side effect — or beginning compensation — without a durable record can strand an
+// effect that resume can neither observe nor compensate. The caller MUST abort the
+// step (or the rollback) when this returns an error.
+func (w *workflow) persistJournalCritical() error {
+	if w.journalPersist == nil {
+		return nil
+	}
+	return w.journalPersist()
 }
 
 // nodeCursor returns this node's cursor, defaulting an unset phase to forward so
@@ -123,15 +138,16 @@ func (w *workflow) stepStateAt(i int) StepState {
 // journalStepStarted records the write-ahead entry for the step at index i:
 // state `started` and the forward cursor, persisted BEFORE the step's side
 // effect runs (§5 F1). An implementation MUST NOT run a side effect before its
-// started record is durable.
-func (w *workflow) journalStepStarted(i int) {
+// started record is durable, so this returns the persist error and the caller
+// MUST NOT execute the step when it is non-nil.
+func (w *workflow) journalStepStarted(i int) error {
 	if !w.journaling() {
-		return
+		return nil
 	}
 	w.jPhase = PhaseForward
 	w.jIndex = i
 	w.jStepStates[i] = StepStarted
-	w.persistJournal()
+	return w.persistJournalCritical()
 }
 
 // journalStepCommitted records the commit entry for the step at index i: its
@@ -153,14 +169,17 @@ func (w *workflow) journalStepCommitted(i int, state StepState, snapshot *SyncNa
 }
 
 // journalEnterCompensating flips this node to the compensating phase with the
-// cursor at index i, persisted before compensation begins (§5 F5).
-func (w *workflow) journalEnterCompensating(i int) {
+// cursor at index i, persisted before compensation begins (§5 F5). This is a
+// write-ahead point: it returns the persist error and the caller MUST NOT begin
+// compensation when it is non-nil, since a crash mid-rollback would leave a
+// journal that still reads as forward and resume would re-run instead of continue.
+func (w *workflow) journalEnterCompensating(i int) error {
 	if !w.journaling() {
-		return
+		return nil
 	}
 	w.jPhase = PhaseCompensating
 	w.jIndex = i
-	w.persistJournal()
+	return w.persistJournalCritical()
 }
 
 // journalStepCompensated records that the step at index i has been compensated,

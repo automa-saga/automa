@@ -203,8 +203,10 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int, states map[strin
 		w.compensatedStepIDs = make(map[string]struct{})
 	}
 
-	// Entering the compensating phase (durability-spec §5). Set here in addition
-	// to Execute's F5 so a manually-invoked Rollback also records the phase.
+	// Keep the in-memory phase consistent so the projection reads as compensating.
+	// The DURABLE flip (write-ahead, §5 F5) is owned by the caller — Execute's
+	// failure path or Rollback — which persists it before any compensation side
+	// effect; this method does not persist on entry.
 	if w.journaling() {
 		w.jPhase = PhaseCompensating
 	}
@@ -515,7 +517,19 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		// `started` leaf is not handled here — it falls through and re-runs.
 		if w.resuming && w.stepStateAt(index) == StepStarted {
 			if child, isWorkflowStep := step.(*workflow); isWorkflowStep {
-				w.journalStepStarted(index) // re-affirm started; brackets the descent
+				// Re-affirm started; brackets the descent (write-ahead, §5 F1). If it
+				// cannot be persisted we do not descend — failing loudly beats running
+				// the child with no durable record.
+				if err := w.journalStepStarted(index); err != nil {
+					report = FailureReport(child,
+						WithWorkflow(w), WithActionType(ActionExecute), WithStartTime(stepStart),
+						WithError(JournalError.
+							Wrap(err, "workflow %q sub-workflow %q: failed to persist write-ahead journal on resume; not descending", w.id, child.Id()).
+							WithProperty(StepIdProperty, child.Id())))
+					stepReports = append(stepReports, report)
+					hasFailed = true
+					break
+				}
 				report = w.resumeChildStep(ctx, child)
 				if report == nil {
 					report = FailureReport(child,
@@ -540,7 +554,11 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 					if w.executionMode == StopOnError {
 						break
 					} else if w.executionMode == RollbackOnError {
-						w.journalEnterCompensating(index)
+						if err := w.journalEnterCompensating(index); err != nil {
+							w.log().Error("failed to persist compensating-phase journal on resume; skipping rollback to keep resume safe",
+								"workflowId", w.id, "index", index, "error", err)
+							break
+						}
 						rollbackReports := w.rollbackFrom(ctx, index, stepStates, executedStepIDs)
 						for _, sr := range stepReports {
 							if rollback, ok := rollbackReports[sr.Id]; ok {
@@ -552,17 +570,6 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 				}
 				continue
 			}
-		}
-
-		// F1 write-ahead (durability-spec §5): record `started` and the forward
-		// cursor and persist BEFORE any side effect runs. A sub-workflow step
-		// inherits the root persist closure here so its own transitions journal
-		// inline under this entry (§3.8).
-		if w.journaling() {
-			if child, ok := step.(*workflow); ok {
-				child.journalPersist = w.journalPersist
-			}
-			w.journalStepStarted(index)
 		}
 
 		stepCtx := ctx
@@ -608,11 +615,39 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		}
 
 		// make sure step has its state before calling Prepare so Prepare can access it.
-		// It also ensures during Execute the step has the correct state
+		// It also ensures during Execute the step has the correct state. For a
+		// sub-workflow this MUST happen before the F1 write-ahead below so the
+		// persisted `started` snapshot records the child's real shared (cloned
+		// Global) state, not an empty one (durability-spec §3.8); WithState mutates
+		// the stored node, so the projection sees it.
 		step = step.WithState(stepState)
 
+		// F1 write-ahead (durability-spec §5): record `started` and the forward
+		// cursor and persist BEFORE any side effect runs. A sub-workflow step
+		// inherits the root persist closure here so its own transitions journal
+		// inline under this entry (§3.8). The record MUST be durable before the
+		// side effect: if the persist fails we fail the step without executing it,
+		// so a crash can never strand an effect that resume cannot compensate.
+		var journalStartErr error
+		if statePrepError == nil && w.journaling() {
+			if child, ok := step.(*workflow); ok {
+				child.journalPersist = w.journalPersist
+			}
+			journalStartErr = w.journalStepStarted(index)
+			if journalStartErr != nil {
+				report = FailureReport(step,
+					WithWorkflow(w),
+					WithStartTime(stepStart),
+					WithActionType(ActionExecute),
+					WithError(JournalError.
+						Wrap(journalStartErr, "workflow %q step %q: failed to persist write-ahead journal; step not executed", w.id, step.Id()).
+						WithProperty(StepIdProperty, step.Id()),
+					))
+			}
+		}
+
 		// prepare step context
-		if statePrepError == nil {
+		if statePrepError == nil && journalStartErr == nil {
 			w.log().Debug("executing step", "workflowId", w.id, "stepId", step.Id(), "index", index)
 			stepCtx, ctxPrepError = step.Prepare(ctx)
 			if ctxPrepError != nil {
@@ -633,7 +668,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		}
 
 		// execute step if preparation succeeded
-		if statePrepError == nil && ctxPrepError == nil {
+		if statePrepError == nil && ctxPrepError == nil && journalStartErr == nil {
 			executedStepIDs[step.Id()] = struct{}{}
 			report = step.Execute(stepCtx)
 			if report == nil {
@@ -682,8 +717,10 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 		// F4 commit (durability-spec §5): record the step's outcome, its rollback
 		// snapshot (leaf steps only), and its report, persisted AFTER the side
-		// effect returns and before the next step's write-ahead.
-		if w.journaling() {
+		// effect returns and before the next step's write-ahead. Skipped when the
+		// write-ahead itself failed (journalStartErr): the step never ran and the
+		// journal write is already broken, so there is nothing to commit.
+		if w.journaling() && journalStartErr == nil {
 			stepState := StepCompleted
 			if report.IsFailed() {
 				stepState = StepFailed
@@ -720,7 +757,15 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 				// F5 (durability-spec §5): flip the phase to compensating with the
 				// cursor at the failed step, persisted before compensation begins.
-				w.journalEnterCompensating(index)
+				// This is a write-ahead point: if it cannot be made durable we do
+				// NOT compensate, because a crash mid-rollback would leave a journal
+				// that still reads as forward and resume would re-execute instead of
+				// continuing. Resume retries the whole compensation once it is durable.
+				if err := w.journalEnterCompensating(index); err != nil {
+					w.log().Error("failed to persist compensating-phase journal; skipping rollback to keep resume safe",
+						"workflowId", w.id, "index", index, "error", err)
+					break
+				}
 
 				// Perform rollback using recorded per-step states
 				// Rollback from index (include the failed step for cleanup)
@@ -844,6 +889,22 @@ func (w *workflow) Rollback(ctx context.Context) *Report {
 	startTime := time.Now()
 
 	w.log().Info("starting workflow rollback", "workflowId", w.id, "steps", len(w.steps))
+
+	// A directly-invoked Rollback of a durable workflow must persist the
+	// compensating-phase flip before any compensation side effect (durability-spec
+	// §5 F5), exactly as Execute's failure path does. Bail out loudly if it cannot
+	// be made durable rather than compensate against a journal that still reads
+	// forward.
+	if w.journaling() && len(w.steps) > 0 {
+		if err := w.journalEnterCompensating(len(w.steps) - 1); err != nil {
+			return FailureReport(w,
+				WithWorkflow(w),
+				WithActionType(ActionRollback),
+				WithStartTime(startTime),
+				WithError(JournalError.
+					Wrap(err, "workflow %q: failed to persist compensating-phase journal; rollback not started", w.id)))
+		}
+	}
 
 	// Use preserved states and executed-step set from last execution.
 	rollbackReports := w.rollbackFrom(ctx, len(w.steps)-1, w.lastExecutionStates, w.lastExecutedStepIDs)

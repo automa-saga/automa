@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -126,37 +127,60 @@ func TestJournal_PersistIsAtomic(t *testing.T) {
 	var stop atomic.Bool
 	var wg sync.WaitGroup
 
+	// Failures are reported back to the test goroutine via channels: calling
+	// require.* (t.FailNow) from a non-test goroutine is unsafe.
+	writerErr := make(chan error, 1)
+	readerErr := make(chan error, 1)
+
 	// Writer: rewrite the journal repeatedly.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer stop.Store(true)
 		for i := 0; i < writes; i++ {
 			j := sampleJournal()
 			j.Cursor.Index = i % 2 // vary the content between writes
-			require.NoError(t, j.persist(path))
+			if err := j.persist(path); err != nil {
+				writerErr <- fmt.Errorf("persist %d: %w", i, err)
+				return
+			}
 		}
-		stop.Store(true)
 	}()
 
-	// Reader: every read must decode to a complete, valid journal.
+	// Reader: every read must decode to a complete, valid journal. Because the
+	// rename is atomic, the target always exists — the old file survives until the
+	// new one replaces it — so ANY read error (including os.ErrNotExist) is an
+	// atomicity violation, and a decode failure means the reader saw a torn file.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for !stop.Load() {
 			data, err := os.ReadFile(path)
 			if err != nil {
-				// A missing target would violate atomicity (rename is atomic;
-				// the old file exists until the new one replaces it).
-				assert.Truef(t, errors.Is(err, os.ErrNotExist), "unexpected read error: %v", err)
-				continue
+				readerErr <- fmt.Errorf("read observed a missing/unreadable target (atomicity violation): %w", err)
+				return
 			}
 			var j Journal
-			require.NoErrorf(t, json.Unmarshal(data, &j), "reader observed a torn file")
-			assert.Equal(t, JournalVersion, j.Version)
+			if err := json.Unmarshal(data, &j); err != nil {
+				readerErr <- fmt.Errorf("reader observed a torn file: %w", err)
+				return
+			}
+			if j.Version != JournalVersion {
+				readerErr <- fmt.Errorf("reader observed version %d, want %d", j.Version, JournalVersion)
+				return
+			}
 		}
 	}()
 
 	wg.Wait()
+	close(writerErr)
+	close(readerErr)
+	for err := range writerErr {
+		t.Errorf("writer goroutine: %v", err)
+	}
+	for err := range readerErr {
+		t.Errorf("reader goroutine: %v", err)
+	}
 }
 
 func TestLoadJournal_MissingFileIsNotExist(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/joomcode/errorx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -172,4 +173,105 @@ func TestJournal_Nested(t *testing.T) {
 	// topology when validated against the definition.
 	require.NoError(t, j.validateStructure())
 	require.NoError(t, validateTopology(step.(*workflow), j))
+}
+
+// TestJournal_NestedStartedSnapshotCarriesParentGlobal is a regression test for
+// the write-ahead ordering of a sub-workflow (durability-spec §3.8): the parent
+// records the child `started` (F1) with the child's cloned Global BEFORE the child
+// runs, so the child node's `shared` snapshot on disk must already carry the
+// parent's Global. The sub-workflow's own WithPrepare runs in exactly that window
+// — after the parent's F1, before the child persists any of its own progress — so
+// it observes the parent's write-ahead snapshot of the child.
+func TestJournal_NestedStartedSnapshotCarriesParentGlobal(t *testing.T) {
+	path := journalPath(t)
+
+	var sawChildStarted bool
+	var sharedAtChildPrepare string
+
+	childPrepare := func(ctx context.Context, stp Step) (context.Context, error) {
+		j, err := loadJournal(path)
+		if err != nil {
+			return ctx, nil
+		}
+		if len(j.Steps) == 2 && j.Steps[1].IsWorkflow() {
+			sawChildStarted = j.Steps[1].State == StepStarted
+			if j.Steps[1].Shared != nil {
+				if v, ok := j.Steps[1].Shared.Global().String(Key("region")); ok {
+					sharedAtChildPrepare = v
+				}
+			}
+		}
+		return ctx, nil
+	}
+
+	seedGlobal := func(ctx context.Context, stp Step) *Report {
+		stp.State().Global().Set(Key("region"), "us-east-1")
+		return SuccessReport(stp)
+	}
+	ok := func(ctx context.Context, stp Step) *Report { return SuccessReport(stp) }
+
+	sub := NewWorkflowBuilder().WithId("sub").
+		WithPrepare(childPrepare).
+		Steps(NewStepBuilder().WithId("x").WithExecute(ok))
+
+	step, err := NewWorkflowBuilder().WithId("wf").
+		WithExecutionMode(RollbackOnError).
+		WithJournal(path).
+		Steps(
+			NewStepBuilder().WithId("a").WithExecute(seedGlobal),
+			sub,
+		).Build()
+	require.NoError(t, err)
+
+	require.True(t, step.Execute(context.Background()).IsSuccess())
+
+	assert.True(t, sawChildStarted, "child must be recorded `started` (F1) before it runs any inner step")
+	assert.Equal(t, "us-east-1", sharedAtChildPrepare,
+		"the F1 snapshot of the child node must carry the parent's Global (write-ahead ordering, §3.8)")
+}
+
+// TestJournal_WriteAheadFailureAbortsStep verifies the write-ahead contract
+// (durability-spec §5 F1): if the `started` record cannot be made durable, the
+// step's side effect MUST NOT run and the step fails with a JournalError, rather
+// than executing an effect that a crash could strand with no journal record.
+func TestJournal_WriteAheadFailureAbortsStep(t *testing.T) {
+	// A journal path inside a directory that does not exist makes every persist
+	// fail (the temp file cannot be created), so the write-ahead never becomes
+	// durable.
+	badPath := filepath.Join(t.TempDir(), "no-such-dir", "wf.journal")
+
+	var executed bool
+	step, err := NewWorkflowBuilder().WithId("wf").
+		WithExecutionMode(RollbackOnError).
+		WithJournal(badPath).
+		Steps(
+			NewStepBuilder().WithId("a").WithExecute(func(ctx context.Context, stp Step) *Report {
+				executed = true
+				return SuccessReport(stp)
+			}),
+		).Build()
+	require.NoError(t, err)
+
+	report := step.Execute(context.Background())
+	require.True(t, report.IsFailed(), "run must fail when the write-ahead journal cannot be persisted")
+	assert.False(t, executed, "the side effect MUST NOT run when its write-ahead record is not durable")
+
+	// The failure must carry a JournalError so callers can distinguish a durability
+	// failure from an ordinary step failure.
+	var carriesJournalError func(r *Report) bool
+	carriesJournalError = func(r *Report) bool {
+		if r == nil {
+			return false
+		}
+		if r.Error != nil && errorx.IsOfType(r.Error, JournalError) {
+			return true
+		}
+		for _, c := range r.StepReports {
+			if carriesJournalError(c) {
+				return true
+			}
+		}
+		return false
+	}
+	assert.True(t, carriesJournalError(report), "failure must carry a JournalError")
 }

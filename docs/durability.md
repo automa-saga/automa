@@ -342,9 +342,10 @@ the normative statements):
 - **Storage backend.** v1 is a single JSON snapshot file. The `ResumeWorkflow`
   API and journal semantics are backend-neutral, so an embedded KV can be added
   later without breaking the contract.
-- **Journal lifecycle.** Retention is configurable; the default is `retain` (keep
-  the journal for a full audit trail, caller prunes). `delete_on_success` and
-  `delete_on_done` policies drop it on the corresponding terminal outcome.
+- **Journal lifecycle.** The journal is always retained after the run reaches a
+  terminal state; automa never deletes it. The caller owns pruning (and so keeps a
+  full audit trail by default). Configurable retention policies (e.g. delete on
+  success) are a possible future addition, not part of the current API.
 - **`WithJournal` / path namespacing.** `WithJournal(path)` on the builder makes
   a workflow durable. The spec's per-run convention is
   `<dir>/<workflowID>-<runID>.journal` with a caller-supplied run ID; the current

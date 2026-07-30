@@ -422,6 +422,17 @@ Requirements:
 - In `compensating` phase, each step's `compensated` record (C3) MUST be durably
   written before proceeding to the next-lower index, so an interrupted rollback
   resumes without repeating already-compensated steps.
+- **PERSIST failure.** The two *write-ahead* PERSISTs, F1 (`started`) and F5
+  (entering `compensating`), guard a side effect that has **not yet run**. If
+  either fails, the implementation MUST NOT run the side effect (F1) or begin
+  compensation (F5): it MUST abort that step (or the rollback) and surface the
+  failure, because running an effect with no durable record would strand it beyond
+  what resume can observe or compensate. The *commit* PERSISTs — F4
+  (`completed`/`failed`), C3 (`compensated`), and D1 (`done`) — record an outcome
+  **after** its side effect has already returned; an implementation MAY tolerate
+  (log and continue) a failure at these points, since a lost commit record only
+  causes resume to re-execute or re-compensate a step, which §7 idempotency already
+  requires to be safe.
 - **Recursion.** When step `i` is itself a workflow, its F3 (execute) is the
   recursive run of that sub-workflow, which performs its own F1–D1 against its
   own node (`steps[i].cursor`/`shared`/`steps`). The parent's F1/F4 still bracket

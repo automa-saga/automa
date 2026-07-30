@@ -299,8 +299,8 @@ func (wb *WorkflowBuilder) WithRollbackMode(mode TypeMode) *WorkflowBuilder {
 // workflow: nested sub-workflows are journaled inline under the same file
 // automatically (§3.8) and do not need their own path.
 //
-// This story (#87) only writes the journal; resuming from it is a later addition
-// ([ResumeWorkflow], #88).
+// A journal written here is resumed with [ResumeWorkflow], which replays the
+// forward or compensating phase after a crash.
 func (wb *WorkflowBuilder) WithJournal(path string) *WorkflowBuilder {
 	wb.workflow.journalPath = path
 	return wb
