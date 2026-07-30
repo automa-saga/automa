@@ -60,13 +60,13 @@ func (wb *WorkflowBuilder) Id() string {
 // Build validates the builder, constructs all registered steps in order,
 // wires them into the workflow, and returns the finished [Step] (a *workflow).
 //
-// Nested workflow propagation: if any registered step produces a *workflow
-// (i.e. is itself a sub-workflow), its executionMode and rollbackMode are
-// always overwritten with the parent's modes so that all nested workflows
-// follow the same error-handling and rollback strategy as the enclosing
-// workflow. This is a deliberate uniformity guarantee (core-spec §6.1, decision
-// D6): a child cannot override its parent's modes. Any modes set on a nested
-// builder apply only when it is built and run as a top-level workflow.
+// Nested workflow propagation: every sub-workflow anywhere in the tree has its
+// executionMode and rollbackMode overwritten with its parent's, cascaded
+// root→leaf by [propagateModes], so all nested workflows (at any depth) follow
+// the same error-handling and rollback strategy as the enclosing workflow. This
+// is a deliberate uniformity guarantee (core-spec §6.1, decision D6): a child
+// cannot override its parent's modes. Any modes set on a nested builder apply
+// only when it is built and run as a top-level workflow.
 //
 // After Build returns the internal workflow is reset to a fresh default so the
 // builder can be reused.
@@ -90,24 +90,42 @@ func (wb *WorkflowBuilder) Build() (Step, error) {
 		}
 
 		if step != nil {
-			// If the step itself is a workflow, propagate the parent workflow's
-			// execution and rollback modes so that nested workflows behave
-			// consistently and follow the same error handling and rollback
-			// strategy as the enclosing workflow.
-			if wfStep, ok := step.(*workflow); ok {
-				wfStep.executionMode = wb.workflow.executionMode
-				wfStep.rollbackMode = wb.workflow.rollbackMode
-			}
-
 			steps = append(steps, step)
 		}
 	}
 
 	wb.workflow.steps = steps
+
+	// Propagate modes top-down over the whole subtree (core-spec §6.1, D6). A
+	// per-child stamp here would only reach direct children: a child is built
+	// (and stamps its own then-default modes onto its grandchildren) before this
+	// parent could override it, so grandchildren never inherited. Cascading
+	// root→leaf from the outermost Build — which the caller always invokes — sets
+	// each level from its parent's already-corrected value, so the whole tree ends
+	// up under one policy. (#122/#123)
+	propagateModes(wb.workflow)
+
 	finished := wb.workflow
 	wb.workflow = newDefaultWorkflow()
 
 	return finished, nil
+}
+
+// propagateModes overwrites every nested sub-workflow's execution and rollback
+// modes with its parent's, descending root→leaf so the update cascades: by the
+// time a grandchild is visited its parent's modes are already the inherited
+// ones. This is the deliberate uniformity guarantee of core-spec §6.1 / D6 — a
+// child cannot override its parent's modes when run as part of the tree.
+func propagateModes(w *workflow) {
+	for _, step := range w.steps {
+		child, ok := step.(*workflow)
+		if !ok {
+			continue
+		}
+		child.executionMode = w.executionMode
+		child.rollbackMode = w.rollbackMode
+		propagateModes(child)
+	}
 }
 
 // Steps registers one or more [Builder] instances in the order they are

@@ -273,8 +273,9 @@ When `execution_mode` is `rollback` and step `i` fails:
 #### 6.1 Mode inheritance
 
 - A nested workflow **inherits its parent's** execution mode and rollback mode:
-  during assembly, the parent's modes are propagated to its child workflows, so
-  the entire tree executes under one consistent error-handling policy.
+  during assembly, the parent's modes are propagated to its child workflows **at
+  every depth** (cascaded root→leaf), so the entire tree executes under one
+  consistent error-handling policy.
 - This is a deliberate uniformity guarantee: an operator configuring a top-level
   workflow as `rollback` gets rollback semantics throughout the tree without
   having to set the mode on every nested workflow.
@@ -282,10 +283,22 @@ When `execution_mode` is `rollback` and step `i` fails:
   advisory: they MAY be set for documentation or for standalone execution of that
   workflow, but when it runs as a child its parent's modes apply.
 
-  > **✓ Spec decision (Go conforms as of #82).** The Go `WorkflowBuilder` doc
-  > comment previously contradicted the actual overwrite behavior. The behavior
-  > (parent overrides) is correct per this spec; the misleading doc comment was
-  > corrected to match in #82.
+  > **Future direction (#124, non-normative).** A proposal exists to let a child
+  > *tighten* the error-handling policy but never *loosen* it (effective mode =
+  > the stricter of parent and child, on the order `continue < stop < rollback`),
+  > so a reusable sub-workflow can guarantee its own atomicity without weakening
+  > the operator's runtime decision. If inheritance is ever relaxed it MUST only
+  > permit tightening, never loosening. Not adopted for v1; parent-overrides is
+  > the whole model here.
+
+  > **✓ Spec decision (Go conforms as of #82, #123).** The Go `WorkflowBuilder`
+  > doc comment previously contradicted the actual overwrite behavior; the
+  > behavior (parent overrides) is correct per this spec and the doc comment was
+  > corrected in #82. That fix only reached **direct** children, though: a child
+  > was built (stamping its own default modes onto its grandchildren) before the
+  > parent could override it, so nesting deeper than one level did not inherit.
+  > #123 replaced the per-child stamp with a root→leaf cascade so inheritance
+  > holds at every depth (see `deeply_nested_inherits_modes`).
 
 - **Nested compensation.** A sub-workflow compensates its **own** steps (§5.3).
   When a parent's compensation pass reaches a child-workflow step, it drives the
@@ -501,7 +514,7 @@ implementation is (or is being) adapted to match.
 | D3 | Step **Prepare** failure reports action `prepare`, not `execute`. | 4.3 | #92 |
 | D4 | `rollback_mode` restricted to `{ continue, stop }`; reject `rollback`. | 5.2 | #93 |
 | D5 | Compensation MUST skip non-executed (`skipped`/`pending`) steps. | 5.3 | #84 |
-| D6 | Nested workflows **inherit** the parent's modes (parent overrides); fix the contradicting builder doc comment. | 6.1 | #82 |
+| D6 | Nested workflows **inherit** the parent's modes (parent overrides) **at every depth**; fix the contradicting builder doc comment. | 6.1 | #82, #123 |
 | D7 | Report enums (`action`, `status`) MUST fail on unknown values on decode, like `mode`. | 8.1 | #94 |
 | D8 | *(withdrawn)* An earlier revision specified custom namespaces as workflow-scoped shared named rooms. The feature was **removed** instead (§7.2): Local + Global is the whole model. | 7.2 | removed |
 | D9 | Duplicate step IDs **MUST** be rejected at build time; the original Go builder silently dropped them (first-wins). | 3.1 | #120 |
