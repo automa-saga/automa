@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/joomcode/errorx"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // minimal Builder for testing
@@ -180,6 +182,26 @@ func TestWorkflowBuilder_Steps_DuplicateStepId(t *testing.T) {
 	wb.Steps(b1, b2)
 	// Only one step with the same id should be added
 	assert.Equal(t, []string{"step"}, wb.stepSequence)
+}
+
+// TestWorkflowBuilder_WithJournal_EmptyPathFailsBuild verifies WithJournal("") is
+// rejected at Build/Validate (symmetric with ResumeWorkflow's empty-path guard),
+// rather than silently producing a non-durable workflow.
+func TestWorkflowBuilder_WithJournal_EmptyPathFailsBuild(t *testing.T) {
+	wb := NewWorkflowBuilder().WithId("wf").
+		WithJournal("").
+		Steps(&mockStepBuilder{id: "step", valid: true})
+
+	_, err := wb.Build()
+	require.Error(t, err)
+	assert.True(t, errorx.IsOfType(err, IllegalArgument),
+		"WithJournal(\"\") must fail Build with IllegalArgument, got %v", err)
+
+	// A non-durable workflow (no WithJournal) must still build fine.
+	ok, err := NewWorkflowBuilder().WithId("wf").
+		Steps(&mockStepBuilder{id: "step", valid: true}).Build()
+	require.NoError(t, err)
+	assert.False(t, ok.(*workflow).journaling(), "omitting WithJournal must leave journaling off")
 }
 
 func TestWorkflowBuilder_Validate_EmptyWorkflowId(t *testing.T) {

@@ -19,7 +19,7 @@ fixture under `go test`.
 docs/spec/conformance/
   behavior/        # workflow execution outcomes (core-spec §4–§6, §8)
   serialization/   # load → re-serialize round-trips (core-spec §7.5, §8)
-  journal/         # durability journal + resume (durability-spec §8) — TODO with #86
+  journal/         # durability journal round-trips (durability-spec §3, §8)
 ```
 
 ## Behavior fixtures (`behavior/*.json`)
@@ -106,3 +106,54 @@ matter).
   the 2^53 boundary, and the string-encoded unsafe-ID case.
 - **Timestamps (§8):** serialize as RFC 3339 with a timezone designator;
   trailing-zero fractional seconds are trimmed (e.g. `...00.5Z`, not `...00.500Z`).
+
+## Journal fixtures (`journal/*.json`)
+
+Durability journal fixtures, governed by the
+[durability spec](../durability-spec.md). Each has a `kind`:
+
+- `roundtrip` — a `journal` document that every implementation MUST load and
+  re-serialize to a structurally-equivalent document (key order and whitespace
+  do not matter), verifying **schema agreement** (durability-spec §3, §8.1).
+- `resume` — a `journal` plus an `expect` block describing how a conformant
+  resume MUST classify it: `reExecute` (leaf steps that run forward on resume),
+  `compensate` (leaf steps whose rollback runs), and `workflowStatus`. Steps in
+  the topology absent from `reExecute` are skipped as already `completed`. This
+  verifies **resume decision agreement** (§6) without real side effects — the Go
+  harness drives the real `ResumeWorkflow` with recording steps.
+
+```json
+{
+  "name": "journal_flat_forward_in_progress",
+  "description": "A flat run mid-forward …",
+  "specRefs": ["§3.3", "§3.4", "§5"],
+  "kind": "roundtrip",
+  "journal": {
+    "version": 1,
+    "workflow_id": "setup_local_dev",
+    "execution_mode": "rollback",       // TypeMode wire form: stop | continue | rollback
+    "rollback_mode":  "continue",       // TypeMode wire form: stop | continue
+    "cursor": { "phase": "forward", "index": 1 },
+    "shared": { "local": {}, "global": { "region": "us-east-1" } },
+    "steps": [
+      { "id": "create-network", "state": "completed",
+        "snapshot": { "local": {}, "global": {} } },
+      { "id": "create-db",  "state": "started" },
+      { "id": "deploy-app", "state": "pending" }
+    ]
+  }
+}
+```
+
+- **Modes** use automa's existing `TypeMode` JSON encoding — the short lowercase
+  strings `stop` / `continue` / `rollback` — the same form the behavior and
+  report fixtures use. The journal reuses `TypeMode`, not a second wire form.
+- **Workflow-node invariant (§3.3/§3.8):** a node is a workflow **iff** its entry
+  has a `steps` array; whenever `steps` is present, `cursor` and `shared` are too.
+  A leaf step carries none of the three. A workflow step omits the leaf
+  `snapshot`. The structure is recursive to arbitrary depth.
+- **`report` / `snapshot` / `shared`** nest their own existing schemas (report
+  tree, namespaced state bag); journal fixtures constrain only their placement.
+- **Resume-classification fixtures** (a journal plus the expected phase,
+  first-incomplete index, and which steps re-run vs. skip) land with the resume
+  story; they verify the §6 decision logic without running side effects.

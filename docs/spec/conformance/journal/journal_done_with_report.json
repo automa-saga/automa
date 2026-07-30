@@ -1,0 +1,30 @@
+{
+  "name": "journal_done_with_report",
+  "description": "A terminal run in phase done: every step completed, steps[0] carries both its rollback snapshot and its report tree. This exercises report placement under a step entry; the report's own serialization is covered by the report serialization fixtures (durability-spec §3.3, §4.1, §6.5).",
+  "specRefs": ["§3.3", "§4.1", "§6.5"],
+  "kind": "roundtrip",
+  "journal": {
+    "version": 1,
+    "workflow_id": "migrate",
+    "execution_mode": "stop",
+    "rollback_mode": "continue",
+    "cursor": { "phase": "done", "index": 1 },
+    "shared": { "local": {}, "global": { "migrated": true } },
+    "steps": [
+      {
+        "id": "backup",
+        "state": "completed",
+        "snapshot": { "local": {}, "global": {} },
+        "report": {
+          "id": "backup",
+          "isWorkflow": false,
+          "action": "execute",
+          "status": "success",
+          "startTime": "2026-06-17T10:30:00.123Z",
+          "endTime": "2026-06-17T10:30:00.456Z"
+        }
+      },
+      { "id": "apply", "state": "completed" }
+    ]
+  }
+}

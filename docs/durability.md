@@ -1,6 +1,13 @@
 # Durable Workflows (Design)
 
-> Status: **proposed** — design under review, not yet implemented.
+> Status: **implemented** — shipped in v1; this document is the design rationale.
+> The normative, language-neutral behavior is the
+> [durability spec](spec/durability-spec.md), backed by
+> [conformance fixtures](spec/conformance/journal). The public API is
+> `WithJournal(path)` on the builder plus `ResumeWorkflow(ctx, wb, journalPath)`,
+> demonstrated end-to-end in
+> [examples/resumable_setup](../examples/resumable_setup). Where this document and
+> the spec disagree, the spec governs.
 
 This document describes a design for adding **crash recovery** to automa: the
 ability for a workflow to survive a process crash, restart, or power loss and
@@ -195,7 +202,7 @@ contract below.
 
 ## Recovery / `Resume`
 
-`Resume` is the new public entry point. The caller re-supplies the workflow
+`Resume` is the public recovery entry point. The caller re-supplies the workflow
 definition (the same builder/code); automa rehydrates state onto it and
 continues.
 
@@ -230,6 +237,13 @@ func ResumeWorkflow(ctx context.Context, wb *WorkflowBuilder, journalPath string
 A mismatch (the workflow definition changed between crash and resume) is an
 error, not a silent restart — this is the single-process analogue of workflow
 versioning, and it is intentionally strict.
+
+> The names above are illustrative. The shipped code lives in
+> [`resume.go`](../resume.go): `ResumeWorkflow` dispatches on phase, `rehydrateInto`
+> loads the journal onto the rebuilt workflow (recursively, so a nested
+> sub-workflow that was in progress at the crash resumes on its own cursor —
+> durability-spec §3.8/§6.4), a resume-aware `Execute` skips already-`completed`
+> steps, and `resumeCompensation` finishes an interrupted rollback.
 
 ## Worked example: crash and resume
 
@@ -320,14 +334,26 @@ independent features; none are required for crash recovery of sequential sagas.
   `WithJournal(path)` on the builder) and invoking via `ResumeWorkflow`.
 - The journal format carries a `Version` field so the on-disk schema can evolve.
 
-## Open questions
+## Resolved questions
 
-- Storage backend: start with a plain JSON file (snapshot) — should an embedded
-  KV (e.g. BoltDB) be offered as an alternative for many concurrent workflow
-  runs?
-- Journal lifecycle: delete on `PhaseDone`, or retain for audit and let the
-  caller prune?
-- Where should `WithJournal` live on the builder, and how is the path namespaced
-  per run (workflow ID + run ID)?
-- How strictly should `validateTopology` treat additive changes (e.g. new steps
-  appended after the last completed one)?
+These were open during design and are now settled (see durability-spec §10 for
+the normative statements):
+
+- **Storage backend.** v1 is a single JSON snapshot file. The `ResumeWorkflow`
+  API and journal semantics are backend-neutral, so an embedded KV can be added
+  later without breaking the contract.
+- **Journal lifecycle.** The journal is always retained after the run reaches a
+  terminal state; automa never deletes it. The caller owns pruning (and so keeps a
+  full audit trail by default). Configurable retention policies (e.g. delete on
+  success) are a possible future addition, not part of the current API.
+- **`WithJournal` / path namespacing.** `WithJournal(path)` on the builder makes
+  a workflow durable. The spec's per-run convention is
+  `<dir>/<workflowID>-<runID>.journal` with a caller-supplied run ID; the current
+  API takes the full file path directly.
+- **Additive topology changes.** `validateTopology` is strict by default: any
+  change to step IDs, order, or modes refuses the resume. An opt-in relaxation
+  for appended steps may be added later.
+
+The only sanctioned extension still deferred is **nested-workflow forward resume
+robustness across schema evolution**; forward and compensating resume of nested
+workflows themselves is implemented (durability-spec §3.8).

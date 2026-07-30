@@ -1,0 +1,23 @@
+{
+  "name": "journal_flat_forward_in_progress",
+  "description": "A flat run mid-forward: steps[0] completed (with its rollback snapshot), steps[1] started (write-ahead record written; side-effect outcome unknown), steps[2] still pending. The cursor points at the most recently started step (durability-spec §3.3, §3.4, §5).",
+  "specRefs": ["§3.3", "§3.4", "§5"],
+  "kind": "roundtrip",
+  "journal": {
+    "version": 1,
+    "workflow_id": "setup_local_dev",
+    "execution_mode": "rollback",
+    "rollback_mode": "continue",
+    "cursor": { "phase": "forward", "index": 1 },
+    "shared": { "local": {}, "global": { "region": "us-east-1" } },
+    "steps": [
+      {
+        "id": "create-network",
+        "state": "completed",
+        "snapshot": { "local": { "netId": "net-123" }, "global": { "region": "us-east-1" } }
+      },
+      { "id": "create-db", "state": "started" },
+      { "id": "deploy-app", "state": "pending" }
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 module github.com/automa-saga/automa/examples/setup_local
 
-go 1.25.0
+go 1.26.5
 
 replace github.com/automa-saga/automa => ../../../automa
 
@@ -17,7 +17,7 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.12.0 // indirect
 	golang.org/x/term v0.1.0 // indirect
 )

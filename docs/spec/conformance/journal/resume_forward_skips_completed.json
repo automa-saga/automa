@@ -1,0 +1,23 @@
+{
+  "name": "resume_forward_skips_completed",
+  "description": "Forward resume after a clean commit: the completed step (a) is skipped and the remaining step (b) runs (durability-spec §6.3). First-incomplete index is 1.",
+  "specRefs": ["§6.3"],
+  "kind": "resume",
+  "journal": {
+    "version": 1,
+    "workflow_id": "wf",
+    "execution_mode": "rollback",
+    "rollback_mode": "continue",
+    "cursor": { "phase": "forward", "index": 0 },
+    "shared": { "local": {}, "global": {} },
+    "steps": [
+      { "id": "a", "state": "completed", "snapshot": { "local": {}, "global": {} } },
+      { "id": "b", "state": "pending" }
+    ]
+  },
+  "expect": {
+    "reExecute": ["b"],
+    "compensate": [],
+    "workflowStatus": "success"
+  }
+}
