@@ -190,6 +190,21 @@ func TestLoadJournal_MissingFileIsNotExist(t *testing.T) {
 		"missing journal must be detectable with errors.Is(os.ErrNotExist) for the fresh-run case")
 }
 
+// TestLoadJournal_NullStepEntryFailsLoudly verifies a null element in a steps
+// array (`"steps": [null]`) is treated as corruption and fails loudly on load,
+// rather than panicking on a nil *StepJournal dereference.
+func TestLoadJournal_NullStepEntryFailsLoudly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "wf.journal")
+	raw := `{"version":1,"workflow_id":"wf","execution_mode":"rollback","rollback_mode":"continue",` +
+		`"cursor":{"phase":"forward","index":0},"shared":{"local":{},"global":{}},"steps":[null]}`
+	require.NoError(t, os.WriteFile(path, []byte(raw), 0o600))
+
+	_, err := loadJournal(path)
+	require.Error(t, err)
+	assert.True(t, errorx.IsOfType(err, JournalCorrupt),
+		"a null step entry must fail as JournalCorrupt, got %v", err)
+}
+
 func TestLoadJournal_CorruptFailsLoudly(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "corrupt.journal")

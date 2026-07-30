@@ -36,6 +36,18 @@ import (
 func ResumeWorkflow(ctx context.Context, wb *WorkflowBuilder, journalPath string) *Report {
 	start := time.Now()
 
+	// An empty path is a programming error: loadJournal("") reports os.ErrNotExist,
+	// which would otherwise be taken as a fresh run and silently execute WITHOUT a
+	// journal (journalPath == "" disables journaling in Execute). Fail fast instead.
+	if journalPath == "" {
+		return NewReport(wb.Id(),
+			WithWorkflow(wb.workflow),
+			WithStatus(StatusFailed),
+			WithActionType(ActionPrepare),
+			WithStartTime(start),
+			WithError(IllegalArgument.New("ResumeWorkflow requires a non-empty journalPath")))
+	}
+
 	built, err := wb.Build()
 	if err != nil {
 		return NewReport(wb.Id(),

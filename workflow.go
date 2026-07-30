@@ -925,6 +925,13 @@ func (w *workflow) Rollback(ctx context.Context) *Report {
 		stepReports = append(stepReports, report)
 	}
 
+	// Mark the run terminal (§5 D1) so a later ResumeWorkflow recognises the
+	// rollback as finished (`done`) instead of finding the journal stuck in
+	// `compensating` and re-entering compensation.
+	if w.journaling() {
+		w.journalDone()
+	}
+
 	return SuccessReport(w,
 		WithWorkflow(w),
 		WithActionType(ActionRollback),

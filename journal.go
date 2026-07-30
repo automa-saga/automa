@@ -140,6 +140,11 @@ func (j *Journal) validateStructure() error {
 // validateStructure enforces the workflow-node invariant on a step entry and
 // recurses into workflow steps (durability-spec §3.3, §3.8).
 func (s *StepJournal) validateStructure() error {
+	// A null entry in a `steps` array (e.g. `"steps": [null]`) decodes to a nil
+	// element. Treat it as corruption and fail loudly rather than dereferencing it.
+	if s == nil {
+		return JournalCorrupt.New("journal contains a null step entry")
+	}
 	if s.ID == "" {
 		return JournalCorrupt.New("journal step entry has an empty id")
 	}

@@ -15,6 +15,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestResume_EmptyJournalPathFailsFast verifies ResumeWorkflow rejects an empty
+// path with IllegalArgument/ActionPrepare rather than silently starting a fresh,
+// un-journaled run (loadJournal("") reports os.ErrNotExist).
+func TestResume_EmptyJournalPathFailsFast(t *testing.T) {
+	wb := NewWorkflowBuilder().WithId("wf").
+		WithExecutionMode(RollbackOnError).
+		Steps(NewStepBuilder().WithId("a").
+			WithExecute(func(ctx context.Context, stp Step) *Report { return SuccessReport(stp) }))
+
+	report := ResumeWorkflow(context.Background(), wb, "")
+	require.True(t, report.IsFailed(), "empty journalPath must fail")
+	assert.True(t, errorx.IsOfType(report.Error, IllegalArgument),
+		"empty journalPath must fail as IllegalArgument, got %v", report.Error)
+	assert.Equal(t, ActionPrepare, report.Action)
+}
+
 // resumeRecorder captures which steps run Execute / Rollback on resume.
 type resumeRecorder struct {
 	exec     []string

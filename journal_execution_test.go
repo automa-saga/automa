@@ -6,7 +6,6 @@ package automa
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -107,22 +106,58 @@ func TestJournal_FailureRollback(t *testing.T) {
 }
 
 // TestJournal_Disabled_WritesNothing verifies WithJournal is opt-in: a workflow
-// built without it writes no file (backward compatibility).
+// built without it has journaling switched off (no persist closure), so every
+// transition is inert and nothing is written to disk (backward compatibility).
 func TestJournal_Disabled_WritesNothing(t *testing.T) {
-	dir := t.TempDir()
-
-	step, err := NewWorkflowBuilder().WithId("wf").
+	built, err := NewWorkflowBuilder().WithId("wf").
 		WithExecutionMode(RollbackOnError).
 		Steps(
 			NewStepBuilder().WithId("a").WithExecute(func(ctx context.Context, stp Step) *Report { return SuccessReport(stp) }),
 		).Build()
 	require.NoError(t, err)
 
-	require.True(t, step.Execute(context.Background()).IsSuccess())
+	wf, ok := built.(*workflow)
+	require.True(t, ok)
+	assert.Empty(t, wf.journalPath, "a workflow without WithJournal must have no journal path")
+	assert.Nil(t, wf.journalPersist, "no persist closure should be installed before Execute")
+	assert.False(t, wf.journaling(), "journaling must be disabled without WithJournal")
 
-	entries, err := os.ReadDir(dir)
+	require.True(t, wf.Execute(context.Background()).IsSuccess())
+
+	// After a full run the persist closure must still be nil: nothing was journaled.
+	assert.Nil(t, wf.journalPersist, "journaling must remain disabled through a full run")
+	assert.False(t, wf.journaling(), "journaling must remain disabled through a full run")
+}
+
+// TestJournal_ManualRollbackReachesDone verifies a directly-invoked Rollback of a
+// durable workflow leaves the journal terminal (`done`), not stuck in
+// `compensating`, so a later ResumeWorkflow does not re-enter compensation.
+func TestJournal_ManualRollbackReachesDone(t *testing.T) {
+	path := journalPath(t)
+	ok := func(ctx context.Context, stp Step) *Report { return SuccessReport(stp) }
+
+	built, err := NewWorkflowBuilder().WithId("wf").
+		WithExecutionMode(RollbackOnError).
+		WithJournal(path).
+		Steps(
+			NewStepBuilder().WithId("a").WithExecute(ok).WithRollback(ok),
+			NewStepBuilder().WithId("b").WithExecute(ok).WithRollback(ok),
+		).Build()
 	require.NoError(t, err)
-	assert.Empty(t, entries, "a workflow without WithJournal must write nothing to disk")
+	wf := built.(*workflow)
+
+	require.True(t, wf.Execute(context.Background()).IsSuccess())
+	j, err := loadJournal(path)
+	require.NoError(t, err)
+	require.Equal(t, PhaseDone, j.Cursor.Phase, "a successful run must end `done`")
+
+	// Manually roll the durable workflow back.
+	require.True(t, wf.Rollback(context.Background()).IsSuccess())
+
+	j, err = loadJournal(path)
+	require.NoError(t, err)
+	assert.Equal(t, PhaseDone, j.Cursor.Phase,
+		"manual rollback must mark the journal terminal (§5 D1), not leave it compensating")
 }
 
 // TestJournal_Nested verifies a sub-workflow is journaled inline under its parent

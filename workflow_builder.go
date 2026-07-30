@@ -49,6 +49,13 @@ type WorkflowBuilder struct {
 	// so the error is recorded here and surfaced by Validate/Build. Per core-spec
 	// §3.1 a duplicate step ID is a build-time failure, not a silent drop.
 	idErrs []error
+
+	// journalErr records a misuse of WithJournal (an empty path). Like idErrs it
+	// cannot be returned through the fluent API, so it is surfaced by
+	// Validate/Build. An empty journalPath cannot be rejected at Build time on its
+	// own — it is also the valid "journaling off" default — so the error must be
+	// captured at the WithJournal call site.
+	journalErr error
 }
 
 // Id returns the workflow ID that has been configured so far.
@@ -201,6 +208,11 @@ func (wb *WorkflowBuilder) Validate() error {
 		return fmt.Errorf("invalid step ids: %v", wb.idErrs)
 	}
 
+	// Surface a WithJournal misuse (empty path) recorded at the call site.
+	if wb.journalErr != nil {
+		return wb.journalErr
+	}
+
 	if len(wb.stepBuilders) == 0 {
 		return StepNotFound.New("no steps provided for workflow")
 	}
@@ -301,7 +313,16 @@ func (wb *WorkflowBuilder) WithRollbackMode(mode TypeMode) *WorkflowBuilder {
 //
 // A journal written here is resumed with [ResumeWorkflow], which replays the
 // forward or compensating phase after a crash.
+//
+// path MUST be non-empty: calling WithJournal("") is a misuse (it would leave the
+// workflow silently non-durable) and makes the subsequent Build/Validate fail with
+// IllegalArgument. To build a non-durable workflow, simply do not call WithJournal.
 func (wb *WorkflowBuilder) WithJournal(path string) *WorkflowBuilder {
+	if path == "" {
+		wb.journalErr = IllegalArgument.New("WithJournal requires a non-empty path; omit WithJournal for a non-durable workflow")
+		return wb
+	}
+	wb.journalErr = nil
 	wb.workflow.journalPath = path
 	return wb
 }
