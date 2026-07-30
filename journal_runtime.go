@@ -1,0 +1,188 @@
+package automa
+
+// Runtime journaling for a running workflow (Durability Story 2). These helpers
+// project a workflow's live progress into the on-disk journal (journal.go) and
+// persist it atomically at the ordering points defined by durability-spec §5.
+//
+// The journal is a *projection*: each workflow instance owns its own progress
+// fields (jPhase/jIndex and the per-step slices); snapshotJournal derives the
+// full recursive tree from them on demand. The only cross-node coupling is the
+// persist closure — the root installs it and every sub-workflow inherits it, so
+// any node's transition rewrites the single shared file atomically (§3.6, §3.8).
+//
+// All of this is inert unless the workflow was made durable with WithJournal:
+// journaling reports false and every transition returns immediately.
+
+// journaling reports whether this workflow instance writes a journal.
+func (w *workflow) journaling() bool { return w.journalPersist != nil }
+
+// initJournalProgress prepares this node's progress fields for a run: forward
+// phase at index 0, with per-step slices sized to the topology (all steps
+// pending). It is called at the start of Execute for every journaling node.
+func (w *workflow) initJournalProgress() {
+	w.jPhase = PhaseForward
+	w.jIndex = 0
+	n := len(w.steps)
+	w.jStepStates = make([]StepState, n)
+	for i := range w.jStepStates {
+		w.jStepStates[i] = StepPending
+	}
+	w.jStepSnapshots = make([]*SyncNamespacedStateBag, n)
+	w.jStepReports = make([]*Report, n)
+}
+
+// persistJournal writes the whole root journal atomically. A write failure is
+// logged but does not fail the workflow: the journal is a recovery aid, and
+// aborting a run that is otherwise progressing would trade a recoverable state
+// for an unrecoverable one.
+func (w *workflow) persistJournal() {
+	if w.journalPersist == nil {
+		return
+	}
+	if err := w.journalPersist(); err != nil {
+		w.log().Warn("failed to persist durability journal", "workflowId", w.id, "error", err)
+	}
+}
+
+// nodeCursor returns this node's cursor, defaulting an unset phase to forward so
+// a not-yet-run node projects sensibly.
+func (w *workflow) nodeCursor() Cursor {
+	phase := w.jPhase
+	if phase == "" {
+		phase = PhaseForward
+	}
+	return Cursor{Phase: phase, Index: w.jIndex}
+}
+
+// sharedSnapshot captures this workflow's shared state — the Global namespace,
+// with an empty Local — for the journal's `shared` field (durability-spec §3.3).
+// A clone failure degrades to an empty bag rather than failing the run.
+func (w *workflow) sharedSnapshot() *SyncNamespacedStateBag {
+	global, err := w.State().Global().Clone()
+	if err != nil {
+		w.log().Warn("failed to clone global state for journal snapshot", "workflowId", w.id, "error", err)
+		global = nil
+	}
+	return NewNamespacedStateBag(nil, global)
+}
+
+// snapshotJournal projects the live workflow tree into a *Journal (the top-level
+// node). It is the writer counterpart of the journal schema (durability-spec
+// §3.3/§3.8) and is recomputed at every persist point.
+func (w *workflow) snapshotJournal() *Journal {
+	return &Journal{
+		Version:       JournalVersion,
+		WorkflowID:    w.id,
+		ExecutionMode: w.executionMode,
+		RollbackMode:  w.rollbackMode,
+		Cursor:        w.nodeCursor(),
+		Shared:        w.sharedSnapshot(),
+		Steps:         w.snapshotSteps(),
+	}
+}
+
+// snapshotSteps projects this node's step entries in topology order. A step that
+// is itself a workflow contributes its own recursive run-state trio
+// (cursor/shared/steps); a leaf contributes its optional snapshot and report.
+// The projection is nil-tolerant so a not-yet-run node reads as all pending.
+func (w *workflow) snapshotSteps() []*StepJournal {
+	out := make([]*StepJournal, len(w.steps))
+	for i, s := range w.steps {
+		e := &StepJournal{ID: s.Id(), State: w.stepStateAt(i)}
+		if child, ok := s.(*workflow); ok {
+			cursor := child.nodeCursor()
+			e.Cursor = &cursor
+			e.Shared = child.sharedSnapshot()
+			e.Steps = child.snapshotSteps()
+		} else {
+			if i < len(w.jStepSnapshots) {
+				e.Snapshot = w.jStepSnapshots[i]
+			}
+			if i < len(w.jStepReports) {
+				e.Report = w.jStepReports[i]
+			}
+		}
+		out[i] = e
+	}
+	return out
+}
+
+// stepStateAt returns the recorded state of the step at index i, defaulting to
+// pending when progress has not been recorded yet.
+func (w *workflow) stepStateAt(i int) StepState {
+	if i < len(w.jStepStates) && w.jStepStates[i] != "" {
+		return w.jStepStates[i]
+	}
+	return StepPending
+}
+
+// ---------------------------------------------------------------------------
+// Transition points (durability-spec §5). Each is a no-op unless journaling.
+// ---------------------------------------------------------------------------
+
+// journalStepStarted records the write-ahead entry for the step at index i:
+// state `started` and the forward cursor, persisted BEFORE the step's side
+// effect runs (§5 F1). An implementation MUST NOT run a side effect before its
+// started record is durable.
+func (w *workflow) journalStepStarted(i int) {
+	if !w.journaling() {
+		return
+	}
+	w.jPhase = PhaseForward
+	w.jIndex = i
+	w.jStepStates[i] = StepStarted
+	w.persistJournal()
+}
+
+// journalStepCommitted records the commit entry for the step at index i: its
+// final state (completed/failed), its rollback snapshot (leaf steps only; pass
+// nil for a workflow step), and its report, persisted AFTER the side effect
+// returns (§5 F4).
+func (w *workflow) journalStepCommitted(i int, state StepState, snapshot *SyncNamespacedStateBag, report *Report) {
+	if !w.journaling() {
+		return
+	}
+	w.jStepStates[i] = state
+	if snapshot != nil {
+		w.jStepSnapshots[i] = snapshot
+	}
+	if report != nil {
+		w.jStepReports[i] = report
+	}
+	w.persistJournal()
+}
+
+// journalEnterCompensating flips this node to the compensating phase with the
+// cursor at index i, persisted before compensation begins (§5 F5).
+func (w *workflow) journalEnterCompensating(i int) {
+	if !w.journaling() {
+		return
+	}
+	w.jPhase = PhaseCompensating
+	w.jIndex = i
+	w.persistJournal()
+}
+
+// journalStepCompensated records that the step at index i has been compensated,
+// with the cursor at i, persisted before compensation proceeds to a lower index
+// (§5 C3) so an interrupted rollback does not repeat it.
+func (w *workflow) journalStepCompensated(i int) {
+	if !w.journaling() {
+		return
+	}
+	if i >= 0 && i < len(w.jStepStates) {
+		w.jStepStates[i] = StepCompensated
+	}
+	w.jIndex = i
+	w.persistJournal()
+}
+
+// journalDone marks this node terminal (§5 D1). The run is finished; no further
+// step transitions occur. Retention/deletion policy is applied by the caller.
+func (w *workflow) journalDone() {
+	if !w.journaling() {
+		return
+	}
+	w.jPhase = PhaseDone
+	w.persistJournal()
+}

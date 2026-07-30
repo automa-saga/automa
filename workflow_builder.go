@@ -289,6 +289,23 @@ func (wb *WorkflowBuilder) WithRollbackMode(mode TypeMode) *WorkflowBuilder {
 	return wb
 }
 
+// WithJournal makes the workflow durable by writing a crash-recovery journal to
+// path as it runs (durability-spec §3, §5). It is opt-in: without it a workflow
+// writes nothing to disk and behaves exactly as before. path is the full journal
+// file path; the enclosing directory must already exist.
+//
+// The journal is a snapshot rewritten atomically at each step boundary (§3.6),
+// so a reader always sees a complete journal. Set this only on the top-level
+// workflow: nested sub-workflows are journaled inline under the same file
+// automatically (§3.8) and do not need their own path.
+//
+// This story (#87) only writes the journal; resuming from it is a later addition
+// ([ResumeWorkflow], #88).
+func (wb *WorkflowBuilder) WithJournal(path string) *WorkflowBuilder {
+	wb.workflow.journalPath = path
+	return wb
+}
+
 // WithOnCompletion sets a callback that is invoked after the workflow completes
 // successfully. The callback receives the execution context, the workflow as a
 // [Step], and the final [Report]. When [WithAsyncCallbacks] is enabled the

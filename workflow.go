@@ -105,6 +105,30 @@ type workflow struct {
 	// when Execute is called via RunWorkflow (which calls Prepare explicitly before Execute).
 	prepared bool
 
+	// --- durability journaling (opt-in via WithJournal; Durability Story 2) ---
+	//
+	// journalPath is the on-disk journal file path. It is set only on the root
+	// workflow (via WithJournal); an empty path disables journaling. Sub-workflows
+	// never carry a path — they persist through the root's closure (below).
+	journalPath string
+
+	// journalPersist writes the entire root journal atomically (durability-spec
+	// §3.6). The root installs this closure at the start of Execute; every
+	// sub-workflow inherits the same closure, so any node's transition rewrites
+	// the single shared file. A nil closure means journaling is off for this
+	// instance, and every journal* transition is a no-op.
+	journalPersist func() error
+
+	// jPhase/jIndex are this node's cursor (durability-spec §3.4); the per-step
+	// slices are aligned with steps by index and record each step's journal state,
+	// its rollback snapshot (leaf steps only), and its report. They are populated
+	// as the node runs and read by snapshotJournal to project the on-disk tree.
+	jPhase         Phase
+	jIndex         int
+	jStepStates    []StepState
+	jStepSnapshots []*SyncNamespacedStateBag
+	jStepReports   []*Report
+
 	// callbacks and hooks
 	prepare      PrepareFunc
 	rollback     RollbackFunc // optional user-defined rollback function for the entire workflow
@@ -178,6 +202,12 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int, states map[strin
 	// map panics); the compensate-once set (D10) must always be usable.
 	if w.compensatedStepIDs == nil {
 		w.compensatedStepIDs = make(map[string]struct{})
+	}
+
+	// Entering the compensating phase (durability-spec §5). Set here in addition
+	// to Execute's F5 so a manually-invoked Rollback also records the phase.
+	if w.journaling() {
+		w.jPhase = PhaseCompensating
 	}
 
 	for i := index; i >= 0; i-- {
@@ -255,6 +285,11 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int, states map[strin
 		// a manual Rollback after an automatic one) does not compensate it again
 		// (spec §5.3.5 / D10).
 		w.compensatedStepIDs[step.Id()] = struct{}{}
+
+		// C3 (durability-spec §5): record this step compensated with the cursor at
+		// i, persisted before compensation proceeds to a lower index so an
+		// interrupted rollback does not repeat it.
+		w.journalStepCompensated(i)
 
 		if rollbackReport.IsFailed() {
 			w.log().Warn("step rollback failed",
@@ -422,6 +457,24 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		"rollbackMode", w.rollbackMode.String(),
 	)
 
+	// Install journaling for this run (durability-spec §5). The root workflow —
+	// the one given a path via WithJournal — installs the persist closure that
+	// rewrites the whole journal atomically; sub-workflows inherit it (attached at
+	// their write-ahead point below), so any node's transition rewrites the single
+	// shared file.
+	if w.journalPath != "" && w.journalPersist == nil {
+		root := w
+		w.journalPersist = func() error { return root.snapshotJournal().persist(root.journalPath) }
+	}
+	if w.journaling() {
+		w.initJournalProgress()
+		// Write the initial forward/0 journal from the root so a crash before the
+		// first step still leaves a complete, valid journal on disk.
+		if w.journalPath != "" {
+			w.persistJournal()
+		}
+	}
+
 	var stepReports []*Report
 	var hasFailed bool
 
@@ -434,6 +487,17 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 	for index, step := range w.steps {
 		var report *Report
 		stepStart := time.Now()
+
+		// F1 write-ahead (durability-spec §5): record `started` and the forward
+		// cursor and persist BEFORE any side effect runs. A sub-workflow step
+		// inherits the root persist closure here so its own transitions journal
+		// inline under this entry (§3.8).
+		if w.journaling() {
+			if child, ok := step.(*workflow); ok {
+				child.journalPersist = w.journalPersist
+			}
+			w.journalStepStarted(index)
+		}
 
 		stepCtx := ctx
 		var stepState NamespacedStateBag
@@ -550,6 +614,23 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		// collect step report
 		stepReports = append(stepReports, report)
 
+		// F4 commit (durability-spec §5): record the step's outcome, its rollback
+		// snapshot (leaf steps only), and its report, persisted AFTER the side
+		// effect returns and before the next step's write-ahead.
+		if w.journaling() {
+			stepState := StepCompleted
+			if report.IsFailed() {
+				stepState = StepFailed
+			}
+			var snapshot *SyncNamespacedStateBag
+			if _, isWorkflowStep := step.(*workflow); !isWorkflowStep {
+				if s, ok := stepStates[step.Id()].(*SyncNamespacedStateBag); ok {
+					snapshot = s
+				}
+			}
+			w.journalStepCommitted(index, stepState, snapshot, report)
+		}
+
 		// check for step failure
 		if report.IsFailed() {
 			hasFailed = true
@@ -570,6 +651,10 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 					"fromIndex", index,
 					"rollbackMode", w.rollbackMode.String(),
 				)
+
+				// F5 (durability-spec §5): flip the phase to compensating with the
+				// cursor at the failed step, persisted before compensation begins.
+				w.journalEnterCompensating(index)
 
 				// Perform rollback using recorded per-step states
 				// Rollback from index (include the failed step for cleanup)
@@ -621,6 +706,9 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			)),
 			WithStepReports(stepReports...))
 
+		// D1 (durability-spec §5): the run is terminal.
+		w.journalDone()
+
 		w.handleFailure(ctx, workflowReport)
 
 		return workflowReport
@@ -637,6 +725,9 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		WithStartTime(startTime),
 		WithActionType(ActionExecute),
 		WithStepReports(stepReports...))
+
+	// D1 (durability-spec §5): the run is terminal.
+	w.journalDone()
 
 	w.handleCompletion(ctx, workflowReport)
 

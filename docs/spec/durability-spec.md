@@ -337,11 +337,9 @@ forward ──▶ done
 ### 4.2 Step states
 
 ```
-pending ──▶ started ──▶ completed
-                  │
-                  └────▶ failed
-
-completed ──▶ compensated      (during compensating phase)
+pending ──▶ started ──▶ completed ──┐
+                  │                  ├──▶ compensated   (during compensating phase)
+                  └────▶ failed ─────┘
 ```
 
 | State | Meaning |
@@ -351,6 +349,12 @@ completed ──▶ compensated      (during compensating phase)
 | `completed` | Execute succeeded; commit point recorded. |
 | `failed` | Execute failed. |
 | `compensated` | Rollback for this step completed. |
+
+- Both `completed` and `failed` can transition to `compensated`. When a step
+  fails under `RollbackOnError`, the compensating phase begins **at the failed
+  step** (§5 F5 sets `cursor.index` to it, and the C-phase runs from there down),
+  so the failed step's own rollback runs to clean up any partial work before the
+  earlier `completed` steps are compensated in reverse.
 
 - A step found in `started` but not `completed` after a crash is the **ambiguous
   case**: its side effect's completion is unknown. It MUST be re-executed on
