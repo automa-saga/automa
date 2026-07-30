@@ -506,6 +506,54 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			continue
 		}
 
+		// Resume descent (durability-spec §3.8/§6.4): a sub-workflow recorded
+		// in progress (`started`) is resumed by dispatching on its OWN cursor
+		// phase — never re-run from scratch, which would re-execute its completed
+		// inner steps. It keeps the state rehydrated onto it (re-cloning the
+		// parent's global here would discard the divergence its inner steps
+		// produced), so this bypasses the normal per-step state prep below. A
+		// `started` leaf is not handled here — it falls through and re-runs.
+		if w.resuming && w.stepStateAt(index) == StepStarted {
+			if child, isWorkflowStep := step.(*workflow); isWorkflowStep {
+				w.journalStepStarted(index) // re-affirm started; brackets the descent
+				report = w.resumeChildStep(ctx, child)
+				if report == nil {
+					report = FailureReport(child,
+						WithWorkflow(w), WithActionType(ActionExecute), WithStartTime(stepStart),
+						WithError(StepExecutionError.New("workflow %q sub-workflow %q returned nil report on resume", w.id, child.Id())))
+				}
+				stepReports = append(stepReports, report)
+				executedStepIDs[step.Id()] = struct{}{}
+
+				// F4 commit for the sub-workflow step (no leaf snapshot for a workflow).
+				committed := StepCompleted
+				if report.IsFailed() {
+					committed = StepFailed
+				}
+				w.journalStepCommitted(index, committed, nil, report)
+
+				if report.IsFailed() {
+					hasFailed = true
+					w.log().Warn("sub-workflow failed on resume",
+						"workflowId", w.id, "stepId", step.Id(), "index", index,
+						"executionMode", w.executionMode.String())
+					if w.executionMode == StopOnError {
+						break
+					} else if w.executionMode == RollbackOnError {
+						w.journalEnterCompensating(index)
+						rollbackReports := w.rollbackFrom(ctx, index, stepStates, executedStepIDs)
+						for _, sr := range stepReports {
+							if rollback, ok := rollbackReports[sr.Id]; ok {
+								sr.Rollback = rollback
+							}
+						}
+						break
+					}
+				}
+				continue
+			}
+		}
+
 		// F1 write-ahead (durability-spec §5): record `started` and the forward
 		// cursor and persist BEFORE any side effect runs. A sub-workflow step
 		// inherits the root persist closure here so its own transitions journal

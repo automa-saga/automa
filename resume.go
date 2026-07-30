@@ -29,12 +29,10 @@ import (
 //     already compensated.
 //   - PhaseDone → the recorded final result is returned; nothing runs (§6.5).
 //
-// Limitation (this story): resuming into an in-progress (`started`) sub-workflow
-// — a crash that happened while a nested workflow's forward loop was running — is
-// not yet supported and is refused loudly rather than risking re-execution of
-// the sub-workflow's already-completed inner steps. Fully-completed and
-// not-yet-started sub-workflows resume normally, as does compensation of nested
-// workflows.
+// Sub-workflows resume recursively (§3.8): a nested workflow that was in
+// progress at the crash is resumed by dispatching on its own cursor phase
+// (forward, compensating, or done), so its already-completed inner steps are not
+// re-executed.
 func ResumeWorkflow(ctx context.Context, wb *WorkflowBuilder, journalPath string) *Report {
 	start := time.Now()
 
@@ -82,19 +80,6 @@ func ResumeWorkflow(ctx context.Context, wb *WorkflowBuilder, journalPath string
 			WithActionType(ActionPrepare),
 			WithStartTime(start),
 			WithError(err))
-	}
-
-	// Refuse the one unsupported case up front (see the doc comment): a forward
-	// resume that would descend into a `started` sub-workflow.
-	if j.Cursor.Phase == PhaseForward {
-		if id := firstStartedSubWorkflow(j.Steps); id != "" {
-			return FailureReport(wf,
-				WithWorkflow(wf),
-				WithActionType(ActionPrepare),
-				WithStartTime(start),
-				WithError(JournalError.New(
-					"resuming into in-progress sub-workflow %q is not yet supported", id)))
-		}
 	}
 
 	// Install the root persist closure and rehydrate the whole tree onto the
@@ -178,6 +163,23 @@ func rehydrateInto(w *workflow, cursor Cursor, shared *SyncNamespacedStateBag, s
 	}
 }
 
+// resumeChildStep resumes an in-progress sub-workflow by dispatching on its own
+// cursor phase (durability-spec §3.8, §6.4). The child was already rehydrated by
+// rehydrateInto, so this continues it from where it crashed: forward execution,
+// an interrupted compensation, or (defensively) a terminal node.
+func (w *workflow) resumeChildStep(ctx context.Context, child *workflow) *Report {
+	switch child.jPhase {
+	case PhaseCompensating:
+		// The child was rolling itself back when the crash hit; finish it.
+		return child.resumeCompensation(ctx, time.Now())
+	case PhaseDone:
+		// Already terminal (an unusual crash window); return its recorded result.
+		return child.reconstructFinalReport(time.Now())
+	default: // PhaseForward
+		return child.Execute(ctx)
+	}
+}
+
 // resumeCompensation continues an interrupted rollback from the recorded cursor
 // (durability-spec §6.4). Already-compensated steps are skipped (their IDs are
 // in compensatedStepIDs, rehydrated above); rollbackFrom journals each remaining
@@ -247,23 +249,4 @@ func (w *workflow) reconstructFinalReport(start time.Time) *Report {
 		WithActionType(ActionExecute),
 		WithStartTime(start),
 		WithStepReports(stepReports...))
-}
-
-// firstStartedSubWorkflow returns the ID of the first sub-workflow step (at any
-// depth) recorded as `started`, or "" if none. Such a step would require
-// descending into an in-progress nested forward loop, which resume does not yet
-// support.
-func firstStartedSubWorkflow(steps []*StepJournal) string {
-	for _, e := range steps {
-		if !e.IsWorkflow() {
-			continue
-		}
-		if e.State == StepStarted {
-			return e.ID
-		}
-		if id := firstStartedSubWorkflow(e.Steps); id != "" {
-			return id
-		}
-	}
-	return ""
 }

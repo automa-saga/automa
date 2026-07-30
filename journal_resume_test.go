@@ -236,3 +236,125 @@ func TestResume_EndToEnd_CrashThenResume(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, PhaseDone, j2.Cursor.Phase)
 }
+
+// TestResume_EndToEnd_NestedForwardCrashThenResume exercises a crash INSIDE a
+// sub-workflow's forward loop. On resume, only the in-progress inner step
+// re-runs (the parent step and the completed inner step are skipped), and the
+// re-run inner step still sees the shared state its earlier sibling wrote —
+// proving the sub-workflow's rehydrated state is preserved, not re-cloned from
+// the parent (durability-spec §3.8/§6).
+func TestResume_EndToEnd_NestedForwardCrashThenResume(t *testing.T) {
+	path := journalPath(t)
+
+	// First attempt: a succeeds; sub.x writes shared state and completes; sub.y
+	// crashes (panic) after its write-ahead.
+	func() {
+		defer func() { _ = recover() }()
+		sub := NewWorkflowBuilder().WithId("sub").
+			Steps(
+				NewStepBuilder().WithId("x").WithExecute(func(ctx context.Context, stp Step) *Report {
+					stp.State().Global().Set(Key("fromX"), "present")
+					return SuccessReport(stp)
+				}),
+				NewStepBuilder().WithId("y").WithExecute(func(ctx context.Context, stp Step) *Report {
+					panic("simulated crash during sub.y")
+				}),
+			)
+		wb := NewWorkflowBuilder().WithId("wf").WithExecutionMode(RollbackOnError).WithJournal(path).
+			Steps(
+				NewStepBuilder().WithId("a").WithExecute(func(ctx context.Context, stp Step) *Report { return SuccessReport(stp) }),
+				sub,
+			)
+		step, err := wb.Build()
+		require.NoError(t, err)
+		_ = step.Execute(context.Background())
+	}()
+
+	// The journal captures: a completed; sub started with x completed, y started.
+	j, err := loadJournal(path)
+	require.NoError(t, err)
+	require.Equal(t, PhaseForward, j.Cursor.Phase)
+	require.Equal(t, StepCompleted, j.Steps[0].State)
+	subEntry := j.Steps[1]
+	require.True(t, subEntry.IsWorkflow())
+	require.Equal(t, StepStarted, subEntry.State)
+	require.Equal(t, StepCompleted, subEntry.Steps[0].State, "sub.x committed before the crash")
+	require.Equal(t, StepStarted, subEntry.Steps[1].State, "sub.y's write-ahead persisted before the crash")
+
+	// Resume with a healthy sub.y that reads what sub.x wrote.
+	rec := &resumeRecorder{}
+	var yObservedFromX string
+	subResume := NewWorkflowBuilder().WithId("sub").
+		Steps(
+			recStep(rec, "x", false),
+			NewStepBuilder().WithId("y").WithExecute(func(ctx context.Context, stp Step) *Report {
+				rec.exec = append(rec.exec, "y")
+				if v, ok := stp.State().Global().String(Key("fromX")); ok {
+					yObservedFromX = v
+				}
+				return SuccessReport(stp)
+			}),
+		)
+	wb := NewWorkflowBuilder().WithId("wf").WithExecutionMode(RollbackOnError).
+		Steps(recStep(rec, "a", false), subResume)
+
+	report := ResumeWorkflow(context.Background(), wb, path)
+	require.True(t, report.IsSuccess())
+	assert.Equal(t, []string{"y"}, rec.exec, "resume must re-run only sub.y; a and sub.x are skipped")
+	assert.Equal(t, "present", yObservedFromX,
+		"sub.y must see the shared state sub.x wrote before the crash (rehydrated, not re-cloned from parent)")
+
+	j2, err := loadJournal(path)
+	require.NoError(t, err)
+	assert.Equal(t, PhaseDone, j2.Cursor.Phase)
+	assert.Equal(t, StepCompleted, j2.Steps[1].Steps[1].State, "sub.y completed on resume")
+}
+
+// TestResume_NestedCompensationContinues covers a crash while a sub-workflow was
+// compensating itself: on resume the sub-workflow finishes its own rollback
+// (skipping already-compensated inner steps), which then drives the parent's
+// compensation of the earlier sibling — with no step compensated twice (D10).
+func TestResume_NestedCompensationContinues(t *testing.T) {
+	path := journalPath(t)
+
+	// parent: forward, working on sub (index 1); a completed and awaiting rollback.
+	// sub: compensating at index 0; inner q already compensated, p still to go.
+	j := &Journal{
+		Version:       JournalVersion,
+		WorkflowID:    "wf",
+		ExecutionMode: RollbackOnError,
+		RollbackMode:  ContinueOnError,
+		Cursor:        Cursor{Phase: PhaseForward, Index: 1},
+		Shared:        &SyncNamespacedStateBag{},
+		Steps: []*StepJournal{
+			{ID: "a", State: StepCompleted},
+			{
+				ID:     "sub",
+				State:  StepStarted,
+				Cursor: &Cursor{Phase: PhaseCompensating, Index: 0},
+				Shared: &SyncNamespacedStateBag{},
+				Steps: []*StepJournal{
+					{ID: "p", State: StepCompleted},
+					{ID: "q", State: StepCompensated},
+				},
+			},
+		},
+	}
+	require.NoError(t, j.persist(path))
+
+	rec := &resumeRecorder{}
+	subResume := NewWorkflowBuilder().WithId("sub").
+		Steps(recStep(rec, "p", false), recStep(rec, "q", false))
+	wb := NewWorkflowBuilder().WithId("wf").WithExecutionMode(RollbackOnError).
+		Steps(recStep(rec, "a", false), subResume)
+
+	report := ResumeWorkflow(context.Background(), wb, path)
+	require.True(t, report.IsFailed())
+	assert.Empty(t, rec.exec, "no forward execution when resuming into compensation")
+	assert.Equal(t, []string{"p", "a"}, rec.rollback,
+		"sub finishes with p (q already compensated), then the parent compensates a; nothing twice")
+
+	j2, err := loadJournal(path)
+	require.NoError(t, err)
+	assert.Equal(t, PhaseDone, j2.Cursor.Phase)
+}
