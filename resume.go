@@ -62,9 +62,10 @@ func ResumeWorkflow(ctx context.Context, wb *WorkflowBuilder, journalPath string
 	j, err := loadJournal(journalPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			// Missing journal → fresh run, journaled at this path (§6.2).
+			// Missing journal → fresh run, journaled at this path (§6.2). Execute
+			// owns Prepare (see RunWorkflow), so start it directly.
 			wf.journalPath = journalPath
-			return resumeFreshRun(ctx, wf, start)
+			return wf.Execute(ctx)
 		}
 		// Corrupt or unsupported version → fail loudly, never restart (§6.2).
 		return FailureReport(wf,
@@ -111,34 +112,10 @@ func ResumeWorkflow(ctx context.Context, wb *WorkflowBuilder, journalPath string
 	case PhaseCompensating:
 		return wf.resumeCompensation(ctx, start)
 	default: // PhaseForward
-		preparedCtx, perr := wf.Prepare(ctx)
-		if perr != nil {
-			return FailureReport(wf,
-				WithWorkflow(wf),
-				WithActionType(ActionPrepare),
-				WithStartTime(start),
-				WithError(StepExecutionError.
-					Wrap(perr, "workflow %q preparation failed on resume", wf.Id()).
-					WithProperty(StepIdProperty, wf.Id())))
-		}
-		return wf.Execute(preparedCtx)
+		// Execute owns Prepare (see RunWorkflow) and is resume-aware via the
+		// progress rehydrated above.
+		return wf.Execute(ctx)
 	}
-}
-
-// resumeFreshRun runs a never-journaled workflow from the start, mirroring
-// RunWorkflow (Prepare then Execute).
-func resumeFreshRun(ctx context.Context, wf *workflow, start time.Time) *Report {
-	preparedCtx, err := wf.Prepare(ctx)
-	if err != nil {
-		return FailureReport(wf,
-			WithWorkflow(wf),
-			WithActionType(ActionPrepare),
-			WithStartTime(start),
-			WithError(StepExecutionError.
-				Wrap(err, "workflow %q preparation failed", wf.Id()).
-				WithProperty(StepIdProperty, wf.Id())))
-	}
-	return wf.Execute(preparedCtx)
 }
 
 // rehydrateInto loads a journal node's recorded progress onto workflow w and

@@ -180,19 +180,12 @@ func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 			))
 	}
 
-	preparedCtx, err := wf.Prepare(ctx)
-	if err != nil {
-		return FailureReport(wf,
-			WithWorkflow(wb.workflow),
-			WithActionType(ActionPrepare),
-			WithStartTime(start),
-			WithError(StepExecutionError.
-				Wrap(err, "workflow %q preparation failed: %v", wf.Id(), err).
-				WithProperty(StepIdProperty, wf.Id()),
-			))
-	}
-
-	return wf.Execute(preparedCtx)
+	// Execute owns preparation: it invokes Prepare, returns an ActionPrepare
+	// failure report (carrying this workflow's actual modes) on error, and resets
+	// the prepared flag for reuse. Calling Prepare here as well would be redundant
+	// — and, because Build has already reset wb.workflow to a fresh default, would
+	// attach the wrong (default) modes to the error report.
+	return wf.Execute(ctx)
 }
 
 // rollbackFrom rollbacks the workflow backward from the given index to the start.
