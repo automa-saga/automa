@@ -129,6 +129,12 @@ type workflow struct {
 	jStepSnapshots []*SyncNamespacedStateBag
 	jStepReports   []*Report
 
+	// resuming is set by rehydrate (via ResumeWorkflow) so Execute continues an
+	// existing journal instead of starting a fresh one: it keeps the rehydrated
+	// progress rather than resetting it, and skips steps already recorded
+	// completed rather than re-executing them (durability-spec §6.3).
+	resuming bool
+
 	// callbacks and hooks
 	prepare      PrepareFunc
 	rollback     RollbackFunc // optional user-defined rollback function for the entire workflow
@@ -466,7 +472,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		root := w
 		w.journalPersist = func() error { return root.snapshotJournal().persist(root.journalPath) }
 	}
-	if w.journaling() {
+	if w.journaling() && !w.resuming {
 		w.initJournalProgress()
 		// Write the initial forward/0 journal from the root so a crash before the
 		// first step still leaves a complete, valid journal on disk.
@@ -487,6 +493,25 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 	for index, step := range w.steps {
 		var report *Report
 		stepStart := time.Now()
+
+		// Resume: a step recorded `completed` before a crash MUST NOT be
+		// re-executed (durability-spec §6.3.4). Reuse its recorded report and
+		// rollback snapshot, count it as executed, and carry on. A `started` leaf
+		// (the ambiguous case) is not skipped here — it falls through and re-runs,
+		// which is why steps must be idempotent (§7).
+		if w.resuming && index < len(w.jStepStates) && w.jStepStates[index] == StepCompleted {
+			rep := w.jStepReports[index]
+			if rep == nil {
+				rep = SuccessReport(step, WithWorkflow(w), WithActionType(ActionExecute), WithStartTime(stepStart))
+			}
+			stepReports = append(stepReports, rep)
+			executedStepIDs[step.Id()] = struct{}{}
+			if snap := w.jStepSnapshots[index]; snap != nil {
+				stepStates[step.Id()] = snap
+			}
+			w.log().Debug("resume: skipping already-completed step", "workflowId", w.id, "stepId", step.Id(), "index", index)
+			continue
+		}
 
 		// F1 write-ahead (durability-spec §5): record `started` and the forward
 		// cursor and persist BEFORE any side effect runs. A sub-workflow step
