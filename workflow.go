@@ -58,6 +58,20 @@ type workflow struct {
 	// are excluded so rollbackFrom can skip compensating them (spec D5 / §5.3).
 	lastExecutedStepIDs map[string]struct{}
 
+	// compensatedStepIDs tracks step IDs already compensated during this run so a
+	// step's Rollback is invoked at most once (spec §5.3.5 / D10). A sub-workflow
+	// that self-compensates on internal failure (during its own Execute) records
+	// its steps here; when the parent later drives this sub-workflow's Rollback,
+	// rollbackFrom finds them already compensated and skips them instead of
+	// double-compensating. The set is per instance (workflows are single-use), so
+	// a manual Rollback after an automatic one is likewise a no-op for steps the
+	// automatic pass already handled.
+	//
+	// Like lastExecutionStates and lastExecutedStepIDs, this is keyed by step ID
+	// and so relies on IDs being unique within the workflow and non-empty (D9);
+	// duplicate/empty IDs are rejected at build time (workflow_builder.go).
+	compensatedStepIDs map[string]struct{}
+
 	// preserveStatesForRollback controls whether state snapshots are cloned and preserved
 	// after each step execution. When true (default), enables deterministic rollback but
 	// increases memory usage. When false, skips state cloning to reduce overhead.
@@ -160,6 +174,12 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int, states map[strin
 	stepReports := map[string]*Report{}
 	startTime := time.Now()
 
+	// Guard against instances built outside newDefaultWorkflow (writing to a nil
+	// map panics); the compensate-once set (D10) must always be usable.
+	if w.compensatedStepIDs == nil {
+		w.compensatedStepIDs = make(map[string]struct{})
+	}
+
 	for i := index; i >= 0; i-- {
 		step := w.steps[i]
 
@@ -167,6 +187,20 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int, states map[strin
 		// nil is treated as empty: no execution context means nothing to compensate.
 		if _, ran := executedIDs[step.Id()]; !ran {
 			w.log().Debug("skipping rollback for non-executed step", "workflowId", w.id, "stepId", step.Id(), "index", i)
+			stepReports[step.Id()] = SkippedReport(step,
+				WithWorkflow(w),
+				WithActionType(ActionRollback),
+				WithStartTime(startTime),
+			)
+			continue
+		}
+
+		// Compensate at most once (spec §5.3.5 / D10). A step already compensated
+		// in this run (e.g. a sub-workflow that self-compensated during its own
+		// Execute, then had its Rollback driven again by the parent) MUST NOT have
+		// its Rollback re-invoked. Record it as skipped and move on.
+		if _, done := w.compensatedStepIDs[step.Id()]; done {
+			w.log().Debug("skipping already-compensated step", "workflowId", w.id, "stepId", step.Id(), "index", i)
 			stepReports[step.Id()] = SkippedReport(step,
 				WithWorkflow(w),
 				WithActionType(ActionRollback),
@@ -215,6 +249,12 @@ func (w *workflow) rollbackFrom(ctx context.Context, index int, states map[strin
 		}
 
 		stepReports[step.Id()] = rollbackReport
+
+		// Mark compensated so a subsequent pass over the same instance (e.g. the
+		// parent driving this sub-workflow's Rollback after self-compensation, or
+		// a manual Rollback after an automatic one) does not compensate it again
+		// (spec §5.3.5 / D10).
+		w.compensatedStepIDs[step.Id()] = struct{}{}
 
 		if rollbackReport.IsFailed() {
 			w.log().Warn("step rollback failed",
@@ -711,6 +751,8 @@ func newDefaultWorkflow() *workflow {
 		// Empty (not nil) so Rollback() called before Execute() compensates nothing.
 		// nil would bypass the D5 filter; a non-nil empty map correctly skips all steps.
 		lastExecutedStepIDs: make(map[string]struct{}),
+		// Tracks steps compensated this run so each is rolled back at most once (D10).
+		compensatedStepIDs: make(map[string]struct{}),
 	}
 }
 

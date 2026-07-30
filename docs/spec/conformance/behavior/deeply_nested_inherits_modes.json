@@ -1,0 +1,32 @@
+{
+  "name": "deeply_nested_inherits_modes",
+  "description": "Mode inheritance reaches every depth, not just direct children (§6.1, D6). The root is ContinueOnError; a grandchild sub-workflow must also run ContinueOnError, so a failure in its first leaf does NOT halt it — the second leaf still executes. Before #123 the grandchild kept the default StopOnError and stopped after the first failure.",
+  "specRefs": ["§6.1", "D6"],
+  "workflow": {
+    "id": "parent",
+    "executionMode": "continue",
+    "steps": [
+      {
+        "id": "sub1",
+        "steps": [
+          {
+            "id": "sub2",
+            "steps": [
+              { "id": "x", "execute": "failed" },
+              { "id": "y", "execute": "success" }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "workflowStatus": "failed",
+    "executionOrder": ["x", "y"],
+    "rollbackOrder": [],
+    "steps": {
+      "x": { "status": "failed", "action": "execute" },
+      "y": { "status": "success", "action": "execute" }
+    }
+  }
+}
