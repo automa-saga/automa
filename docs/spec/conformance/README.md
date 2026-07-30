@@ -115,6 +115,12 @@ Durability journal fixtures, governed by the
 - `roundtrip` — a `journal` document that every implementation MUST load and
   re-serialize to a structurally-equivalent document (key order and whitespace
   do not matter), verifying **schema agreement** (durability-spec §3, §8.1).
+- `resume` — a `journal` plus an `expect` block describing how a conformant
+  resume MUST classify it: `reExecute` (leaf steps that run forward on resume),
+  `compensate` (leaf steps whose rollback runs), and `workflowStatus`. Steps in
+  the topology absent from `reExecute` are skipped as already `completed`. This
+  verifies **resume decision agreement** (§6) without real side effects — the Go
+  harness drives the real `ResumeWorkflow` with recording steps.
 
 ```json
 {

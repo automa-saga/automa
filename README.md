@@ -10,6 +10,7 @@ The name `automa` is derived from the word `automate`.
 - Compensating actions for non-reversible steps
 - Step-level execution reporting (with JSON/YAML marshalling support)
 - Extensible step interface
+- Opt-in crash recovery: a durable journal plus resume (forward or compensating)
 
 ## Getting Started
 
@@ -22,6 +23,54 @@ go get -u github.com/automa-saga/automa
 ```
 
 See an [example](https://github.com/automa-saga/automa/blob/master/examples) in the examples directory. 
+
+## Durability (crash recovery)
+
+Automa can make a workflow survive a process crash, restart, or power loss and
+then continue where it stopped — resuming the remaining steps or completing an
+interrupted rollback — with no external infrastructure (the state is a single
+local journal file). It is **opt-in**: without it, workflows behave exactly as
+before and write nothing to disk.
+
+Make a workflow durable by giving it a journal path and running it through
+`ResumeWorkflow`, which starts fresh when there is no journal yet and resumes
+when there is:
+
+```go
+wb := automa.NewWorkflowBuilder().
+    WithId("setup").
+    WithExecutionMode(automa.RollbackOnError).
+    WithJournal("/var/lib/myapp/setup.journal"). // opt in
+    Steps(/* ... */)
+
+// First run starts fresh and journals; a later run with the same path resumes.
+report := automa.ResumeWorkflow(context.Background(), wb, "/var/lib/myapp/setup.journal")
+```
+
+See the runnable [`examples/resumable_setup`](examples/resumable_setup) (crash it
+mid-workflow, re-run it, watch it resume), the design rationale in
+[`docs/durability.md`](docs/durability.md), and the normative
+[durability spec](docs/spec/durability-spec.md).
+
+### Step-author contract
+
+Durability shifts a small, well-defined set of obligations onto the step author
+(durability spec §7). The engine cannot enforce these — they are your
+responsibility, and resume correctness depends on them:
+
+1. **Steps must be idempotent.** A step recorded `started` but not `completed`
+   before a crash is re-executed on resume (its side effect's completion is
+   unknown). Running it twice must equal running it once — check "does this
+   already exist?" and adopt the existing resource rather than creating a second.
+2. **Compensations must be idempotent.** A rollback may be retried across a crash
+   during the compensating phase.
+3. **Resume-relevant data must live in the state bag.** Anything a step needs to
+   resume or compensate (resource IDs, handles, prior outputs) must be written to
+   `State().Global()` or the step's namespace — not held in closures or struct
+   fields, which do not survive the process.
+4. **Topology must be reconstructible.** The same ordered step IDs and modes must
+   be produced by your code at resume time; if steps are derived from runtime
+   data, persist that data so the topology is deterministic across restarts.
 
 ## Logging
 

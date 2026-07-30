@@ -1,0 +1,23 @@
+{
+  "name": "resume_forward_reruns_started",
+  "description": "Forward resume with a started-but-not-completed step (the ambiguous case): the completed step (a) is skipped and the started step (b) is re-executed exactly once (durability-spec §6.3). This is the correctness-critical re-run that relies on step idempotency (§7).",
+  "specRefs": ["§6.3", "§7"],
+  "kind": "resume",
+  "journal": {
+    "version": 1,
+    "workflow_id": "wf",
+    "execution_mode": "rollback",
+    "rollback_mode": "continue",
+    "cursor": { "phase": "forward", "index": 1 },
+    "shared": { "local": {}, "global": {} },
+    "steps": [
+      { "id": "a", "state": "completed", "snapshot": { "local": {}, "global": {} } },
+      { "id": "b", "state": "started" }
+    ]
+  },
+  "expect": {
+    "reExecute": ["b"],
+    "compensate": [],
+    "workflowStatus": "success"
+  }
+}

@@ -316,17 +316,37 @@ func TestConformance_Serialization(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 type journalFixture struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	SpecRefs    []string        `json:"specRefs"`
-	Kind        string          `json:"kind"` // roundtrip
-	Journal     json.RawMessage `json:"journal"`
+	Name        string              `json:"name"`
+	Description string              `json:"description"`
+	SpecRefs    []string            `json:"specRefs"`
+	Kind        string              `json:"kind"` // roundtrip | resume
+	Journal     json.RawMessage     `json:"journal"`
+	Expect      journalResumeExpect `json:"expect"` // resume fixtures only
+}
+
+// journalResumeExpect is the classification a conformant resume MUST produce for
+// a "resume" fixture (durability-spec §8.1): which leaf steps re-run forward,
+// which compensate, and the resulting workflow status. Steps in the topology
+// absent from reExecute are skipped (already completed).
+type journalResumeExpect struct {
+	ReExecute      []string `json:"reExecute"`
+	Compensate     []string `json:"compensate"`
+	WorkflowStatus string   `json:"workflowStatus"`
+}
+
+// resumeRec records which leaf steps run Execute / Rollback during a resume.
+type resumeRec struct {
+	exec     []string
+	rollback []string
 }
 
 // TestConformance_Journal verifies journal fixtures. For "roundtrip" fixtures a
-// conformant implementation MUST load the journal document and re-serialize it
-// to a structurally-equivalent document, proving schema agreement (§3, §8.1).
-// Resume-classification fixtures land with the resume story (#88).
+// conformant implementation MUST load the journal and re-serialize it to a
+// structurally-equivalent document, proving schema agreement (§3, §8.1). For
+// "resume" fixtures it MUST classify the journal — via the real recovery entry
+// point, ResumeWorkflow — into the same set of steps that re-run vs. compensate,
+// proving resume decision agreement (§6). Steps are side-effect-free recorders,
+// so the decision is observed without real side effects.
 func TestConformance_Journal(t *testing.T) {
 	fixtures := loadFixtures(t, conformanceJournalDir)
 	for path, data := range fixtures {
@@ -344,10 +364,55 @@ func TestConformance_Journal(t *testing.T) {
 				out, err := json.Marshal(&j)
 				require.NoError(t, err, "re-serialize journal")
 				assertJSONEqual(t, fx.Journal, out)
+			case "resume":
+				runJournalResumeFixture(t, fx)
 			default:
 				t.Fatalf("unknown journal fixture kind %q", fx.Kind)
 			}
 		})
+	}
+}
+
+// runJournalResumeFixture rebuilds the journal's (flat) topology with
+// side-effect-free recording steps, writes the journal to disk, resumes it with
+// ResumeWorkflow, and asserts the recorded re-run / compensation matches.
+func runJournalResumeFixture(t *testing.T, fx journalFixture) {
+	var jdoc automa.Journal
+	require.NoError(t, json.Unmarshal(fx.Journal, &jdoc), "load journal")
+
+	rec := &resumeRec{}
+	wb := automa.NewWorkflowBuilder().WithId(jdoc.WorkflowID).
+		WithExecutionMode(jdoc.ExecutionMode).
+		WithRollbackMode(jdoc.RollbackMode)
+	builders := make([]automa.Builder, 0, len(jdoc.Steps))
+	for _, s := range jdoc.Steps {
+		require.Falsef(t, s.IsWorkflow(), "resume fixtures are flat; step %q is a sub-workflow", s.ID)
+		id := s.ID
+		builders = append(builders,
+			automa.NewStepBuilder().WithId(id).
+				WithExecute(func(ctx context.Context, stp automa.Step) *automa.Report {
+					rec.exec = append(rec.exec, id)
+					return automa.SuccessReport(stp)
+				}).
+				WithRollback(func(ctx context.Context, stp automa.Step) *automa.Report {
+					rec.rollback = append(rec.rollback, id)
+					return automa.SuccessReport(stp)
+				}))
+	}
+	wb.Steps(builders...)
+
+	path := filepath.Join(t.TempDir(), "fixture.journal")
+	require.NoError(t, os.WriteFile(path, fx.Journal, 0o600), "write journal fixture")
+
+	report := automa.ResumeWorkflow(context.Background(), wb, path)
+	require.NotNil(t, report)
+
+	assert.Equal(t, normalizeOrder(fx.Expect.ReExecute), normalizeOrder(rec.exec),
+		"steps that re-run forward on resume")
+	assert.Equal(t, normalizeOrder(fx.Expect.Compensate), normalizeOrder(rec.rollback),
+		"steps that compensate on resume")
+	if fx.Expect.WorkflowStatus != "" {
+		assert.Equal(t, fx.Expect.WorkflowStatus, report.Status.String(), "resumed workflow status")
 	}
 }
 
