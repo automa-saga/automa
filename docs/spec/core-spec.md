@@ -236,6 +236,21 @@ When `execution_mode` is `rollback` and step `i` fails:
 
 4. Each compensation produces a rollback report; these are attached under the
    corresponding step's report (§8.2).
+5. **Compensate at most once.** Each executed step is compensated **at most once**
+   per rollback of a given workflow run. An implementation MUST track per-step
+   compensation state and MUST NOT invoke a step's Rollback again once that step
+   has been compensated. This is enforced by the engine at the orchestration
+   level; the "Rollback MUST be idempotent" contract (§3) is a backstop for
+   distinct invocations (e.g. durability resume, §5.4), not a licence to
+   double-compensate within a single run. For sub-workflow steps this rule has a
+   specific consequence spelled out in §6 (nested compensation) and D10.
+
+   > This tracking (and all per-step rollback bookkeeping: execution-time state
+   > snapshots, the executed-step set, and rollback reports) is keyed by **step
+   > ID**. It is therefore correct only because step IDs are **unique within a
+   > workflow and non-empty** (§3.1 / D9). Relaxing D9 would silently corrupt
+   > compensation — two same-ID steps in one workflow would share a snapshot and
+   > a compensated-once flag. D10 depends on D9.
 
 ### 5.4 Manual rollback
 
@@ -272,10 +287,24 @@ When `execution_mode` is `rollback` and step `i` fails:
   > (parent overrides) is correct per this spec; the misleading doc comment was
   > corrected to match in #82.
 
-- **Nested compensation.** When a parent compensates a child-workflow step, the
-  child workflow's own compensation logic runs (it rolls back its own steps in
-  reverse). How the nested rollback report is represented under the parent is
-  defined in §8.2.
+- **Nested compensation.** A sub-workflow compensates its **own** steps (§5.3).
+  When a parent's compensation pass reaches a child-workflow step, it drives the
+  child's compensation only for steps the child has **not already compensated**,
+  so each executed step is compensated exactly once (§5.3.5, D10):
+  - A child that **succeeded** never self-compensated. When a *later sibling*
+    fails, the parent's rollback pass MUST compensate the child (rolling back the
+    child's leaf steps in reverse). See `nested_workflow_rollback_propagation`.
+  - A child that **failed** under the inherited `rollback` mode has already
+    self-compensated its executed steps by the time it returns. The parent MUST
+    NOT compensate those steps again — the parent's compensation of that child
+    step is a no-op. Because compensation happens at the level closest to the
+    failure, this holds at any nesting depth: a leaf failure deep in the tree is
+    compensated once, not once per enclosing level. See
+    `nested_workflow_failed_sub_compensated_once` and
+    `deeply_nested_failed_leaf_compensated_once`.
+
+  The parent still compensates its **own** other executed steps normally. How a
+  nested rollback report is represented under the parent is defined in §8.2.
 
 ## 7. State model
 
@@ -447,6 +476,11 @@ a cross-language contract.
 5. **Sub-workflow rollback report shape (§8.2).** *Resolved:* a compensated child
    workflow's rollback report nests **inline** under the parent step's `rollback`
    field, recursively — a child's rollback is itself a workflow-shaped report.
+6. **Double-compensation of nested steps (§5.3, §6).** *Resolved:* an executed
+   step is compensated at most once per run (D10). A failed sub-workflow
+   self-compensates; the parent MUST NOT compensate it again. The engine
+   previously re-compensated nested steps once per enclosing level. (Resolves
+   #122.)
 
 **Still open:**
 
@@ -471,6 +505,7 @@ implementation is (or is being) adapted to match.
 | D7 | Report enums (`action`, `status`) MUST fail on unknown values on decode, like `mode`. | 8.1 | #94 |
 | D8 | *(withdrawn)* An earlier revision specified custom namespaces as workflow-scoped shared named rooms. The feature was **removed** instead (§7.2): Local + Global is the whole model. | 7.2 | removed |
 | D9 | Duplicate step IDs **MUST** be rejected at build time; the original Go builder silently dropped them (first-wins). | 3.1 | #120 |
+| D10 | An executed step is compensated **at most once** per run. A parent MUST NOT re-compensate a sub-workflow that already self-compensated (a failed child under the inherited `rollback` mode); the parent still compensates its own other steps. Enforced via per-step compensation tracking keyed by step ID, so **D10 depends on D9** (unique, non-empty IDs). The engine originally double-compensated nested steps once per enclosing level. | 5.3, 6 | #122 |
 
 All spec decisions are now reflected in the Go reference implementation.
 
