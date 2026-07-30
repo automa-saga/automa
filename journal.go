@@ -92,7 +92,9 @@ type Journal struct {
 // shape the top level has, minus the header, which it inherits) and omits the
 // leaf snapshot. This is the workflow-node invariant: a node is a workflow iff
 // it has a steps array, in which case cursor and shared are present too; a leaf
-// carries none of the three.
+// carries none of the three. A pending workflow definition step may still be
+// leaf-shaped in a loaded journal because not every writer pre-populates nested
+// workflow state before the step is reached.
 type StepJournal struct {
 	ID    string    `json:"id"`
 	State StepState `json:"state"`
@@ -115,6 +117,59 @@ type StepJournal struct {
 // its entry carries a steps array.
 func (s *StepJournal) IsWorkflow() bool { return s.Steps != nil }
 
+// valid reports whether p is one of the phases this build understands. An
+// unrecognized phase in a loaded journal is corruption: resume dispatches on it
+// (resume.go), and a bad value would silently fall through to forward execution
+// and risk re-running committed steps.
+func (p Phase) valid() bool {
+	switch p {
+	case PhaseForward, PhaseCompensating, PhaseDone:
+		return true
+	}
+	return false
+}
+
+// valid reports whether s is one of the step states this build understands. An
+// unrecognized state in a loaded journal is corruption: rehydrateInto switches
+// on it, and a bad value would silently read as "not executed" and cause resume
+// to skip compensation for a step that actually ran.
+func (s StepState) valid() bool {
+	switch s {
+	case StepPending, StepStarted, StepCompleted, StepFailed, StepCompensated:
+		return true
+	}
+	return false
+}
+
+// validateCursor checks a workflow node's cursor: a known phase, and an index
+// that addresses this node's own steps. The index is used directly to index
+// steps on resume/rollback (rollbackFrom does w.steps[i]), so an out-of-range
+// value from a corrupt journal must be rejected on load rather than panic at
+// resume. Index 0 is the benign default for a node with no steps.
+func validateCursor(id string, c Cursor, nSteps int) error {
+	if !c.Phase.valid() {
+		return JournalCorrupt.New("node %q has an unknown cursor phase %q", id, c.Phase)
+	}
+	if c.Phase == PhaseDone {
+		return nil
+	}
+	if c.Index < 0 || (nSteps == 0 && c.Index != 0) || (nSteps > 0 && c.Index >= nSteps) {
+		return JournalCorrupt.New(
+			"node %q cursor index %d is out of range for %d step(s)", id, c.Index, nSteps)
+	}
+	return nil
+}
+
+// validateStepState checks that a loaded step state is one of the known values.
+// Unknown values are treated as corruption because resume logic uses the state to
+// decide whether a step was executed and/or compensated.
+func validateStepState(id string, state StepState) error {
+	if state.valid() {
+		return nil
+	}
+	return JournalCorrupt.New("journal step %q has an unknown state %q", id, state)
+}
+
 // validateStructure checks the journal against the schema invariants that a
 // well-formed journal MUST satisfy (durability-spec §3.3, §3.5). It is applied
 // on load so a malformed journal fails loudly rather than resuming wrongly.
@@ -128,6 +183,12 @@ func (j *Journal) validateStructure() error {
 	// the struct; steps must be present.
 	if j.Steps == nil {
 		return JournalCorrupt.New("journal has no steps array")
+	}
+	if j.Shared == nil {
+		return JournalCorrupt.New("journal is missing its shared state")
+	}
+	if err := validateCursor(j.WorkflowID, j.Cursor, len(j.Steps)); err != nil {
+		return err
 	}
 	for _, s := range j.Steps {
 		if err := s.validateStructure(); err != nil {
@@ -148,6 +209,9 @@ func (s *StepJournal) validateStructure() error {
 	if s.ID == "" {
 		return JournalCorrupt.New("journal step entry has an empty id")
 	}
+	if err := validateStepState(s.ID, s.State); err != nil {
+		return err
+	}
 	if s.IsWorkflow() {
 		// A workflow step MUST carry cursor and shared, and MUST NOT carry the
 		// leaf snapshot.
@@ -159,6 +223,9 @@ func (s *StepJournal) validateStructure() error {
 		}
 		if s.Snapshot != nil {
 			return JournalCorrupt.New("workflow step %q must not carry a leaf snapshot", s.ID)
+		}
+		if err := validateCursor(s.ID, *s.Cursor, len(s.Steps)); err != nil {
+			return err
 		}
 		for _, child := range s.Steps {
 			if err := child.validateStructure(); err != nil {
@@ -305,6 +372,9 @@ func validateStepsTopology(path string, steps []Step, entries []*StepJournal) er
 				path, i, step.Id(), entry.ID)
 		}
 		child, defIsWorkflow := step.(*workflow)
+		if defIsWorkflow && !entry.IsWorkflow() && entry.State == StepPending {
+			continue
+		}
 		if defIsWorkflow != entry.IsWorkflow() {
 			return JournalTopologyMismatch.New(
 				"step %q: definition is %s but journal records %s",

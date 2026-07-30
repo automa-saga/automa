@@ -71,44 +71,56 @@ func (w *workflow) nodeCursor() Cursor {
 
 // sharedSnapshot captures this workflow's shared state — the Global namespace,
 // with an empty Local — for the journal's `shared` field (durability-spec §3.3).
-// A clone failure degrades to an empty bag rather than failing the run.
-func (w *workflow) sharedSnapshot() *SyncNamespacedStateBag {
+// Clone failure is fatal to the snapshot so we never persist an empty shared
+// bag in place of real state.
+func (w *workflow) sharedSnapshot() (*SyncNamespacedStateBag, error) {
 	global, err := w.State().Global().Clone()
 	if err != nil {
 		w.log().Warn("failed to clone global state for journal snapshot", "workflowId", w.id, "error", err)
-		global = nil
+		return nil, err
 	}
-	return NewNamespacedStateBag(nil, global)
+	return NewNamespacedStateBag(nil, global), nil
 }
 
 // snapshotJournal projects the live workflow tree into a *Journal (the top-level
 // node). It is the writer counterpart of the journal schema (durability-spec
 // §3.3/§3.8) and is recomputed at every persist point.
-func (w *workflow) snapshotJournal() *Journal {
+func (w *workflow) snapshotJournal() (*Journal, error) {
+	shared, err := w.sharedSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	steps, err := w.snapshotSteps()
+	if err != nil {
+		return nil, err
+	}
 	return &Journal{
 		Version:       JournalVersion,
 		WorkflowID:    w.id,
 		ExecutionMode: w.executionMode,
 		RollbackMode:  w.rollbackMode,
 		Cursor:        w.nodeCursor(),
-		Shared:        w.sharedSnapshot(),
-		Steps:         w.snapshotSteps(),
-	}
+		Shared:        shared,
+		Steps:         steps,
+	}, nil
 }
 
 // snapshotSteps projects this node's step entries in topology order. A step that
 // is itself a workflow contributes its own recursive run-state trio
 // (cursor/shared/steps); a leaf contributes its optional snapshot and report.
 // The projection is nil-tolerant so a not-yet-run node reads as all pending.
-func (w *workflow) snapshotSteps() []*StepJournal {
+func (w *workflow) snapshotSteps() ([]*StepJournal, error) {
 	out := make([]*StepJournal, len(w.steps))
 	for i, s := range w.steps {
 		e := &StepJournal{ID: s.Id(), State: w.stepStateAt(i)}
 		if child, ok := s.(*workflow); ok {
-			cursor := child.nodeCursor()
-			e.Cursor = &cursor
-			e.Shared = child.sharedSnapshot()
-			e.Steps = child.snapshotSteps()
+			childJournal, err := child.snapshotJournal()
+			if err != nil {
+				return nil, err
+			}
+			e.Cursor = &childJournal.Cursor
+			e.Shared = childJournal.Shared
+			e.Steps = childJournal.Steps
 		} else {
 			if i < len(w.jStepSnapshots) {
 				e.Snapshot = w.jStepSnapshots[i]
@@ -119,7 +131,7 @@ func (w *workflow) snapshotSteps() []*StepJournal {
 		}
 		out[i] = e
 	}
-	return out
+	return out, nil
 }
 
 // stepStateAt returns the recorded state of the step at index i, defaulting to

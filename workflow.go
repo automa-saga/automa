@@ -465,7 +465,13 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 	// shared file.
 	if w.journalPath != "" && w.journalPersist == nil {
 		root := w
-		w.journalPersist = func() error { return root.snapshotJournal().persist(root.journalPath) }
+		w.journalPersist = func() error {
+			j, err := root.snapshotJournal()
+			if err != nil {
+				return err
+			}
+			return j.persist(root.journalPath)
+		}
 	}
 	if w.journaling() && !w.resuming {
 		w.initJournalProgress()

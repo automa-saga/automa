@@ -31,6 +31,21 @@ func TestResume_EmptyJournalPathFailsFast(t *testing.T) {
 	assert.Equal(t, ActionPrepare, report.Action)
 }
 
+func TestRehydrateInto_FailsWhenSharedCloneFails(t *testing.T) {
+	wf := &workflow{
+		id:    "wf",
+		steps: []Step{&defaultStep{id: "a"}},
+	}
+	err := rehydrateInto(wf,
+		Cursor{Phase: PhaseForward, Index: 0},
+		&SyncNamespacedStateBag{global: &cloneErrStateBag{SyncStateBag: &SyncStateBag{}}},
+		[]*StepJournal{{ID: "a", State: StepPending}},
+		func() error { return nil },
+	)
+	require.Error(t, err)
+	assert.True(t, errorx.IsOfType(err, JournalCorrupt), "want JournalCorrupt, got %v", err)
+}
+
 // resumeRecorder captures which steps run Execute / Rollback on resume.
 type resumeRecorder struct {
 	exec     []string
@@ -171,6 +186,24 @@ func TestResume_CorruptJournalFailsLoudly(t *testing.T) {
 	require.True(t, report.IsFailed())
 	assert.True(t, errorx.IsOfType(report.Error, JournalCorrupt), "want JournalCorrupt, got %v", report.Error)
 	assert.Empty(t, rec.exec, "nothing must run for a corrupt journal")
+}
+
+// TestResume_UnknownCursorPhaseFailsLoudly: a journal with an unrecognized phase
+// is rejected before any step can re-run.
+func TestResume_UnknownCursorPhaseFailsLoudly(t *testing.T) {
+	path := journalPath(t)
+	craftJournal(t, path, RollbackOnError, ContinueOnError, Phase("garbage"), 0, []*StepJournal{
+		{ID: "a", State: StepCompleted},
+	})
+
+	rec := &resumeRecorder{}
+	wb := NewWorkflowBuilder().WithId("wf").WithExecutionMode(RollbackOnError).
+		Steps(recStep(rec, "a", false))
+
+	report := ResumeWorkflow(context.Background(), wb, path)
+	require.True(t, report.IsFailed())
+	assert.True(t, errorx.IsOfType(report.Error, JournalCorrupt), "want JournalCorrupt, got %v", report.Error)
+	assert.Empty(t, rec.exec, "nothing must run for an unknown phase")
 }
 
 // TestResume_MissingJournalRunsFresh: resuming a never-started run is a normal

@@ -98,9 +98,21 @@ func ResumeWorkflow(ctx context.Context, wb *WorkflowBuilder, journalPath string
 	// definition (§6.1). Every node shares the one closure, so continued
 	// execution keeps rewriting the single journal file atomically.
 	root := wf
-	persist := func() error { return root.snapshotJournal().persist(journalPath) }
+	persist := func() error {
+		j, err := root.snapshotJournal()
+		if err != nil {
+			return err
+		}
+		return j.persist(journalPath)
+	}
 	wf.journalPath = journalPath
-	rehydrateInto(wf, j.Cursor, j.Shared, j.Steps, persist)
+	if err := rehydrateInto(wf, j.Cursor, j.Shared, j.Steps, persist); err != nil {
+		return FailureReport(wf,
+			WithWorkflow(wf),
+			WithActionType(ActionPrepare),
+			WithStartTime(start),
+			WithError(err))
+	}
 
 	switch j.Cursor.Phase {
 	case PhaseDone:
@@ -108,10 +120,16 @@ func ResumeWorkflow(ctx context.Context, wb *WorkflowBuilder, journalPath string
 		return wf.reconstructFinalReport(start)
 	case PhaseCompensating:
 		return wf.resumeCompensation(ctx, start)
-	default: // PhaseForward
+	case PhaseForward:
 		// Execute owns Prepare (see RunWorkflow) and is resume-aware via the
 		// progress rehydrated above.
 		return wf.Execute(ctx)
+	default:
+		return FailureReport(wf,
+			WithWorkflow(wf),
+			WithActionType(ActionPrepare),
+			WithStartTime(start),
+			WithError(JournalCorrupt.New("journal cursor has unknown phase %q", j.Cursor.Phase)))
 	}
 }
 
@@ -120,17 +138,20 @@ func ResumeWorkflow(ctx context.Context, wb *WorkflowBuilder, journalPath string
 // installs the shared persist closure, restores the shared (Global) state and
 // the per-step cursor/state/snapshot/report, and rebuilds the executed and
 // compensated sets so a continued forward run or rollback behaves correctly.
-func rehydrateInto(w *workflow, cursor Cursor, shared *SyncNamespacedStateBag, steps []*StepJournal, persist func() error) {
+func rehydrateInto(w *workflow, cursor Cursor, shared *SyncNamespacedStateBag, steps []*StepJournal, persist func() error) error {
 	w.resuming = true
 	w.journalPersist = persist
 	w.jPhase = cursor.Phase
 	w.jIndex = cursor.Index
 
 	// Restore this node's shared (Global) state onto its live bag (§6.1.3).
-	if shared != nil {
-		if g, err := shared.Global().Clone(); err == nil {
-			w.state = NewNamespacedStateBag(nil, g)
-		}
+	if shared == nil {
+		return JournalCorrupt.New("workflow %q is missing shared state", w.id)
+	}
+	if g, err := shared.Global().Clone(); err != nil {
+		return JournalCorrupt.Wrap(err, "workflow %q failed to restore shared state", w.id)
+	} else {
+		w.state = NewNamespacedStateBag(nil, g)
 	}
 
 	n := len(w.steps)
@@ -170,9 +191,12 @@ func rehydrateInto(w *workflow, cursor Cursor, shared *SyncNamespacedStateBag, s
 			if e.Cursor != nil {
 				childCursor = *e.Cursor
 			}
-			rehydrateInto(child, childCursor, e.Shared, e.Steps, persist)
+			if err := rehydrateInto(child, childCursor, e.Shared, e.Steps, persist); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 // resumeChildStep resumes an in-progress sub-workflow by dispatching on its own
@@ -187,8 +211,14 @@ func (w *workflow) resumeChildStep(ctx context.Context, child *workflow) *Report
 	case PhaseDone:
 		// Already terminal (an unusual crash window); return its recorded result.
 		return child.reconstructFinalReport(time.Now())
-	default: // PhaseForward
+	case PhaseForward:
 		return child.Execute(ctx)
+	default:
+		return FailureReport(child,
+			WithWorkflow(w),
+			WithActionType(ActionExecute),
+			WithStartTime(time.Now()),
+			WithError(JournalCorrupt.New("journal cursor has unknown phase %q", child.jPhase)))
 	}
 }
 

@@ -239,6 +239,21 @@ func TestJournal_ValidateStructure_Invariants(t *testing.T) {
 	}{
 		{name: "valid", mutate: func(*Journal) {}, wantErr: false},
 		{
+			name:    "top-level cursor out of range",
+			mutate:  func(j *Journal) { j.Cursor.Index = 100 },
+			wantErr: true,
+		},
+		{
+			name:    "top-level cursor unknown phase",
+			mutate:  func(j *Journal) { j.Cursor.Phase = Phase("garbage") },
+			wantErr: true,
+		},
+		{
+			name:    "top-level shared missing",
+			mutate:  func(j *Journal) { j.Shared = nil },
+			wantErr: true,
+		},
+		{
 			name:    "leaf carries a cursor",
 			mutate:  func(j *Journal) { j.Steps[0].Cursor = &Cursor{Phase: PhaseForward} },
 			wantErr: true,
@@ -256,6 +271,33 @@ func TestJournal_ValidateStructure_Invariants(t *testing.T) {
 		{
 			name:    "empty step id",
 			mutate:  func(j *Journal) { j.Steps[0].ID = "" },
+			wantErr: true,
+		},
+		{
+			name:    "leaf has unknown state",
+			mutate:  func(j *Journal) { j.Steps[0].State = StepState("quantum") },
+			wantErr: true,
+		},
+		{
+			name: "done cursor ignores index",
+			mutate: func(j *Journal) {
+				j.Cursor.Phase = PhaseDone
+				j.Cursor.Index = 100
+			},
+			wantErr: false,
+		},
+		{
+			name: "nested workflow cursor out of range",
+			mutate: func(j *Journal) {
+				j.Steps[1].Cursor.Index = 99
+			},
+			wantErr: true,
+		},
+		{
+			name: "nested workflow step has unknown state",
+			mutate: func(j *Journal) {
+				j.Steps[1].Steps[0].State = StepState("quantum")
+			},
 			wantErr: true,
 		},
 	}
@@ -279,6 +321,17 @@ func TestValidateTopology_MatchAndMismatch(t *testing.T) {
 
 	// Exact match succeeds.
 	require.NoError(t, validateTopology(wf, sampleJournal()))
+
+	t.Run("pending workflow may be leaf-shaped", func(t *testing.T) {
+		j := sampleJournal()
+		j.Steps[1] = &StepJournal{
+			ID:       "sub",
+			State:    StepPending,
+			Snapshot: &SyncNamespacedStateBag{},
+			Report:   SuccessReport(&defaultStep{id: "sub"}),
+		}
+		require.NoError(t, validateTopology(wf, j))
+	})
 
 	tests := []struct {
 		name   string
