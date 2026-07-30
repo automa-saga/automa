@@ -2,7 +2,10 @@ package automa
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Report describes the outcome of a single step or an entire workflow
@@ -514,6 +517,43 @@ func (r *Report) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
+// UnmarshalJSON implements json.Unmarshaler. It loads the marshalReport wire
+// format (the same layout MarshalJSON produces) back into the Report,
+// reconstructing the Error field from its string form. Nested StepReports and
+// Rollback decode recursively. The recovered Error is a plain error carrying the
+// serialized message; the original error type is not preserved (errors are
+// serialized as strings, per §8).
+func (r *Report) UnmarshalJSON(data []byte) error {
+	var m marshalReport
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
+	}
+	r.applyMarshalReport(m)
+	return nil
+}
+
+// applyMarshalReport copies a decoded marshalReport into the receiver, shared by
+// UnmarshalJSON and UnmarshalYAML.
+func (r *Report) applyMarshalReport(m marshalReport) {
+	r.Id = m.Id
+	r.IsWorkflow = m.IsWorkflow
+	r.Action = m.Action
+	r.Status = m.Status
+	r.StartTime = m.StartTime
+	r.EndTime = m.EndTime
+	r.Detail = m.Detail
+	if m.Error != "" {
+		r.Error = errors.New(m.Error)
+	} else {
+		r.Error = nil
+	}
+	r.Metadata = m.Metadata
+	r.StepReports = m.StepReports
+	r.Rollback = m.Rollback
+	r.ExecutionMode = m.ExecutionMode
+	r.RollbackMode = m.RollbackMode
+}
+
 // MarshalYAML implements yaml.Marshaler. It serializes the Report into a YAML
 // mapping using the marshalReport wire format. The Error field is serialized
 // as its Error() string (or omitted when nil). Field names follow the yaml
@@ -537,4 +577,17 @@ func (r *Report) MarshalYAML() (interface{}, error) {
 		m.Error = r.Error.Error()
 	}
 	return m, nil
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler. It loads the marshalReport wire
+// format from a YAML mapping node back into the Report, mirroring UnmarshalJSON
+// (Error is reconstructed from its string form; nested reports decode
+// recursively).
+func (r *Report) UnmarshalYAML(node *yaml.Node) error {
+	var m marshalReport
+	if err := node.Decode(&m); err != nil {
+		return err
+	}
+	r.applyMarshalReport(m)
+	return nil
 }

@@ -1,0 +1,25 @@
+{
+  "name": "rollback_mode_continue_compensates_all",
+  "description": "With rollbackMode=continue, a failing rollback does not stop compensation: earlier steps are still compensated.",
+  "specRefs": ["§5.2"],
+  "workflow": {
+    "id": "wf",
+    "executionMode": "rollback",
+    "rollbackMode": "continue",
+    "steps": [
+      { "id": "s1", "execute": "success", "rollback": "success" },
+      { "id": "s2", "execute": "success", "rollback": "failed" },
+      { "id": "s3", "execute": "failed", "rollback": "success" }
+    ]
+  },
+  "expect": {
+    "workflowStatus": "failed",
+    "executionOrder": ["s1", "s2", "s3"],
+    "rollbackOrder": ["s3", "s2", "s1"],
+    "steps": {
+      "s3": { "status": "failed", "action": "execute", "rollbackStatus": "success" },
+      "s2": { "status": "success", "action": "execute", "rollbackStatus": "failed" },
+      "s1": { "status": "success", "action": "execute", "rollbackStatus": "success" }
+    }
+  }
+}

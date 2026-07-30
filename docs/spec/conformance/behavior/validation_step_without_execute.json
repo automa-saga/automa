@@ -1,0 +1,19 @@
+{
+  "name": "validation_step_without_execute",
+  "description": "A step that defines no Execute is invalid; the workflow fails to build and reports a prepare-phase failure with no steps run (core-spec §3.2.1).",
+  "specRefs": ["§3.2.1", "§4.2"],
+  "workflow": {
+    "id": "wf",
+    "executionMode": "stop",
+    "rollbackMode": "continue",
+    "steps": [
+      { "id": "s1", "execute": "none" }
+    ]
+  },
+  "expect": {
+    "workflowStatus": "failed",
+    "workflowAction": "prepare",
+    "executionOrder": [],
+    "rollbackOrder": []
+  }
+}

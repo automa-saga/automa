@@ -49,7 +49,7 @@ type fixtureStep struct {
 
 	// Leaf-step declared outcomes.
 	Prepare  string `json:"prepare"`  // "" (ok) | failed
-	Execute  string `json:"execute"`  // success | failed | skipped
+	Execute  string `json:"execute"`  // success | failed | skipped | none (omit Execute → invalid step)
 	Rollback string `json:"rollback"` // success | failed (default: success)
 
 	// When Steps is non-empty this step is a sub-workflow; Execute/Rollback are
@@ -63,6 +63,7 @@ func (s fixtureStep) isWorkflow() bool { return len(s.Steps) > 0 }
 
 type behaviorExpect struct {
 	WorkflowStatus string                  `json:"workflowStatus"`
+	WorkflowAction string                  `json:"workflowAction"` // optional; e.g. "prepare" for a build/validation failure
 	ExecutionOrder []string                `json:"executionOrder"`
 	RollbackOrder  []string                `json:"rollbackOrder"`
 	Steps          map[string]expectedStep `json:"steps"`
@@ -126,6 +127,13 @@ func buildFixtureStep(t *testing.T, rec *recorder, fs fixtureStep) automa.Builde
 			return nil, errors.New("fixture: declared prepare failure")
 		})
 	}
+
+	// "none" omits Execute entirely, producing an invalid step (core-spec §3.2.1)
+	// so the fixture can assert build/validation behavior.
+	if execOutcome == "none" {
+		return sb
+	}
+
 	return sb.
 		WithExecute(func(ctx context.Context, stp automa.Step) *automa.Report {
 			rec.execOrder = append(rec.execOrder, id)
@@ -179,6 +187,11 @@ func runBehaviorFixture(t *testing.T, fx behaviorFixture) {
 
 	// Workflow-level status.
 	assert.Equal(t, fx.Expect.WorkflowStatus, report.Status.String(), "workflow status")
+
+	// Workflow-level action, when the fixture asserts one (e.g. build failure).
+	if fx.Expect.WorkflowAction != "" {
+		assert.Equal(t, fx.Expect.WorkflowAction, report.Action.String(), "workflow action")
+	}
 
 	// Execution order (leaf steps that actually ran Execute, in order).
 	assert.Equal(t, fx.Expect.ExecutionOrder, normalizeOrder(rec.execOrder), "execution order")
@@ -264,6 +277,12 @@ func TestConformance_Serialization(t *testing.T) {
 				require.NoError(t, json.Unmarshal(fx.JSON, &bag), "load state bag")
 				out, err := json.Marshal(&bag)
 				require.NoError(t, err, "re-serialize state bag")
+				assertJSONEqual(t, fx.JSON, out)
+			case "report":
+				var rep automa.Report
+				require.NoError(t, json.Unmarshal(fx.JSON, &rep), "load report")
+				out, err := json.Marshal(&rep)
+				require.NoError(t, err, "re-serialize report")
 				assertJSONEqual(t, fx.JSON, out)
 			default:
 				t.Fatalf("unknown serialization fixture kind %q", fx.Kind)

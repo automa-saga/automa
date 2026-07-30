@@ -92,13 +92,15 @@ matter).
 }
 ```
 
-- `kind` is currently `statebag` (the namespaced state bag: `local` + `global`,
-  core-spec §7.2). Both namespace keys are always present, even when empty.
+- `kind` is one of:
+  - `statebag` — the namespaced state bag (`local` + `global`, core-spec §7.2).
+    Both namespace keys are always present, even when empty.
+  - `report` — a report tree (core-spec §8): step and workflow reports, nested
+    `steps`, an inline `rollback` sub-report, RFC 3339 millisecond timestamps,
+    and error-as-string.
 - **Numeric precision (§7.5):** JSON has one number type; a round-trip through
   floating point is exact only up to 2^53. Values beyond that MUST be stored as
   strings to survive losslessly. Fixtures encode both the safe-integer case and
   the string-encoded large-ID case.
-
-Report round-trip fixtures (`kind: report`) are pending a small addition to the
-Go `Report` type (it currently marshals but does not unmarshal); tracked as the
-next step of #95.
+- **Timestamps (§8):** serialize as RFC 3339 with a timezone designator;
+  trailing-zero fractional seconds are trimmed (e.g. `...00.5Z`, not `...00.500Z`).
