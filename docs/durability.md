@@ -37,6 +37,12 @@ Durability earns its (small) complexity when **all** of the following hold:
 
 - The workflow runs in a **single process** and is **short-to-medium length**
   (tens of steps, not thousands).
+- The journal has a **single owner at a time**. A given journal file is written
+  and resumed by **one process at a time**; automa does **not** lock the file or
+  guard against two processes resuming the same journal concurrently. Running two
+  resumes against one journal path races the persist and can double-execute every
+  remaining step — the caller is responsible for ensuring only one owner is live
+  (e.g. a supervisor that never starts a second instance for the same run).
 - Steps are **expensive, slow, or externally observable** — redoing them from
   scratch is costly or unsafe (e.g. provisioning cloud resources, running a
   multi-stage data migration, an installer that mutates a machine).

@@ -196,6 +196,19 @@ that preserves the all-or-nothing guarantee.
   way a prior journal is consulted; it is intentional, never accidental, when the
   runID convention above is followed.
 
+#### 3.7.5 Single owner per journal
+
+- A journal MUST have at most **one live owner at a time**: at most one process
+  may be executing or resuming a given journal path at any moment. The caller is
+  responsible for enforcing this (e.g. a supervisor that never launches a second
+  instance for the same runID).
+- An implementation is **not required** to lock the journal file or otherwise
+  detect concurrent owners. Two owners resuming the same journal concurrently
+  races the durable write (§3.6) and defeats the idempotency contract (§7), which
+  covers a single sequential retry — not simultaneous re-execution — and MAY
+  double-execute every step from the crash point onward. This is undefined
+  behavior, not a supported mode.
+
 #### 3.7.2 Resume of a terminal journal is a safe no-op
 
 - A resume against a journal already in `phase: done` MUST return the recorded
