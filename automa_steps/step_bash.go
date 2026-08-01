@@ -11,7 +11,19 @@ import (
 // RunBashScript executes a list of bash scripts in the specified working directory.
 // It captures the combined output of all commands and returns it as a string.
 // If any command fails, it returns an error immediately.
+//
+// It does not observe context cancellation; callers running inside a workflow
+// step should prefer RunBashScriptContext so a cancelled/expired workflow context
+// stops the shell command. This wrapper is retained for backward compatibility and
+// runs with a background context.
 func RunBashScript(scripts []string, workDir string) (string, error) {
+	return RunBashScriptContext(context.Background(), scripts, workDir)
+}
+
+// RunBashScriptContext is RunBashScript with context propagation: each command is
+// started with exec.CommandContext(ctx, ...), so cancelling or timing out ctx
+// terminates the running command instead of letting it run to completion.
+func RunBashScriptContext(ctx context.Context, scripts []string, workDir string) (string, error) {
 	var outputs bytes.Buffer // To capture combined output of all scripts
 
 	if len(scripts) == 0 {
@@ -19,7 +31,7 @@ func RunBashScript(scripts []string, workDir string) (string, error) {
 	}
 
 	for _, script := range scripts {
-		c := exec.Command("bash", "-c", script)
+		c := exec.CommandContext(ctx, "bash", "-c", script)
 		if workDir != "" {
 			c.Dir = workDir
 		}
@@ -50,7 +62,7 @@ func BashScriptStep(id string, scripts []string, workDir string) *automa.StepBui
 	return automa.NewStepBuilder().
 		WithId(id).
 		WithExecute(func(ctx context.Context, stp automa.Step) *automa.Report {
-			output, err := RunBashScript(scripts, workDir)
+			output, err := RunBashScriptContext(ctx, scripts, workDir)
 			if err != nil {
 				return automa.StepFailureReport(id, automa.WithError(err), automa.WithMetadata(automa.StringMap{
 					"output": output,
