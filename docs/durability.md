@@ -168,6 +168,20 @@ func (j *Journal) persist(path string) error {
 always observes either the previous complete journal or the new complete
 journal, never a partial one.
 
+> **Orphaned temp files after a hard crash.** Each snapshot is written to a
+> uniquely-named temp file (`.journal-*.tmp`) in the journal's directory, fsynced,
+> then renamed over the target. A clean write consumes the temp (the rename moves
+> it); an ordinary write error removes it. But a **hard** crash (power loss,
+> `kill -9`, `os.Exit`) in the window between creating the temp and the rename
+> leaves that temp file behind — and because the names are unique, such orphans are
+> never reused and can slowly accumulate across repeated crashes. This never
+> affects correctness: the real journal is always a complete file, since only an
+> atomic rename ever publishes it. It is purely a housekeeping concern. automa does
+> not sweep these itself — multiple journals may share a directory, so a blanket
+> delete could race another run's in-flight temp. Cleanup is the caller's
+> responsibility, like journal [pruning](#resolved-questions): remove stale
+> `.journal-*.tmp` files from the journal directory when no run is live for it.
+
 ## Write points in the execution loop
 
 The persist calls slot into the existing `Execute` loop

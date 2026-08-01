@@ -353,3 +353,74 @@ func TestJournal_WriteAheadFailureAbortsStep(t *testing.T) {
 	}
 	assert.True(t, carriesJournalError(report), "failure must carry a JournalError")
 }
+
+// TestJournal_SkippedRollbackStaysResumable verifies that when a RollbackOnError
+// failure cannot durably record its compensating-phase flip (§5 F5) — so rollback
+// is skipped to stay crash-safe — the run does NOT finalize the journal as `done`.
+// Marking it `done` while executed steps went uncompensated would strand them
+// behind a terminal cursor, and ResumeWorkflow (which no-ops a `done` journal)
+// could never retry. The durable journal must instead stay `forward`, so a later
+// healthy resume re-enters, re-runs the failed step, and completes compensation.
+func TestJournal_SkippedRollbackStaysResumable(t *testing.T) {
+	path := journalPath(t)
+
+	newBuilder := func() *WorkflowBuilder {
+		return NewWorkflowBuilder().WithId("wf").
+			WithExecutionMode(RollbackOnError).
+			WithJournal(path).
+			Steps(
+				NewStepBuilder().WithId("a").
+					WithExecute(func(ctx context.Context, stp Step) *Report { return SuccessReport(stp) }),
+				NewStepBuilder().WithId("b").
+					WithExecute(func(ctx context.Context, stp Step) *Report {
+						return FailureReport(stp, WithError(StepExecutionError.New("boom")))
+					}),
+			)
+	}
+
+	// --- Run 1: forward persists succeed, but the compensating-phase flip (F5)
+	// fails. Pre-installing journalPersist makes Execute reuse this injector instead
+	// of installing its own. The injector fails only when the projected cursor is
+	// `compensating`; journalDone projects `done`, so without the fix a terminal
+	// journal would reach disk — exactly the stranding we assert against.
+	built, err := newBuilder().Build()
+	require.NoError(t, err)
+	wf := built.(*workflow)
+
+	var f5Attempts int
+	wf.journalPersist = func() error {
+		j, err := wf.snapshotJournal()
+		if err != nil {
+			return err
+		}
+		if j.Cursor.Phase == PhaseCompensating {
+			f5Attempts++
+			return StepExecutionError.New("injected persist failure at compensating flip")
+		}
+		return j.persist(path)
+	}
+
+	r1 := wf.Execute(context.Background())
+	require.True(t, r1.IsFailed(), "run must fail")
+	require.Equal(t, 1, f5Attempts, "the compensating-phase flip must have been attempted (and injected to fail)")
+
+	j, err := loadJournal(path)
+	require.NoError(t, err)
+	require.Equal(t, PhaseForward, j.Cursor.Phase,
+		"a run that skipped rollback due to a failed compensating-phase persist must NOT be journaled `done`")
+	require.Len(t, j.Steps, 2)
+	assert.Equal(t, StepCompleted, j.Steps[0].State, "the earlier step is still recorded completed (and uncompensated) on disk")
+	assert.Equal(t, StepFailed, j.Steps[1].State, "the failed step's last durable state is `failed`")
+
+	// --- Run 2: resume with a healthy persist. The non-terminal journal lets the
+	// run re-enter forward, re-run the failed step, and this time complete
+	// compensation — proving the skipped state was recoverable, not stranded.
+	r2 := ResumeWorkflow(context.Background(), newBuilder(), path)
+	require.True(t, r2.IsFailed(), "the resumed run still fails (the step fails again)")
+
+	j2, err := loadJournal(path)
+	require.NoError(t, err)
+	assert.Equal(t, PhaseDone, j2.Cursor.Phase, "a healthy resume finalizes the journal terminal")
+	assert.Equal(t, StepCompensated, j2.Steps[0].State, "the earlier step is compensated on the healthy resume")
+	assert.Equal(t, StepCompensated, j2.Steps[1].State, "the failed step is compensated too")
+}

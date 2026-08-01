@@ -485,6 +485,16 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 	var stepReports []*Report
 	var hasFailed bool
 
+	// rollbackSkippedUnpersisted records that a RollbackOnError failure could not
+	// durably record its compensating-phase flip (§5 F5) and therefore skipped
+	// rollback. When set, the run MUST NOT be journaled `done` at the terminal
+	// block below: the last durable journal still reads `forward` with the failed
+	// step, and finalizing it `done` here — if this later persist happens to
+	// succeed while the F5 persist failed — would strand executed-but-uncompensated
+	// steps that a resume could otherwise retry. Leaving the journal non-terminal
+	// lets ResumeWorkflow re-enter forward and retry compensation once writable.
+	var rollbackSkippedUnpersisted bool
+
 	// capture per-step state snapshots for rollback
 	stepStates := make(map[string]NamespacedStateBag, len(w.steps))
 
@@ -563,6 +573,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 						if err := w.journalEnterCompensating(index); err != nil {
 							w.log().Error("failed to persist compensating-phase journal on resume; skipping rollback to keep resume safe",
 								"workflowId", w.id, "index", index, "error", err)
+							rollbackSkippedUnpersisted = true
 							break
 						}
 						rollbackReports := w.rollbackFrom(ctx, index, stepStates, executedStepIDs)
@@ -793,6 +804,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 				if err := w.journalEnterCompensating(index); err != nil {
 					w.log().Error("failed to persist compensating-phase journal; skipping rollback to keep resume safe",
 						"workflowId", w.id, "index", index, "error", err)
+					rollbackSkippedUnpersisted = true
 					break
 				}
 
@@ -846,8 +858,17 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			)),
 			WithStepReports(stepReports...))
 
-		// D1 (durability-spec §5): the run is terminal.
-		w.journalDone()
+		// D1 (durability-spec §5): the run is terminal — but only mark it `done`
+		// when compensation was NOT skipped due to a failed compensating-phase
+		// persist. In that skipped case the last durable journal still reads
+		// `forward` with the failed step; leaving it non-terminal lets a resume
+		// re-enter forward and retry compensation instead of stranding
+		// executed-but-uncompensated steps behind a `done` cursor (see
+		// rollbackSkippedUnpersisted). The in-memory report is still a failure and
+		// onFailure still fires, so the caller is notified either way.
+		if !rollbackSkippedUnpersisted {
+			w.journalDone()
+		}
 
 		w.handleFailure(ctx, workflowReport)
 
