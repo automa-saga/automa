@@ -904,6 +904,16 @@ func (w *workflow) invokeRollbackFunc(ctx context.Context) *Report {
 	)
 }
 
+// Rollback compensates the workflow's executed steps in reverse order. It is the
+// manual/explicit compensation entry point, distinct from the automatic rollback
+// that Execute drives on failure under RollbackOnError.
+//
+// Rollback does NOT fire the onCompletion/onFailure callbacks: those are
+// Execute-lifecycle callbacks (they report the outcome of an execution attempt),
+// whereas a caller-invoked Rollback is a separate, intentional compensation
+// action that may well be a deliberate teardown rather than a failure. Firing
+// onFailure for an intentional rollback would be surprising. Callers that want to
+// observe manual rollback should use the returned report.
 func (w *workflow) Rollback(ctx context.Context) *Report {
 	if w.rollback != nil {
 		return w.invokeRollbackFunc(ctx)

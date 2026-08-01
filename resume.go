@@ -243,12 +243,21 @@ func (w *workflow) resumeCompensation(ctx context.Context, start time.Time) *Rep
 
 	w.journalDone()
 
-	return FailureReport(w,
+	report := FailureReport(w,
 		WithWorkflow(w),
 		WithActionType(ActionExecute),
 		WithStartTime(start),
 		WithStepReports(stepReports...),
 		WithError(StepExecutionError.New("workflow %q resumed and completed compensation", w.id)))
+
+	// Fire onFailure, mirroring Execute's failure path. A `compensating` journal
+	// means the original run crashed mid-rollback, BEFORE it reached journalDone
+	// and its own handleFailure — so this is the first and only firing for the
+	// run (no double-fire). Terminal (`done`) resumes go through
+	// reconstructFinalReport instead, which deliberately does not re-fire.
+	w.handleFailure(ctx, report)
+
+	return report
 }
 
 // reconstructFinalReport rebuilds a terminal run's report from the journal
@@ -256,6 +265,13 @@ func (w *workflow) resumeCompensation(ctx context.Context, start time.Time) *Rep
 // top-level report, so the workflow status is derived: success iff every step is
 // completed; otherwise failed (a fully-compensated run is a failure that rolled
 // back cleanly).
+//
+// This is a pure replay of an already-terminal (`done`) journal and MUST run
+// nothing (§3.7.2). In particular it does NOT fire onCompletion/onFailure: the
+// original run already fired them before writing `done`, so re-firing here would
+// duplicate the callback (and any side effect it performs) on every terminal
+// resume. The live-completing paths (Execute, and resumeCompensation for an
+// interrupted rollback) are the ones that fire the callbacks.
 func (w *workflow) reconstructFinalReport(start time.Time) *Report {
 	stepReports := make([]*Report, 0, len(w.steps))
 	anyNotCompleted := false

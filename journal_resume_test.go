@@ -151,6 +151,56 @@ func TestResume_PrepareFailedStepNotCompensated(t *testing.T) {
 	assert.Empty(t, rec.exec, "no forward execution during compensation resume")
 }
 
+// TestResume_CompletingCompensationFiresOnFailure: a run that finishes an
+// interrupted rollback on resume fires onFailure, mirroring Execute's failure
+// path (correctness review 2.2). A `compensating` journal means the original
+// crashed mid-rollback before it could fire the callback, so resume is the first
+// and only firing.
+func TestResume_CompletingCompensationFiresOnFailure(t *testing.T) {
+	path := journalPath(t)
+	craftJournal(t, path, RollbackOnError, ContinueOnError, PhaseCompensating, 1, []*StepJournal{
+		{ID: "a", State: StepCompleted},
+		{ID: "b", State: StepFailed},
+	})
+
+	var onFailureFired bool
+	var onCompletionFired bool
+	rec := &resumeRecorder{}
+	wb := NewWorkflowBuilder().WithId("wf").WithExecutionMode(RollbackOnError).
+		WithOnFailure(func(ctx context.Context, stp Step, r *Report) { onFailureFired = true }).
+		WithOnCompletion(func(ctx context.Context, stp Step, r *Report) { onCompletionFired = true }).
+		Steps(recStep(rec, "a", false), recStep(rec, "b", true))
+
+	report := ResumeWorkflow(context.Background(), wb, path)
+	require.True(t, report.IsFailed(), "a compensated run is a failure outcome")
+	assert.True(t, onFailureFired, "resuming a completed compensation must fire onFailure")
+	assert.False(t, onCompletionFired, "onCompletion must not fire for a compensated (failure) run")
+}
+
+// TestResume_TerminalJournalDoesNotRefireCallbacks: resuming an already-terminal
+// (`done`) journal is a pure replay (spec §3.7.2) and must NOT re-fire
+// onCompletion/onFailure — the original run already fired them (correctness
+// review 2.2).
+func TestResume_TerminalJournalDoesNotRefireCallbacks(t *testing.T) {
+	path := journalPath(t)
+	craftJournal(t, path, RollbackOnError, ContinueOnError, PhaseDone, 1, []*StepJournal{
+		{ID: "a", State: StepCompleted},
+		{ID: "b", State: StepCompleted},
+	})
+
+	var fired bool
+	rec := &resumeRecorder{}
+	wb := NewWorkflowBuilder().WithId("wf").WithExecutionMode(RollbackOnError).
+		WithOnCompletion(func(ctx context.Context, stp Step, r *Report) { fired = true }).
+		WithOnFailure(func(ctx context.Context, stp Step, r *Report) { fired = true }).
+		Steps(recStep(rec, "a", false), recStep(rec, "b", false))
+
+	report := ResumeWorkflow(context.Background(), wb, path)
+	require.True(t, report.IsSuccess(), "all-completed terminal journal replays as success")
+	assert.False(t, fired, "a terminal replay must not re-fire lifecycle callbacks")
+	assert.Empty(t, rec.exec, "a terminal resume runs nothing")
+}
+
 // TestResume_ContinuesCompensation: a crash mid-compensation resumes the
 // rollback from the cursor, skipping already-compensated steps.
 func TestResume_ContinuesCompensation(t *testing.T) {
