@@ -126,6 +126,31 @@ func TestResume_StartedStepRerunsOnce(t *testing.T) {
 	assert.Equal(t, []string{"b"}, rec.exec, "b must re-run exactly once; a skipped")
 }
 
+// TestResume_PrepareFailedStepNotCompensated: a step that failed before reaching
+// Execute is journaled `started` (see the F4 write-ahead handling and
+// durability-spec §4.2), not `failed`. On resume of a compensating journal it
+// MUST NOT be compensated — its side effect never ran (correctness review 2.1).
+// Here b is `started` (prepare-failed) at the compensating cursor; only the
+// earlier completed step a is rolled back.
+func TestResume_PrepareFailedStepNotCompensated(t *testing.T) {
+	path := journalPath(t)
+	craftJournal(t, path, RollbackOnError, ContinueOnError, PhaseCompensating, 1, []*StepJournal{
+		{ID: "a", State: StepCompleted},
+		{ID: "b", State: StepStarted}, // failed in Prepare before Execute; never ran
+	})
+
+	rec := &resumeRecorder{}
+	wb := NewWorkflowBuilder().WithId("wf").WithExecutionMode(RollbackOnError).
+		Steps(recStep(rec, "a", false), recStep(rec, "b", false))
+
+	report := ResumeWorkflow(context.Background(), wb, path)
+	require.True(t, report.IsFailed(), "a compensated run is a failure outcome")
+	assert.Equal(t, []string{"a"}, rec.rollback,
+		"only a is compensated; b never executed (started, not failed) so it must be skipped")
+	assert.NotContains(t, rec.rollback, "b", "a pre-execute-failed step must never be compensated on resume")
+	assert.Empty(t, rec.exec, "no forward execution during compensation resume")
+}
+
 // TestResume_ContinuesCompensation: a crash mid-compensation resumes the
 // rollback from the cursor, skipping already-compensated steps.
 func TestResume_ContinuesCompensation(t *testing.T) {

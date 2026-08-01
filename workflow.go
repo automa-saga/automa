@@ -727,9 +727,26 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		// write-ahead itself failed (journalStartErr): the step never ran and the
 		// journal write is already broken, so there is nothing to commit.
 		if w.journaling() && journalStartErr == nil {
+			// reachedExecute mirrors the executedStepIDs guard above: the step ran
+			// its side effect iff state prep, the write-ahead persist, and Prepare
+			// all succeeded.
+			reachedExecute := statePrepError == nil && ctxPrepError == nil && journalStartErr == nil
+
 			stepState := StepCompleted
 			if report.IsFailed() {
-				stepState = StepFailed
+				if reachedExecute {
+					stepState = StepFailed
+				} else {
+					// Failed before reaching Execute (state prep or the Prepare hook):
+					// no side effect ran, so per the spec `failed` — which means
+					// "Execute failed" and implies compensation on resume (§4.2) —
+					// MUST NOT be recorded. Preserve the pre-execute state (`started`
+					// if the write-ahead ran, else `pending`) so rehydrateInto does not
+					// add this step to lastExecutedStepIDs and resume does not
+					// compensate a step that never executed. This matches the live D5
+					// skip, which excludes prepare-failed steps from executedStepIDs.
+					stepState = w.stepStateAt(index)
+				}
 			}
 			var snapshot *SyncNamespacedStateBag
 			if _, isWorkflowStep := step.(*workflow); !isWorkflowStep {

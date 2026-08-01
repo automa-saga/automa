@@ -105,6 +105,49 @@ func TestJournal_FailureRollback(t *testing.T) {
 	assert.Equal(t, StepCompensated, j.Steps[1].State, "b (failed) must be compensated for cleanup")
 }
 
+// TestJournal_PrepareFailedStepRecordedStartedNotFailed verifies that a step
+// which fails in its Prepare hook — before ever reaching Execute — is journaled
+// as `started`, not `failed` (durability-spec §4.2). `failed` means "Execute
+// failed" and marks a step as executed/compensable on resume; recording a
+// prepare failure as `failed` would make resume compensate a step whose side
+// effect never ran (correctness review 2.1). The live run already skips it via
+// D5, and the journal must record the same fact.
+func TestJournal_PrepareFailedStepRecordedStartedNotFailed(t *testing.T) {
+	path := journalPath(t)
+
+	var aRolledBack, bRolledBack bool
+	step, err := NewWorkflowBuilder().WithId("wf").
+		WithExecutionMode(RollbackOnError).
+		WithJournal(path).
+		Steps(
+			NewStepBuilder().WithId("a").
+				WithExecute(func(ctx context.Context, stp Step) *Report { return SuccessReport(stp) }).
+				WithRollback(func(ctx context.Context, stp Step) *Report { aRolledBack = true; return SuccessReport(stp) }),
+			NewStepBuilder().WithId("b").
+				WithPrepare(func(ctx context.Context, stp Step) (context.Context, error) {
+					return ctx, StepExecutionError.New("b prepare failed")
+				}).
+				WithExecute(func(ctx context.Context, stp Step) *Report { return SuccessReport(stp) }).
+				WithRollback(func(ctx context.Context, stp Step) *Report { bRolledBack = true; return SuccessReport(stp) }),
+		).Build()
+	require.NoError(t, err)
+
+	report := step.Execute(context.Background())
+	require.True(t, report.IsFailed(), "workflow should fail when b's Prepare fails")
+
+	// Live D5: b never executed, so its rollback is not invoked; a is compensated.
+	assert.True(t, aRolledBack, "a (completed) must be compensated on the live path")
+	assert.False(t, bRolledBack, "b failed in Prepare and never executed; its rollback must NOT run")
+
+	j, err := loadJournal(path)
+	require.NoError(t, err)
+	require.Len(t, j.Steps, 2)
+	assert.Equal(t, StepCompensated, j.Steps[0].State, "a must be recorded compensated")
+	assert.Equal(t, StepStarted, j.Steps[1].State,
+		"b failed in Prepare: it must stay `started`, not be recorded `failed` (else resume would compensate it)")
+	assert.NotEqual(t, StepFailed, j.Steps[1].State, "a pre-execute failure must not be journaled as `failed`")
+}
+
 // TestJournal_Disabled_WritesNothing verifies WithJournal is opt-in: a workflow
 // built without it has journaling switched off (no persist closure), so every
 // transition is inert and nothing is written to disk (backward compatibility).
