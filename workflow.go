@@ -693,9 +693,15 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			}
 		}
 
-		// Capture state snapshot after step processing (successful or failed)
-		// Clone() creates an immutable snapshot by deep-cloning all namespaces (local, global).
-		// This ensures later steps cannot mutate earlier snapshots, enabling deterministic rollback.
+		// Capture a state snapshot after step processing (successful or failed) for
+		// deterministic rollback. Clone() deep-copies only values that implement a
+		// Clone method (the Cloner contract); plain map/slice/pointer values are
+		// copied by reference (state.go), so this snapshot is immutable ONLY for
+		// Cloner values. If a step stores a bare map/slice/pointer in state and a
+		// later step mutates it in place, this snapshot observes that mutation. Store
+		// Cloner values (or copy-on-write) when relying on snapshot rollback. Note the
+		// journaled path is unaffected: F4 serializes the snapshot to JSON at commit
+		// time (a true deep copy) before any later step runs.
 		// State preservation can be disabled via preserveStatesForRollback to reduce memory overhead.
 		if w.preserveStatesForRollback {
 			if state := step.State(); state != nil {

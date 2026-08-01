@@ -318,6 +318,34 @@ These obligations must be documented prominently and, where feasible, enforced:
    produced by the caller's code at resume time. If steps are derived from
    runtime data, that data must itself be persisted (e.g. in global state) so the
    topology is deterministic across restarts.
+5. **The workflow `prepare` hook must be idempotent too.** A forward resume goes
+   through `Execute`, which runs the workflow-level `prepare` hook again — the
+   same requirement stated for steps applies to it. Do not perform
+   non-idempotent, one-time setup in a durable workflow's `prepare` hook.
+
+## Caveats and fidelity notes
+
+These are known, intentional limitations — not bugs. Author around them.
+
+- **Snapshot rollback is immutable only for `Cloner` values.** In-memory rollback
+  snapshots are taken with `Clone()`, which deep-copies values implementing a
+  `Clone` method and shallow-copies everything else. A bare `map`/`slice`/pointer
+  stored in state is shared with the snapshot, so a later in-place mutation is
+  visible through an earlier step's snapshot. Store `Cloner` values (or treat
+  state as copy-on-write) when relying on snapshot rollback. The journaled path is
+  unaffected: the commit point serializes the snapshot to JSON (a true deep copy)
+  before any later step runs.
+- **Reaching `Execute` implies compensation.** Any step that reaches `Execute` —
+  including one whose `Execute` returns a skipped/no-op outcome — is treated as
+  executed and has its `Rollback` invoked during compensation. Keep such
+  rollbacks strict no-ops. (Steps that fail *before* `Execute` are not
+  compensated; see durability-spec §4.2.)
+- **Error type/properties are not preserved across a resume.** A step report's
+  `Error` is serialized to its message string and rehydrated as a plain error, so
+  the `errorx` type and properties (e.g. `StepIdProperty`) are lost after a
+  resume. Logic that branches on error *type* must not assume type fidelity for
+  reports reconstructed from a journal; branch on data kept in the state bag
+  instead.
 
 ## Non-goals
 

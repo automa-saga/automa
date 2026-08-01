@@ -545,6 +545,10 @@ prominently.
    the same modes) MUST be produced by the caller's code at resume time. If steps
    are derived from runtime data, that data MUST itself be persisted so the
    topology is deterministic across restarts.
+5. **Workflow-level preparation MUST be idempotent.** A forward resume re-runs the
+   workflow's own preparation hook (if the implementation exposes one), just as it
+   re-runs a `started` step. Any workflow-level preparation MUST therefore be safe
+   to run more than once across a crash.
 
 ## 8. Conformance
 

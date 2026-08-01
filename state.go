@@ -88,6 +88,11 @@ func (s *SyncStateBag) init() {
 //     return), that method is called and the result is stored.
 //   - All other values are shallow-copied (the same pointer/value is stored).
 //
+// Consequence for rollback snapshots: a snapshot taken via Clone is immutable
+// only for Cloner values. A bare map/slice/pointer stored in state is shared with
+// the snapshot, so a later in-place mutation is visible through an earlier step's
+// snapshot. Store Cloner values when relying on snapshot-based rollback.
+//
 // Clone acquires no lock of its own; it delegates to Items() which takes a
 // read lock. This avoids re-entrant locking on Go's non-reentrant RWMutex.
 //
