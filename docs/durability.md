@@ -37,6 +37,12 @@ Durability earns its (small) complexity when **all** of the following hold:
 
 - The workflow runs in a **single process** and is **short-to-medium length**
   (tens of steps, not thousands).
+- The journal has a **single owner at a time**. A given journal file is written
+  and resumed by **one process at a time**; automa does **not** lock the file or
+  guard against two processes resuming the same journal concurrently. Running two
+  resumes against one journal path races the persist and can double-execute every
+  remaining step — the caller is responsible for ensuring only one owner is live
+  (e.g. a supervisor that never starts a second instance for the same run).
 - Steps are **expensive, slow, or externally observable** — redoing them from
   scratch is costly or unsafe (e.g. provisioning cloud resources, running a
   multi-stage data migration, an installer that mutates a machine).
@@ -161,6 +167,20 @@ func (j *Journal) persist(path string) error {
 `Rename` is atomic on POSIX filesystems, so a concurrent or post-crash reader
 always observes either the previous complete journal or the new complete
 journal, never a partial one.
+
+> **Orphaned temp files after a hard crash.** Each snapshot is written to a
+> uniquely-named temp file (`.journal-*.tmp`) in the journal's directory, fsynced,
+> then renamed over the target. A clean write consumes the temp (the rename moves
+> it); an ordinary write error removes it. But a **hard** crash (power loss,
+> `kill -9`, `os.Exit`) in the window between creating the temp and the rename
+> leaves that temp file behind — and because the names are unique, such orphans are
+> never reused and can slowly accumulate across repeated crashes. This never
+> affects correctness: the real journal is always a complete file, since only an
+> atomic rename ever publishes it. It is purely a housekeeping concern. automa does
+> not sweep these itself — multiple journals may share a directory, so a blanket
+> delete could race another run's in-flight temp. Cleanup is the caller's
+> responsibility, like journal [pruning](#resolved-questions): remove stale
+> `.journal-*.tmp` files from the journal directory when no run is live for it.
 
 ## Write points in the execution loop
 
@@ -312,6 +332,37 @@ These obligations must be documented prominently and, where feasible, enforced:
    produced by the caller's code at resume time. If steps are derived from
    runtime data, that data must itself be persisted (e.g. in global state) so the
    topology is deterministic across restarts.
+5. **The workflow `prepare` hook must be idempotent too.** A forward resume goes
+   through `Execute`, which runs the workflow-level `prepare` hook again — the
+   same requirement stated for steps applies to it. Do not perform
+   non-idempotent, one-time setup in a durable workflow's `prepare` hook.
+
+## Caveats and fidelity notes
+
+These are known, intentional limitations — not bugs. Author around them.
+
+- **Snapshot rollback is immutable only for `Cloner` values.** In-memory rollback
+  snapshots are taken with `Clone()`, which deep-copies values implementing a
+  `Clone` method and shallow-copies everything else. A bare `map`/`slice`/pointer
+  stored in state is shared with the snapshot, so a later in-place mutation is
+  visible through an earlier step's snapshot. Store `Cloner` values (or treat
+  state as copy-on-write) when relying on snapshot rollback. The journaled path is
+  unaffected: the commit point serializes the snapshot to JSON (a true deep copy)
+  before any later step runs.
+- **Reaching `Execute` implies compensation.** Any step that reaches `Execute` —
+  including one whose `Execute` returns a skipped/no-op outcome — is treated as
+  executed and has its `Rollback` invoked during compensation. Keep such
+  rollbacks strict no-ops. (Steps that fail *before* `Execute` are not
+  compensated; see durability-spec §4.2.)
+- **Error type/properties are not preserved for journal-replayed reports.** A
+  report reconstructed from the journal (a step that completed or failed *before*
+  the crash) has its `Error` serialized to its message string and rehydrated as a
+  plain error, so the `errorx` type and custom properties are lost. This applies
+  only to replayed reports: a step that *re-executes* on resume produces a live,
+  full-fidelity error. Logic must not assume error *type* fidelity for
+  reports reconstructed from a journal; branch on `Status`, on `report.Id`, or on
+  data kept in the state bag instead. Note the step ID specifically is not lost —
+  it is preserved structurally as `report.Id`, independent of the error.
 
 ## Non-goals
 

@@ -485,6 +485,16 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 	var stepReports []*Report
 	var hasFailed bool
 
+	// rollbackSkippedUnpersisted records that a RollbackOnError failure could not
+	// durably record its compensating-phase flip (§5 F5) and therefore skipped
+	// rollback. When set, the run MUST NOT be journaled `done` at the terminal
+	// block below: the last durable journal still reads `forward` with the failed
+	// step, and finalizing it `done` here — if this later persist happens to
+	// succeed while the F5 persist failed — would strand executed-but-uncompensated
+	// steps that a resume could otherwise retry. Leaving the journal non-terminal
+	// lets ResumeWorkflow re-enter forward and retry compensation once writable.
+	var rollbackSkippedUnpersisted bool
+
 	// capture per-step state snapshots for rollback
 	stepStates := make(map[string]NamespacedStateBag, len(w.steps))
 
@@ -563,6 +573,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 						if err := w.journalEnterCompensating(index); err != nil {
 							w.log().Error("failed to persist compensating-phase journal on resume; skipping rollback to keep resume safe",
 								"workflowId", w.id, "index", index, "error", err)
+							rollbackSkippedUnpersisted = true
 							break
 						}
 						rollbackReports := w.rollbackFrom(ctx, index, stepStates, executedStepIDs)
@@ -693,9 +704,15 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			}
 		}
 
-		// Capture state snapshot after step processing (successful or failed)
-		// Clone() creates an immutable snapshot by deep-cloning all namespaces (local, global).
-		// This ensures later steps cannot mutate earlier snapshots, enabling deterministic rollback.
+		// Capture a state snapshot after step processing (successful or failed) for
+		// deterministic rollback. Clone() deep-copies only values that implement a
+		// Clone method (the Cloner contract); plain map/slice/pointer values are
+		// copied by reference (state.go), so this snapshot is immutable ONLY for
+		// Cloner values. If a step stores a bare map/slice/pointer in state and a
+		// later step mutates it in place, this snapshot observes that mutation. Store
+		// Cloner values (or copy-on-write) when relying on snapshot rollback. Note the
+		// journaled path is unaffected: F4 serializes the snapshot to JSON at commit
+		// time (a true deep copy) before any later step runs.
 		// State preservation can be disabled via preserveStatesForRollback to reduce memory overhead.
 		if w.preserveStatesForRollback {
 			if state := step.State(); state != nil {
@@ -727,9 +744,26 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 		// write-ahead itself failed (journalStartErr): the step never ran and the
 		// journal write is already broken, so there is nothing to commit.
 		if w.journaling() && journalStartErr == nil {
+			// reachedExecute mirrors the executedStepIDs guard above: the step ran
+			// its side effect iff state prep, the write-ahead persist, and Prepare
+			// all succeeded.
+			reachedExecute := statePrepError == nil && ctxPrepError == nil && journalStartErr == nil
+
 			stepState := StepCompleted
 			if report.IsFailed() {
-				stepState = StepFailed
+				if reachedExecute {
+					stepState = StepFailed
+				} else {
+					// Failed before reaching Execute (state prep or the Prepare hook):
+					// no side effect ran, so per the spec `failed` — which means
+					// "Execute failed" and implies compensation on resume (§4.2) —
+					// MUST NOT be recorded. Preserve the pre-execute state (`started`
+					// if the write-ahead ran, else `pending`) so rehydrateInto does not
+					// add this step to lastExecutedStepIDs and resume does not
+					// compensate a step that never executed. This matches the live D5
+					// skip, which excludes prepare-failed steps from executedStepIDs.
+					stepState = w.stepStateAt(index)
+				}
 			}
 			var snapshot *SyncNamespacedStateBag
 			if _, isWorkflowStep := step.(*workflow); !isWorkflowStep {
@@ -770,6 +804,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 				if err := w.journalEnterCompensating(index); err != nil {
 					w.log().Error("failed to persist compensating-phase journal; skipping rollback to keep resume safe",
 						"workflowId", w.id, "index", index, "error", err)
+					rollbackSkippedUnpersisted = true
 					break
 				}
 
@@ -823,8 +858,17 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 			)),
 			WithStepReports(stepReports...))
 
-		// D1 (durability-spec §5): the run is terminal.
-		w.journalDone()
+		// D1 (durability-spec §5): the run is terminal — but only mark it `done`
+		// when compensation was NOT skipped due to a failed compensating-phase
+		// persist. In that skipped case the last durable journal still reads
+		// `forward` with the failed step; leaving it non-terminal lets a resume
+		// re-enter forward and retry compensation instead of stranding
+		// executed-but-uncompensated steps behind a `done` cursor (see
+		// rollbackSkippedUnpersisted). The in-memory report is still a failure and
+		// onFailure still fires, so the caller is notified either way.
+		if !rollbackSkippedUnpersisted {
+			w.journalDone()
+		}
 
 		w.handleFailure(ctx, workflowReport)
 
@@ -887,6 +931,16 @@ func (w *workflow) invokeRollbackFunc(ctx context.Context) *Report {
 	)
 }
 
+// Rollback compensates the workflow's executed steps in reverse order. It is the
+// manual/explicit compensation entry point, distinct from the automatic rollback
+// that Execute drives on failure under RollbackOnError.
+//
+// Rollback does NOT fire the onCompletion/onFailure callbacks: those are
+// Execute-lifecycle callbacks (they report the outcome of an execution attempt),
+// whereas a caller-invoked Rollback is a separate, intentional compensation
+// action that may well be a deliberate teardown rather than a failure. Firing
+// onFailure for an intentional rollback would be surprising. Callers that want to
+// observe manual rollback should use the returned report.
 func (w *workflow) Rollback(ctx context.Context) *Report {
 	if w.rollback != nil {
 		return w.invokeRollbackFunc(ctx)

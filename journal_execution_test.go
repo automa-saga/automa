@@ -105,6 +105,49 @@ func TestJournal_FailureRollback(t *testing.T) {
 	assert.Equal(t, StepCompensated, j.Steps[1].State, "b (failed) must be compensated for cleanup")
 }
 
+// TestJournal_PrepareFailedStepRecordedStartedNotFailed verifies that a step
+// which fails in its Prepare hook — before ever reaching Execute — is journaled
+// as `started`, not `failed` (durability-spec §4.2). `failed` means "Execute
+// failed" and marks a step as executed/compensable on resume; recording a
+// prepare failure as `failed` would make resume compensate a step whose side
+// effect never ran (correctness review 2.1). The live run already skips it via
+// D5, and the journal must record the same fact.
+func TestJournal_PrepareFailedStepRecordedStartedNotFailed(t *testing.T) {
+	path := journalPath(t)
+
+	var aRolledBack, bRolledBack bool
+	step, err := NewWorkflowBuilder().WithId("wf").
+		WithExecutionMode(RollbackOnError).
+		WithJournal(path).
+		Steps(
+			NewStepBuilder().WithId("a").
+				WithExecute(func(ctx context.Context, stp Step) *Report { return SuccessReport(stp) }).
+				WithRollback(func(ctx context.Context, stp Step) *Report { aRolledBack = true; return SuccessReport(stp) }),
+			NewStepBuilder().WithId("b").
+				WithPrepare(func(ctx context.Context, stp Step) (context.Context, error) {
+					return ctx, StepExecutionError.New("b prepare failed")
+				}).
+				WithExecute(func(ctx context.Context, stp Step) *Report { return SuccessReport(stp) }).
+				WithRollback(func(ctx context.Context, stp Step) *Report { bRolledBack = true; return SuccessReport(stp) }),
+		).Build()
+	require.NoError(t, err)
+
+	report := step.Execute(context.Background())
+	require.True(t, report.IsFailed(), "workflow should fail when b's Prepare fails")
+
+	// Live D5: b never executed, so its rollback is not invoked; a is compensated.
+	assert.True(t, aRolledBack, "a (completed) must be compensated on the live path")
+	assert.False(t, bRolledBack, "b failed in Prepare and never executed; its rollback must NOT run")
+
+	j, err := loadJournal(path)
+	require.NoError(t, err)
+	require.Len(t, j.Steps, 2)
+	assert.Equal(t, StepCompensated, j.Steps[0].State, "a must be recorded compensated")
+	assert.Equal(t, StepStarted, j.Steps[1].State,
+		"b failed in Prepare: it must stay `started`, not be recorded `failed` (else resume would compensate it)")
+	assert.NotEqual(t, StepFailed, j.Steps[1].State, "a pre-execute failure must not be journaled as `failed`")
+}
+
 // TestJournal_Disabled_WritesNothing verifies WithJournal is opt-in: a workflow
 // built without it has journaling switched off (no persist closure), so every
 // transition is inert and nothing is written to disk (backward compatibility).
@@ -309,4 +352,75 @@ func TestJournal_WriteAheadFailureAbortsStep(t *testing.T) {
 		return false
 	}
 	assert.True(t, carriesJournalError(report), "failure must carry a JournalError")
+}
+
+// TestJournal_SkippedRollbackStaysResumable verifies that when a RollbackOnError
+// failure cannot durably record its compensating-phase flip (§5 F5) — so rollback
+// is skipped to stay crash-safe — the run does NOT finalize the journal as `done`.
+// Marking it `done` while executed steps went uncompensated would strand them
+// behind a terminal cursor, and ResumeWorkflow (which no-ops a `done` journal)
+// could never retry. The durable journal must instead stay `forward`, so a later
+// healthy resume re-enters, re-runs the failed step, and completes compensation.
+func TestJournal_SkippedRollbackStaysResumable(t *testing.T) {
+	path := journalPath(t)
+
+	newBuilder := func() *WorkflowBuilder {
+		return NewWorkflowBuilder().WithId("wf").
+			WithExecutionMode(RollbackOnError).
+			WithJournal(path).
+			Steps(
+				NewStepBuilder().WithId("a").
+					WithExecute(func(ctx context.Context, stp Step) *Report { return SuccessReport(stp) }),
+				NewStepBuilder().WithId("b").
+					WithExecute(func(ctx context.Context, stp Step) *Report {
+						return FailureReport(stp, WithError(StepExecutionError.New("boom")))
+					}),
+			)
+	}
+
+	// --- Run 1: forward persists succeed, but the compensating-phase flip (F5)
+	// fails. Pre-installing journalPersist makes Execute reuse this injector instead
+	// of installing its own. The injector fails only when the projected cursor is
+	// `compensating`; journalDone projects `done`, so without the fix a terminal
+	// journal would reach disk — exactly the stranding we assert against.
+	built, err := newBuilder().Build()
+	require.NoError(t, err)
+	wf := built.(*workflow)
+
+	var f5Attempts int
+	wf.journalPersist = func() error {
+		j, err := wf.snapshotJournal()
+		if err != nil {
+			return err
+		}
+		if j.Cursor.Phase == PhaseCompensating {
+			f5Attempts++
+			return StepExecutionError.New("injected persist failure at compensating flip")
+		}
+		return j.persist(path)
+	}
+
+	r1 := wf.Execute(context.Background())
+	require.True(t, r1.IsFailed(), "run must fail")
+	require.Equal(t, 1, f5Attempts, "the compensating-phase flip must have been attempted (and injected to fail)")
+
+	j, err := loadJournal(path)
+	require.NoError(t, err)
+	require.Equal(t, PhaseForward, j.Cursor.Phase,
+		"a run that skipped rollback due to a failed compensating-phase persist must NOT be journaled `done`")
+	require.Len(t, j.Steps, 2)
+	assert.Equal(t, StepCompleted, j.Steps[0].State, "the earlier step is still recorded completed (and uncompensated) on disk")
+	assert.Equal(t, StepFailed, j.Steps[1].State, "the failed step's last durable state is `failed`")
+
+	// --- Run 2: resume with a healthy persist. The non-terminal journal lets the
+	// run re-enter forward, re-run the failed step, and this time complete
+	// compensation — proving the skipped state was recoverable, not stranded.
+	r2 := ResumeWorkflow(context.Background(), newBuilder(), path)
+	require.True(t, r2.IsFailed(), "the resumed run still fails (the step fails again)")
+
+	j2, err := loadJournal(path)
+	require.NoError(t, err)
+	assert.Equal(t, PhaseDone, j2.Cursor.Phase, "a healthy resume finalizes the journal terminal")
+	assert.Equal(t, StepCompensated, j2.Steps[0].State, "the earlier step is compensated on the healthy resume")
+	assert.Equal(t, StepCompensated, j2.Steps[1].State, "the failed step is compensated too")
 }

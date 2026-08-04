@@ -237,6 +237,19 @@ fully compensated, or terminally failed):
 - Implementations MUST document that journals accumulate under `retain` until
   pruned, so operators size storage accordingly.
 
+#### 3.7.5 Single owner per journal
+
+- A journal MUST have at most **one live owner at a time**: at most one process
+  may be executing or resuming a given journal path at any moment. The caller is
+  responsible for enforcing this (e.g. a supervisor that never launches a second
+  instance for the same runID).
+- An implementation is **not required** to lock the journal file or otherwise
+  detect concurrent owners. Two owners resuming the same journal concurrently
+  races the durable write (§3.6) and defeats the idempotency contract (§7), which
+  covers a single sequential retry — not simultaneous re-execution — and MAY
+  double-execute every step from the crash point onward. This is undefined
+  behavior, not a supported mode.
+
 ### 3.8 Sub-workflow nesting (inline, recursive)
 
 A step MAY itself be a workflow (core §6). Because a workflow *is* a step, the
@@ -359,6 +372,14 @@ pending ──▶ started ──▶ completed ──┐
 - A step found in `started` but not `completed` after a crash is the **ambiguous
   case**: its side effect's completion is unknown. It MUST be re-executed on
   resume (§6.3), which is why §7 requires step idempotency.
+- `failed` means **Execute** failed — the side effect ran and returned an error.
+  A step that fails **before reaching Execute** (e.g. its per-step preparation or
+  a state-setup error) MUST NOT be recorded as `failed`, because on resume a
+  `failed` step is treated as executed and therefore eligible for compensation
+  (§5.3 / D5). Such a step MUST retain its pre-execute state — `started` if the
+  write-ahead record (F1) was written, otherwise `pending` — so resume does not
+  compensate a step whose side effect never ran. This matches live execution,
+  which excludes pre-execute failures from the executed set.
 - A `skipped` outcome (e.g. a step the engine deliberately did not run) MAY be
   represented; if so it MUST be treated as not requiring compensation. (Skip
   semantics are governed by the engine's execution-mode rules and are not
@@ -524,6 +545,10 @@ prominently.
    the same modes) MUST be produced by the caller's code at resume time. If steps
    are derived from runtime data, that data MUST itself be persisted so the
    topology is deterministic across restarts.
+5. **Workflow-level preparation MUST be idempotent.** A forward resume re-runs the
+   workflow's own preparation hook (if the implementation exposes one), just as it
+   re-runs a `started` step. Any workflow-level preparation MUST therefore be safe
+   to run more than once across a crash.
 
 ## 8. Conformance
 
