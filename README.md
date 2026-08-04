@@ -1,38 +1,150 @@
 # Automa
-Automa is a Saga Workflow Engine for Go, designed for sequential and transactional business processes. 
 
-The name `automa` is derived from the word `automate`.
+[![Go Reference](https://pkg.go.dev/badge/github.com/automa-saga/automa.svg)](https://pkg.go.dev/github.com/automa-saga/automa)
+[![Go Report Card](https://goreportcard.com/badge/github.com/automa-saga/automa)](https://goreportcard.com/report/github.com/automa-saga/automa)
+[![Checks](https://github.com/automa-saga/automa/actions/workflows/flow-pull-request-checks.yaml/badge.svg)](https://github.com/automa-saga/automa/actions/workflows/flow-pull-request-checks.yaml)
+[![Release](https://img.shields.io/github/v/release/automa-saga/automa)](https://github.com/automa-saga/automa/releases)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
+**Crash-safe saga workflows for Go — automatic rollback and resume-after-crash, backed by a single local file. No server, no database, no dependencies.**
+
+Automa runs a sequence of steps as a transactional saga: if any step fails, it
+automatically compensates the steps that already ran, in reverse order. Opt into
+durability and a workflow will also survive a process crash, restart, or power
+loss and continue exactly where it stopped — all from a single journal file, with
+no external infrastructure to operate.
 
 ## Features
 
-- Sequential execution of workflow steps
-- Automatic rollback on error
-- Compensating actions for non-reversible steps
-- Step-level execution reporting (with JSON/YAML marshalling support)
-- Extensible step interface
-- Opt-in crash recovery: a durable journal plus resume (forward or compensating)
+- **Saga semantics** — sequential steps with automatic, reverse-order rollback on failure.
+- **Compensating actions** — clean up non-reversible work (releases, refunds, deletes) when a later step fails.
+- **Opt-in crash recovery** — a durable journal plus resume (forward or compensating) from one local file. Off by default; writes nothing to disk until you enable it.
+- **Structured reports** — a step-level execution report tree with JSON/YAML marshalling for logging, auditing, and debugging.
+- **Zero required dependencies** — no server, database, or broker; logs through the standard library's `log/slog`.
+- **Spec-backed & stable** — a `v1.0.0` API pinned by a normative [spec](docs/spec) and cross-implementation [conformance fixtures](docs/spec/conformance).
 
-## Getting Started
+## When to use automa
 
-**API stability:** As of `v1.0.0` the public API is stable and follows
-[semantic versioning](https://semver.org/). Breaking changes to the public API
-(builders, the `Step`/`Workflow`/`Report`/`State` interfaces, and the resume +
-retention API) will only ship in a new major version. The behavior is pinned by
-the conformance fixtures in [`docs/spec/conformance`](docs/spec/conformance) and
-the normative [core](docs/spec/core-spec.md) and
-[durability](docs/spec/durability-spec.md) specs.
+| Reach for automa when… | Reach for a hosted engine (Temporal, Restate, …) when… |
+| --- | --- |
+| You need saga/rollback semantics **inside a single process** — a CLI, installer, provisioner, migration, embedded/edge service, or daemon. | You need **distributed, multi-process** durable execution across a fleet of workers. |
+| You want crash recovery with **no infrastructure to run** — just a local file. | You already operate (or want) a workflow **server/cluster**. |
+| Your workflow is **sequential and transactional**. | You need long-running orchestration with signals, timers, and human-in-the-loop across services. |
 
-Migrating from `0.x`: the `v1.0.0` surface is the `0.11.x` API with the spec
-adaptations applied — review the [spec](docs/spec) and the conformance fixtures
-if you relied on any pre-`1.0` behavior.
+automa deliberately targets the single-process, sequential saga model. It is a
+library, not a platform.
 
-### Installation
+## Installation
 
 ```sh
-go get -u github.com/automa-saga/automa
+go get github.com/automa-saga/automa
 ```
 
-See an [example](https://github.com/automa-saga/automa/blob/master/examples) in the examples directory. 
+Requires Go 1.26+.
+
+## Quick start
+
+A workflow is an ordered list of steps; each step has an `Execute` and an
+optional `Rollback` (its compensating action). With `RollbackOnError`, a failure
+in any step compensates the executed steps in reverse order.
+
+```go
+package main
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "os"
+
+    "github.com/automa-saga/automa"
+)
+
+func main() {
+    reserveInventory := automa.NewStepBuilder().
+        WithId("reserve_inventory").
+        WithExecute(func(ctx context.Context, stp automa.Step) *automa.Report {
+            fmt.Println("→ reserving inventory")
+            return automa.SuccessReport(stp)
+        }).
+        WithRollback(func(ctx context.Context, stp automa.Step) *automa.Report {
+            fmt.Println("← releasing inventory")
+            return automa.SuccessReport(stp)
+        })
+
+    chargeCard := automa.NewStepBuilder().
+        WithId("charge_card").
+        WithExecute(func(ctx context.Context, stp automa.Step) *automa.Report {
+            fmt.Println("→ charging card")
+            return automa.FailureReport(stp, automa.WithError(fmt.Errorf("card declined")))
+        }).
+        WithRollback(func(ctx context.Context, stp automa.Step) *automa.Report {
+            fmt.Println("← refunding card")
+            return automa.SuccessReport(stp)
+        })
+
+    wb := automa.NewWorkflowBuilder().
+        WithId("checkout").
+        WithExecutionMode(automa.RollbackOnError).
+        Steps(reserveInventory, chargeCard)
+
+    report := automa.RunWorkflow(context.Background(), wb)
+
+    out, _ := json.MarshalIndent(report, "", "  ")
+    fmt.Println(string(out))
+
+    if report.IsFailed() {
+        os.Exit(1)
+    }
+}
+```
+
+`charge_card` fails, so automa halts and compensates in reverse order:
+
+```
+→ reserving inventory
+→ charging card
+← refunding card
+← releasing inventory
+```
+
+The full runnable source is in [`examples/quickstart`](examples/quickstart):
+
+```sh
+go run ./examples/quickstart
+```
+
+### The report tree
+
+`RunWorkflow` returns a structured `*Report` you can inspect or marshal to
+JSON/YAML. Each step's compensating rollback is attached under that step's report
+(abridged below — timestamps omitted):
+
+```json
+{
+  "id": "checkout",
+  "isWorkflow": true,
+  "action": "execute",
+  "status": "failed",
+  "error": "workflow \"checkout\" completed with 1 step failures: [charge_card]",
+  "steps": [
+    {
+      "id": "reserve_inventory",
+      "action": "execute",
+      "status": "success",
+      "rollback": { "id": "reserve_inventory", "action": "rollback", "status": "success" }
+    },
+    {
+      "id": "charge_card",
+      "action": "execute",
+      "status": "failed",
+      "error": "card declined",
+      "rollback": { "id": "charge_card", "action": "rollback", "status": "success" }
+    }
+  ],
+  "executionMode": "rollback"
+}
+```
 
 ## Durability (crash recovery)
 
@@ -57,10 +169,31 @@ wb := automa.NewWorkflowBuilder().
 report := automa.ResumeWorkflow(context.Background(), wb, "/var/lib/myapp/setup.journal")
 ```
 
-See the runnable [`examples/resumable_setup`](examples/resumable_setup) (crash it
-mid-workflow, re-run it, watch it resume), the design rationale in
-[`docs/durability.md`](docs/durability.md), and the normative
-[durability spec](docs/spec/durability-spec.md).
+The runnable [`examples/resumable_setup`](examples/resumable_setup) provisions a
+few files while journaling its progress. Crash it partway through, then re-run it
+and it resumes from where it stopped:
+
+```sh
+# First run: crash right after the "write_config" step.
+$ go run ./examples/resumable_setup -crash-at=write_config
+No journal yet — starting fresh.
+  + create_workdir
+  + write_config
+  ! simulating a crash right after write_config
+exit status 1
+
+# Re-run with no crash: it resumes — completed steps are skipped, the rest run.
+$ go run ./examples/resumable_setup
+Found an existing journal — resuming.
+  = write_config (already done; skipping side effect)
+  + provision_database
+  + finalize
+
+✔ workflow completed.
+```
+
+See the design rationale in [`docs/durability.md`](docs/durability.md) and the
+normative [durability spec](docs/spec/durability-spec.md).
 
 ### Step-author contract
 
@@ -113,19 +246,43 @@ wf := automa.NewWorkflowBuilder().
     Build()
 ```
 
+## API stability
+
+As of `v1.0.0` the public API is stable and follows
+[semantic versioning](https://semver.org/). Breaking changes to the public API
+(builders, the `Step`/`Workflow`/`Report`/`State` interfaces, and the resume +
+retention API) will only ship in a new major version. The behavior is pinned by
+the conformance fixtures in [`docs/spec/conformance`](docs/spec/conformance) and
+the normative [core](docs/spec/core-spec.md) and
+[durability](docs/spec/durability-spec.md) specs.
+
+**Migrating from `0.x`:** the `v1.0.0` surface is the `0.11.x` API with the spec
+adaptations applied — review the [spec](docs/spec) and the conformance fixtures
+if you relied on any pre-`1.0` behavior.
+
+## Documentation
+
+- [Examples](examples) — [`quickstart`](examples/quickstart), [`resumable_setup`](examples/resumable_setup), [`setup_local`](examples/setup_local).
+- [Core spec](docs/spec/core-spec.md) — the normative, language-neutral model.
+- [Durability spec](docs/spec/durability-spec.md) and [design rationale](docs/durability.md).
+- [Conformance fixtures](docs/spec/conformance) — behavior, journal, and serialization contracts.
+- [API reference](https://pkg.go.dev/github.com/automa-saga/automa) on pkg.go.dev.
+
 ## Development
- - `task test` runs the tests (install `task` tool: https://taskfile.dev/installation/).
- - In order to build example, do `cd docs/examples && go build`. Then the example can be then run using `./example`.
 
-## Contribution
-Any feedback, comment and contributions are very much welcome. 
+- `task test` runs the tests (install the `task` tool: https://taskfile.dev/installation/).
+- Run an example directly, e.g. `go run ./examples/quickstart` or `go run ./examples/resumable_setup`.
 
-Developers are encouraged to adopt the usual open source development practices with a PR and sign-off as well as 
-verified signed commits. Developers are also encouraged to use [commitizen](https://commitizen-tools.github.io/commitizen/) 
-for commits messages.
+## Contributing
 
-Please note the PR will be squashed merge to master with commitizen format for the PR title. So even if commitizen is not
-used for individual commits in the PR, the repository maintainer are requested to ensure that the PR title follows 
-commitizen format before squash-merging the PR.
+Contributions are very welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to
+set up your environment, the expected checks (`task build`, `task lint`,
+`task test`), the spec/conformance workflow, and the commit sign-off and PR
+conventions.
 
-For beginners use [this](https://github.com/firstcontributions/first-contributions) guide as a start.
+New to open source? [First Contributions](https://github.com/firstcontributions/first-contributions)
+is a friendly starting point.
+
+## License
+
+Automa is licensed under the [Apache License 2.0](LICENSE).
