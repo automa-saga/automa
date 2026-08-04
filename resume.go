@@ -267,11 +267,13 @@ func (w *workflow) resumeCompensation(ctx context.Context, start time.Time) *Rep
 // back cleanly).
 //
 // This is a pure replay of an already-terminal (`done`) journal and MUST run
-// nothing (§3.7.2). In particular it does NOT fire onCompletion/onFailure: the
-// original run already fired them before writing `done`, so re-firing here would
-// duplicate the callback (and any side effect it performs) on every terminal
-// resume. The live-completing paths (Execute, and resumeCompensation for an
-// interrupted rollback) are the ones that fire the callbacks.
+// nothing (§3.7.2). In particular it does NOT fire onCompletion/onFailure. Those
+// callbacks are fired exactly once by the live-completing paths — Execute, and
+// resumeCompensation for an interrupted rollback — so re-firing them on a terminal
+// replay would duplicate the callback and any side effect it performs. (Execute
+// writes `done` and then fires its callback, so a crash in that narrow window can
+// drop the callback; the replay still deliberately does not re-fire, preferring a
+// possibly-missed callback over ever double-firing.)
 func (w *workflow) reconstructFinalReport(start time.Time) *Report {
 	stepReports := make([]*Report, 0, len(w.steps))
 	anyNotCompleted := false

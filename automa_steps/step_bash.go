@@ -22,7 +22,10 @@ func RunBashScript(scripts []string, workDir string) (string, error) {
 
 // RunBashScriptContext is RunBashScript with context propagation: each command is
 // started with exec.CommandContext(ctx, ...), so cancelling or timing out ctx
-// terminates the running command instead of letting it run to completion.
+// kills the command instead of letting it run to completion. Note the signal is
+// delivered to the `bash -c` process itself; grandchild processes it spawned are
+// not killed as a process group and may survive, so scripts that fork long-running
+// children should arrange their own cleanup.
 func RunBashScriptContext(ctx context.Context, scripts []string, workDir string) (string, error) {
 	var outputs bytes.Buffer // To capture combined output of all scripts
 

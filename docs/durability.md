@@ -354,12 +354,15 @@ These are known, intentional limitations — not bugs. Author around them.
   executed and has its `Rollback` invoked during compensation. Keep such
   rollbacks strict no-ops. (Steps that fail *before* `Execute` are not
   compensated; see durability-spec §4.2.)
-- **Error type/properties are not preserved across a resume.** A step report's
-  `Error` is serialized to its message string and rehydrated as a plain error, so
-  the `errorx` type and properties (e.g. `StepIdProperty`) are lost after a
-  resume. Logic that branches on error *type* must not assume type fidelity for
-  reports reconstructed from a journal; branch on data kept in the state bag
-  instead.
+- **Error type/properties are not preserved for journal-replayed reports.** A
+  report reconstructed from the journal (a step that completed or failed *before*
+  the crash) has its `Error` serialized to its message string and rehydrated as a
+  plain error, so the `errorx` type and custom properties are lost. This applies
+  only to replayed reports: a step that *re-executes* on resume produces a live,
+  full-fidelity error. Logic must not assume error *type* fidelity for
+  reports reconstructed from a journal; branch on `Status`, on `report.Id`, or on
+  data kept in the state bag instead. Note the step ID specifically is not lost —
+  it is preserved structurally as `report.Id`, independent of the error.
 
 ## Non-goals
 

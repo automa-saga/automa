@@ -179,8 +179,8 @@ func TestResume_CompletingCompensationFiresOnFailure(t *testing.T) {
 
 // TestResume_TerminalJournalDoesNotRefireCallbacks: resuming an already-terminal
 // (`done`) journal is a pure replay (spec §3.7.2) and must NOT re-fire
-// onCompletion/onFailure — the original run already fired them (correctness
-// review 2.2).
+// onCompletion/onFailure — re-firing on replay would duplicate the callbacks' side
+// effects, since the live run fires them exactly once (correctness review 2.2).
 func TestResume_TerminalJournalDoesNotRefireCallbacks(t *testing.T) {
 	path := journalPath(t)
 	craftJournal(t, path, RollbackOnError, ContinueOnError, PhaseDone, 1, []*StepJournal{

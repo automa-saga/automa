@@ -2,7 +2,6 @@ package automa_steps
 
 import (
 	"context"
-	"github.com/stretchr/testify/require"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/automa-saga/automa"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRunBashScript_Success(t *testing.T) {
