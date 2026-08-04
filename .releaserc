@@ -9,12 +9,6 @@
     ],
     "@semantic-release/github"
   ],
-  "releaseRules": [
-    {
-      "breaking": true,
-      "release": "minor"
-    }
-  ],
   "branches": [
     {
       "name": "main"

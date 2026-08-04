@@ -14,7 +14,17 @@ The name `automa` is derived from the word `automate`.
 
 ## Getting Started
 
-**Note:** API may change before v1.0.0.
+**API stability:** As of `v1.0.0` the public API is stable and follows
+[semantic versioning](https://semver.org/). Breaking changes to the public API
+(builders, the `Step`/`Workflow`/`Report`/`State` interfaces, and the resume +
+retention API) will only ship in a new major version. The behavior is pinned by
+the conformance fixtures in [`docs/spec/conformance`](docs/spec/conformance) and
+the normative [core](docs/spec/core-spec.md) and
+[durability](docs/spec/durability-spec.md) specs.
+
+Migrating from `0.x`: the `v1.0.0` surface is the `0.11.x` API with the spec
+adaptations applied — review the [spec](docs/spec) and the conformance fixtures
+if you relied on any pre-`1.0` behavior.
 
 ### Installation
 
