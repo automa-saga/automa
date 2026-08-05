@@ -21,7 +21,7 @@ no external infrastructure to operate.
 - **Opt-in crash recovery** — a durable journal plus resume (forward or compensating) from one local file. Off by default; writes nothing to disk until you enable it.
 - **Structured reports** — a step-level execution report tree with JSON/YAML marshalling for logging, auditing, and debugging.
 - **Zero required dependencies** — no server, database, or broker; logs through the standard library's `log/slog`.
-- **Spec-backed & stable** — a `v1.0.0` API pinned by a normative [spec](docs/spec) and cross-implementation [conformance fixtures](docs/spec/conformance).
+- **Spec-backed & stable** — a `v1.0.0` API pinned by a normative [spec](https://github.com/automa-saga/automa-spec) and cross-implementation [conformance fixtures](https://github.com/automa-saga/automa-spec/tree/main/conformance).
 
 ## When to use automa
 
