@@ -269,9 +269,15 @@ if you relied on any pre-`1.0` behavior.
 - [API reference](https://pkg.go.dev/github.com/automa-saga/automa) on pkg.go.dev.
 
 ## Development
-
-- `task test` runs the tests (install the `task` tool: https://taskfile.dev/installation/).
-- Run an example directly, e.g. `go run ./examples/quickstart` or `go run ./examples/resumable_setup`.
+ - This repository uses a git submodule at `docs/spec` for the language-neutral
+   [automa spec and conformance fixtures](https://github.com/automa-saga/automa-spec).
+   Clone with `git clone --recursive`, or after cloning run
+   `git submodule update --init`. The conformance tests read the fixtures from
+   this submodule, so they will fail if it has not been checked out.
+ - `task test` runs the tests (install `task` tool: https://taskfile.dev/installation/).
+ - In order to build example, do `cd docs/examples && go build`. Then the example can be then run using `./example`.
+ - `task test` runs the tests (install the `task` tool: https://taskfile.dev/installation/).
+ - Run an example directly, e.g. `go run ./examples/quickstart` or `go run ./examples/resumable_setup`.
 
 ## Contributing
 
