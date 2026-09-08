@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/joomcode/errorx v1.2.0
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.23.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
