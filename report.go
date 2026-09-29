@@ -398,7 +398,7 @@ func WithIsWorkflow(isWorkflow bool) ReportOption {
 }
 
 // NewReport creates a new Report with the given id and default field values:
-//   - StartTime and EndTime are both set to time.Now().
+//   - StartTime and EndTime are both set to the current time (see SetClock).
 //   - Status defaults to StatusSuccess.
 //   - ExecutionMode defaults to StopOnError.
 //   - RollbackMode defaults to ContinueOnError.
@@ -409,8 +409,8 @@ func WithIsWorkflow(isWorkflow bool) ReportOption {
 func NewReport(id string, opts ...ReportOption) *Report {
 	r := &Report{
 		Id:            id,
-		StartTime:     time.Now(),
-		EndTime:       time.Now(),
+		StartTime:     clockNow(),
+		EndTime:       clockNow(),
 		Status:        StatusSuccess,
 		ExecutionMode: StopOnError,
 		RollbackMode:  ContinueOnError,
@@ -424,34 +424,34 @@ func NewReport(id string, opts ...ReportOption) *Report {
 
 // StepSuccessReport creates a success report identified by a plain string id
 // rather than a Step. It sets IsWorkflow=false, Status=StatusSuccess, and
-// EndTime=time.Now(). Additional opts are applied after these defaults.
+// EndTime to the current time. Additional opts are applied after these defaults.
 //
 // Use this constructor in tests or in situations where a Step is not available
 // but a success report needs to be produced for a named step.
 func StepSuccessReport(id string, opts ...ReportOption) *Report {
-	opts = append(opts, WithIsWorkflow(false), WithStatus(StatusSuccess), WithEndTime(time.Now()))
+	opts = append(opts, WithIsWorkflow(false), WithStatus(StatusSuccess), WithEndTime(clockNow()))
 	return NewReport(id, opts...)
 }
 
 // StepFailureReport creates a failure report identified by a plain string id.
-// It sets IsWorkflow=false, Status=StatusFailed, and EndTime=time.Now().
+// It sets IsWorkflow=false, Status=StatusFailed, and EndTime to the current time.
 // Additional opts are applied after these defaults.
 func StepFailureReport(id string, opts ...ReportOption) *Report {
-	opts = append(opts, WithIsWorkflow(false), WithStatus(StatusFailed), WithEndTime(time.Now()))
+	opts = append(opts, WithIsWorkflow(false), WithStatus(StatusFailed), WithEndTime(clockNow()))
 	return NewReport(id, opts...)
 }
 
 // StepSkippedReport creates a skipped report identified by a plain string id.
-// It sets IsWorkflow=false, Status=StatusSkipped, and EndTime=time.Now().
+// It sets IsWorkflow=false, Status=StatusSkipped, and EndTime to the current time.
 // Additional opts are applied after these defaults.
 func StepSkippedReport(id string, opts ...ReportOption) *Report {
-	opts = append(opts, WithIsWorkflow(false), WithStatus(StatusSkipped), WithEndTime(time.Now()))
+	opts = append(opts, WithIsWorkflow(false), WithStatus(StatusSkipped), WithEndTime(clockNow()))
 	return NewReport(id, opts...)
 }
 
 // SuccessReport creates a success report for the given Step. It sets
 // IsWorkflow to reflect whether s is a Workflow, Status=StatusSuccess, and
-// EndTime=time.Now(). Additional opts are applied after these defaults.
+// EndTime to the current time. Additional opts are applied after these defaults.
 //
 // This is the primary constructor for step success outcomes inside an
 // ExecuteFunc or RollbackFunc:
@@ -459,31 +459,31 @@ func StepSkippedReport(id string, opts ...ReportOption) *Report {
 //	return automa.SuccessReport(stp)
 //	return automa.SuccessReport(stp, automa.WithMetadata(meta))
 func SuccessReport(s Step, opts ...ReportOption) *Report {
-	opts = append(opts, WithIsWorkflow(IsWorkflow(s)), WithStatus(StatusSuccess), WithEndTime(time.Now()))
+	opts = append(opts, WithIsWorkflow(IsWorkflow(s)), WithStatus(StatusSuccess), WithEndTime(clockNow()))
 	return NewReport(s.Id(), opts...)
 }
 
 // FailureReport creates a failure report for the given Step. It sets
 // IsWorkflow to reflect whether s is a Workflow, Status=StatusFailed, and
-// EndTime=time.Now(). Additional opts are applied after these defaults.
+// EndTime to the current time. Additional opts are applied after these defaults.
 //
 // Attach an error with WithError to record the root cause:
 //
 //	return automa.FailureReport(stp, automa.WithError(err))
 func FailureReport(s Step, opts ...ReportOption) *Report {
-	opts = append(opts, WithIsWorkflow(IsWorkflow(s)), WithStatus(StatusFailed), WithEndTime(time.Now()))
+	opts = append(opts, WithIsWorkflow(IsWorkflow(s)), WithStatus(StatusFailed), WithEndTime(clockNow()))
 	return NewReport(s.Id(), opts...)
 }
 
 // SkippedReport creates a skipped report for the given Step. It sets
 // IsWorkflow to reflect whether s is a Workflow, Status=StatusSkipped, and
-// EndTime=time.Now(). Additional opts are applied after these defaults.
+// EndTime to the current time. Additional opts are applied after these defaults.
 //
 // Use this when a step determines at runtime that its work is unnecessary:
 //
 //	return automa.SkippedReport(stp, automa.WithDetail("already provisioned"))
 func SkippedReport(s Step, opts ...ReportOption) *Report {
-	opts = append(opts, WithIsWorkflow(IsWorkflow(s)), WithStatus(StatusSkipped), WithEndTime(time.Now()))
+	opts = append(opts, WithIsWorkflow(IsWorkflow(s)), WithStatus(StatusSkipped), WithEndTime(clockNow()))
 	return NewReport(s.Id(), opts...)
 }
 

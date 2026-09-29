@@ -166,7 +166,7 @@ func IsWorkflow(stp Step) bool {
 // Note if the prepare step fails, no rollback is performed or handleFailure isn't invoked as no steps have been executed yet.
 // If preparation files, it returns error with ActionType set to ActionPrepare so that caller can distinguish it from execution errors.
 func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
-	start := time.Now()
+	start := clockNow()
 	wf, err := wb.Build()
 	if err != nil {
 		return NewReport(wb.Id(),
@@ -195,7 +195,7 @@ func RunWorkflow(ctx context.Context, wb *WorkflowBuilder) *Report {
 // side-effects that were never produced.
 func (w *workflow) rollbackFrom(ctx context.Context, index int, states map[string]NamespacedStateBag, executedIDs map[string]struct{}) map[string]*Report {
 	stepReports := map[string]*Report{}
-	startTime := time.Now()
+	startTime := clockNow()
 
 	// Guard against instances built outside newDefaultWorkflow (writing to a nil
 	// map panics); the compensate-once set (D10) must always be usable.
@@ -424,7 +424,7 @@ func (w *workflow) State() NamespacedStateBag {
 // - When preserveStatesForRollback=false, states are NOT preserved; rollback receives workflow.State()
 // - See WithStatePreservation() for detailed tradeoffs
 func (w *workflow) Execute(ctx context.Context) *Report {
-	startTime := time.Now()
+	startTime := clockNow()
 
 	// Reset prepared after Execute completes so that subsequent Execute calls re-run Prepare.
 	defer func() { w.prepared = false }()
@@ -503,7 +503,7 @@ func (w *workflow) Execute(ctx context.Context) *Report {
 
 	for index, step := range w.steps {
 		var report *Report
-		stepStart := time.Now()
+		stepStart := clockNow()
 
 		// Resume: a step recorded `completed` before a crash MUST NOT be
 		// re-executed (durability-spec §6.3.4). Reuse its recorded report and
@@ -946,7 +946,7 @@ func (w *workflow) Rollback(ctx context.Context) *Report {
 		return w.invokeRollbackFunc(ctx)
 	}
 
-	startTime := time.Now()
+	startTime := clockNow()
 
 	w.log().Info("starting workflow rollback", "workflowId", w.id, "steps", len(w.steps))
 
