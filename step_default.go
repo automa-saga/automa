@@ -3,7 +3,6 @@ package automa
 import (
 	"context"
 	"log/slog"
-	"time"
 )
 
 // defaultStep is the concrete implementation of [Step] produced by
@@ -118,7 +117,7 @@ func (s *defaultStep) Prepare(ctx context.Context) (context.Context, error) {
 //     [enableAsyncCallbacks] is true).
 //   - On failure, [OnFailureFunc] is invoked (asynchronously if enabled).
 func (s *defaultStep) Execute(ctx context.Context) *Report {
-	start := time.Now()
+	start := clockNow()
 	if s.execute != nil {
 		report := s.execute(ctx, s)
 		if report == nil {
@@ -180,7 +179,7 @@ func (s *defaultStep) Execute(ctx context.Context) *Report {
 //   - The report returned by the user's RollbackFunc is re-wrapped to ensure
 //     consistent field population regardless of what the user returns.
 func (s *defaultStep) Rollback(ctx context.Context) *Report {
-	start := time.Now()
+	start := clockNow()
 	if s.rollback != nil {
 		report := s.rollback(ctx, s)
 		if report == nil {

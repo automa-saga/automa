@@ -146,6 +146,13 @@ JSON/YAML. Each step's compensating rollback is attached under that step's repor
 }
 ```
 
+Report timestamps come from `time.Now()`, so they use the host's local zone. To
+record them in UTC, set the clock once at startup:
+
+```go
+automa.SetClock(func() time.Time { return time.Now().UTC() })
+```
+
 ## Durability (crash recovery)
 
 Automa can make a workflow survive a process crash, restart, or power loss and

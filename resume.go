@@ -34,7 +34,7 @@ import (
 // (forward, compensating, or done), so its already-completed inner steps are not
 // re-executed.
 func ResumeWorkflow(ctx context.Context, wb *WorkflowBuilder, journalPath string) *Report {
-	start := time.Now()
+	start := clockNow()
 
 	// An empty path is a programming error: loadJournal("") reports os.ErrNotExist,
 	// which would otherwise be taken as a fresh run and silently execute WITHOUT a
@@ -207,17 +207,17 @@ func (w *workflow) resumeChildStep(ctx context.Context, child *workflow) *Report
 	switch child.jPhase {
 	case PhaseCompensating:
 		// The child was rolling itself back when the crash hit; finish it.
-		return child.resumeCompensation(ctx, time.Now())
+		return child.resumeCompensation(ctx, clockNow())
 	case PhaseDone:
 		// Already terminal (an unusual crash window); return its recorded result.
-		return child.reconstructFinalReport(time.Now())
+		return child.reconstructFinalReport(clockNow())
 	case PhaseForward:
 		return child.Execute(ctx)
 	default:
 		return FailureReport(child,
 			WithWorkflow(w),
 			WithActionType(ActionExecute),
-			WithStartTime(time.Now()),
+			WithStartTime(clockNow()),
 			WithError(JournalCorrupt.New("journal cursor has unknown phase %q", child.jPhase)))
 	}
 }
