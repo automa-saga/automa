@@ -1,6 +1,6 @@
 module github.com/automa-saga/automa/examples/setup_local
 
-go 1.26.5
+go 1.26.9
 
 replace github.com/automa-saga/automa => ../../../automa
 
